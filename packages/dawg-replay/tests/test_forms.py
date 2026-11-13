@@ -269,7 +269,7 @@ def test_preset_fill_and_save(app, registered, kr):
     preset = app.get_preset(registered, "base")
     assert preset.params == {"query": "из формы", "pages": 3, "headless": True}  # без секрета
     assert ("dawg-replay", "secret:form-demo:token") not in kr.store
-    # Пресет без обязательных полей сохраняется, невалидный — нет.
+    # Пресет без обязательных полей сохраняется, невалидный нет.
     assert forms.save_preset(app, registered, "partial", {"pages": "4"}).ok
     bad = forms.save_preset(app, registered, "bad", {"pages": "0"})
     assert bad.errors == {"pages": "не меньше 1"}

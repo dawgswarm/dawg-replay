@@ -45,6 +45,13 @@ class State:
         self.keyring_backend = keyring_backend
         self.runs = UiRuns(home, app_factory=self.open_app)
         self.stopping = asyncio.Event()
+        self.loop: asyncio.AbstractEventLoop | None = None  # цикл сервера, ставится при старте
+
+    def stop_soon(self) -> None:
+        """Сообщить потокам SSE об остановке. Безопасно из обработчика сигнала и другого потока."""
+        loop = self.loop
+        if loop is not None and not loop.is_closed():
+            loop.call_soon_threadsafe(self.stopping.set)
 
     def open_app(self) -> App:
         """Ядро на один запрос или поток: у SQLite своё подключение на поток."""
@@ -64,6 +71,7 @@ def create_app(
 
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        state.loop = asyncio.get_running_loop()
         # Запуски, чьи супервизоры пропали (в том числе прошлый сервер, убитый жёстко).
         def recover() -> int:
             with state.open_app() as a:
@@ -124,12 +132,35 @@ def serve(
         # Открытые SSE-соединения не должны держать остановку: запуски ждут отмены.
         timeout_graceful_shutdown=2,
     )
-    server = uvicorn.Server(config)
+    server = make_server(config, app.state.ui)
     if on_ready is not None:
         on_ready(secrets_)
     if open_browser:
         threading.Timer(0.5, webbrowser.open, args=(secrets_.login_url(),)).start()
     server.run(sockets=[sock])
+
+
+def _server_class():
+    import uvicorn
+
+    class Server(uvicorn.Server):
+        """uvicorn ждёт закрытия соединений до lifespan shutdown, а потоки SSE узнают об
+        остановке из state.stopping. Ставим его сразу по сигналу: открытые страницы
+        отключаются сами, без traceback о превышенном timeout_graceful_shutdown."""
+
+        def __init__(self, config: Any, state: State):
+            super().__init__(config)
+            self._ui_state = state
+
+        def handle_exit(self, sig: int, frame: Any) -> None:
+            self._ui_state.stop_soon()
+            super().handle_exit(sig, frame)
+
+    return Server
+
+
+def make_server(config: Any, state: State) -> Any:
+    return _server_class()(config, state)
 
 
 async def sse_stream(

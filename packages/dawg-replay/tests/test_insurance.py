@@ -528,7 +528,7 @@ def test_waits_for_post_and_finds_browser_finished_after_death(tmp_path, fake):
     late = {}
 
     def platform_finishes(clock):
-        # startedAt — момент приёма POST, а в списке ключа браузер появляется, когда платформа его доделала.
+        # startedAt ставится при приёме POST, а в списке ключа браузер появляется, когда платформа его доделала.
         late["sid"] = fake.add_foreign_session(iso(prov + timedelta(seconds=1)))
 
     clock = Clock(prov + timedelta(seconds=3), during_wait=platform_finishes)

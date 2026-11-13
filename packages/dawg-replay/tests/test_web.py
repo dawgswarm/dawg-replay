@@ -482,3 +482,39 @@ def test_server_killed_runs_recovered_on_next_start(home, fake, registered_ui_sc
     assert rec.label == "failed (lost)" and rec.killed
     assert not _alive(script_pid)
     assert fake.sessions == {}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGINT серверу")
+@pytest.mark.parametrize("sig", [signal.SIGINT, signal.SIGTERM])
+def test_server_stop_with_open_sse_is_clean(home, fake, sig):
+    """Остановка сервера с открытой страницей (SSE): потоки закрываются сами, stderr без traceback."""
+    import threading
+
+    server, info = _start_server(_server_env(home, fake))
+    closed = threading.Event()
+    try:
+        c, _ = _login(info)
+
+        def listen():
+            try:
+                with c.stream("GET", "/events/runs", timeout=None) as r:
+                    for _ in r.iter_lines():
+                        pass
+            except Exception:
+                pass
+            closed.set()
+
+        threading.Thread(target=listen, daemon=True).start()
+        time.sleep(1.0)  # поток SSE открыт и получил первое значение
+        t0 = time.monotonic()
+        server.send_signal(sig)
+        # Ctrl+C: CLI выходит с кодом 130; SIGTERM: uvicorn заново поднимает сигнал.
+        assert server.wait(30) in (0, 130, -sig)
+        took = time.monotonic() - t0
+    finally:
+        if server.poll() is None:
+            server.kill()
+    err = server.stderr.read()
+    assert "Traceback" not in err and "ERROR" not in err, err
+    assert closed.wait(5)
+    assert took < 2  # SSE не держит остановку до timeout_graceful_shutdown
