@@ -349,3 +349,126 @@ def test_script_command_override(monkeypatch):
         launch.script_command()
     monkeypatch.delenv(launch.ENV_SCRIPT_COMMAND)
     assert launch.script_command() == ["uv", "run"]
+
+
+# --- переиспользование pid -----------------------------------------------------
+
+from dawg_replay import procinfo  # noqa: E402
+
+
+@pytest.fixture
+def foreign():
+    """Чужой процесс пользователя: лидер своей группы, как скрипт запуска."""
+    procs = []
+
+    def start():
+        p = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(60)"],
+            **({"start_new_session": True} if POSIX else {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}),
+        )
+        procs.append(p)
+        assert wait_for(lambda: procinfo.start_time(p.pid) is not None, 5)
+        return p
+
+    yield start
+    for p in procs:
+        p.kill()
+        p.wait()
+
+
+def fake_running(app, *, sup=None, sup_started=None, pid=None, pid_started=None, heartbeat="2020-01-01T00:00:00Z"):
+    """Запись `running`, будто её оставил супервизор, а pid потом достались другим процессам."""
+    from dawg_replay.runs import new_run_id
+
+    run_id = new_run_id()
+    app.runs.reserve(
+        run_id=run_id, script_name="x", script_version=1, script_path="/nope/script.py", draft=False,
+        preset=None, params={}, timeout_seconds=60, limit=100,
+    )
+    app.db.execute(
+        "UPDATE runs SET supervisor_pid = ?, supervisor_started = ?, pid = ?, pid_started = ?, heartbeat_at = ?"
+        " WHERE id = ?",
+        (sup, sup_started, pid, pid_started, heartbeat, run_id),
+    )
+    return run_id
+
+
+def test_procinfo_start_time():
+    t0 = time.time()
+    p = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    try:
+        assert wait_for(lambda: procinfo.start_time(p.pid) is not None, 5)
+        started = procinfo.start_time(p.pid)
+        assert t0 - procinfo.TOLERANCE <= started <= time.time() + procinfo.TOLERANCE
+        assert procinfo.same_process(p.pid, started)
+        assert not procinfo.same_process(p.pid, started - 3600)
+        assert not procinfo.same_process(p.pid, None)
+    finally:
+        p.kill()
+        p.wait()
+    assert procinfo.start_time(p.pid) is None
+    boot = procinfo.boot_time()
+    assert boot is not None and boot < t0
+
+
+def test_foreign_process_with_supervisor_pid_does_not_keep_run_alive(app, foreign):
+    other = foreign()
+    real_start = procinfo.start_time(other.pid)
+    # pid супервизора достался чужому процессу: время старта не совпадает.
+    run_id = fake_running(app, sup=other.pid, sup_started=real_start - 3600)
+    assert [r.id for r in launch.recover_lost(app)] == [run_id]
+    assert app.runs.get(run_id).label == "failed (lost)"
+    assert other.poll() is None
+
+
+def test_live_supervisor_with_matching_start_time_is_kept(app, foreign):
+    sup = foreign()
+    run_id = fake_running(app, sup=sup.pid, sup_started=procinfo.start_time(sup.pid))
+    assert launch.recover_lost(app) == []
+    assert app.runs.get(run_id).running
+
+
+def test_foreign_group_with_script_pid_is_not_killed(app, foreign):
+    other = foreign()
+    run_id = fake_running(app, pid=other.pid, pid_started=procinfo.start_time(other.pid) - 3600)
+    lost = launch.recover_lost(app)
+    assert [(r.id, r.killed) for r in lost] == [(run_id, False)]
+    time.sleep(0.2)
+    assert other.poll() is None
+
+
+def test_own_orphan_group_is_killed(app, foreign):
+    orphan = foreign()
+    run_id = fake_running(app, pid=orphan.pid, pid_started=procinfo.start_time(orphan.pid))
+    lost = launch.recover_lost(app)
+    assert [(r.id, r.killed) for r in lost] == [(run_id, True)]
+    assert wait_for(lambda: orphan.poll() is not None, 5)
+
+
+def test_runs_from_before_reboot_are_lost_at_once_and_nothing_is_killed(app, foreign, monkeypatch):
+    other = foreign()
+    started = procinfo.start_time(other.pid)
+    # Свежий heartbeat и совпадающее время: без проверки загрузки запуск считался бы живым.
+    run_id = fake_running(
+        app, sup=other.pid, sup_started=started, pid=other.pid, pid_started=started,
+        heartbeat=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    app.db.execute("UPDATE runs SET created_at = '2020-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+    monkeypatch.setattr(procinfo, "boot_time", lambda: time.time() - 60)
+    lost = launch.recover_lost(app)
+    assert [(r.id, r.label, r.killed) for r in lost] == [(run_id, "failed (lost)", False)]
+    assert other.poll() is None
+
+
+def test_cancel_does_not_signal_foreign_group(app, foreign):
+    other_sup, other_script = foreign(), foreign()
+    run_id = fake_running(
+        app,
+        sup=other_sup.pid, sup_started=procinfo.start_time(other_sup.pid) - 3600,
+        pid=other_script.pid, pid_started=procinfo.start_time(other_script.pid) - 3600,
+        heartbeat=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    )
+    rec = launch.cancel(app, run_id)
+    assert (rec.label, rec.killed) == ("failed (cancelled)", False)
+    time.sleep(0.2)
+    assert other_sup.poll() is None and other_script.poll() is None

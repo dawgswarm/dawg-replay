@@ -66,6 +66,9 @@ MIGRATIONS: list[str] = [
     ALTER TABLE runs ADD COLUMN killed INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
     ALTER TABLE runs ADD COLUMN supervisor_pid INTEGER;
+    -- Время старта процессов по данным ОС (Unix time): отличает свой процесс от чужого с тем же pid.
+    ALTER TABLE runs ADD COLUMN supervisor_started REAL;
+    ALTER TABLE runs ADD COLUMN pid_started REAL;
     ALTER TABLE runs ADD COLUMN heartbeat_at TEXT;
     ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;
     ALTER TABLE runs ADD COLUMN follow INTEGER NOT NULL DEFAULT 0

@@ -47,7 +47,9 @@ class Run:
     finished_at: str | None
     exit_code: int | None
     pid: int | None
+    pid_started: float | None
     supervisor_pid: int | None
+    supervisor_started: float | None
     summary: str | None
     error: str | None
     killed: bool
@@ -107,7 +109,9 @@ def _run(row: sqlite3.Row) -> Run:
         finished_at=row["finished_at"],
         exit_code=row["exit_code"],
         pid=row["pid"],
+        pid_started=row["pid_started"],
         supervisor_pid=row["supervisor_pid"],
+        supervisor_started=row["supervisor_started"],
         summary=row["summary"],
         error=row["error"],
         killed=bool(row["killed"]),
@@ -192,15 +196,18 @@ class RunStore:
         rows = self._db.execute("SELECT * FROM runs WHERE status = ? ORDER BY created_at", (STATUS_RUNNING,))
         return [_run(r) for r in rows]
 
-    def set_supervisor(self, run_id: str, pid: int) -> None:
+    def set_supervisor(self, run_id: str, pid: int, started: float | None) -> None:
         self._db.execute(
-            "UPDATE runs SET supervisor_pid = ?, heartbeat_at = ? WHERE id = ?", (pid, utcnow(), run_id)
+            "UPDATE runs SET supervisor_pid = ?, supervisor_started = COALESCE(?, supervisor_started), heartbeat_at = ?"
+            " WHERE id = ?",
+            (pid, started, utcnow(), run_id),
         )
 
-    def set_started(self, run_id: str, pid: int) -> None:
+    def set_started(self, run_id: str, pid: int, started: float | None) -> None:
         now = utcnow()
         self._db.execute(
-            "UPDATE runs SET pid = ?, started_at = ?, heartbeat_at = ? WHERE id = ?", (pid, now, now, run_id)
+            "UPDATE runs SET pid = ?, pid_started = ?, started_at = ?, heartbeat_at = ? WHERE id = ?",
+            (pid, started, now, now, run_id),
         )
 
     def heartbeat(self, run_id: str) -> None:

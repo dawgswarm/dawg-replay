@@ -19,7 +19,10 @@
 консолью. Если супервизора уже нет, отмена бьёт по группе процесса сама.
 
 Потерянные запуски: статус `running`, heartbeat давно не обновлялся
-и процесса-супервизора нет. Они получают `failed (lost)`, для них
+и процесса-супервизора нет, либо система перезагружалась после создания
+запуска. pid переиспользуется, поэтому «процесс жив» везде значит «жив
+процесс с этим pid и с тем же временем старта, что записано в БД»
+(dawg_replay.procinfo). Чужой процесс не убивается и супервизором не считается. Они получают `failed (lost)`, для них
 вызываются хуки страховки, оставшиеся каталоги с секретами удаляются.
 """
 
@@ -41,7 +44,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import hooks
+from dawg_replay import hooks, procinfo
 from dawg_replay.errors import ReplayError
 from dawg_replay.registry import invalid_manifest
 from dawg_replay.runner import (
@@ -237,7 +240,7 @@ def supervise(
     """Ведёт запуск до конца и записывает итог. `interrupted` — отмена изнутри (Ctrl+C, SIGTERM)."""
     store = app.runs
     rec = store.get(run_id)
-    store.set_supervisor(run_id, os.getpid())
+    store.set_supervisor(run_id, os.getpid(), procinfo.start_time(os.getpid()))
     cfg = app.config
     run = ScriptRun(
         rec.script_path,
@@ -259,7 +262,7 @@ def supervise(
         store.finish(run_id, status="failed", reason=REASON_START_ERROR, error=str(e))
         _append(run.stderr_path, f"dawg-replay: {e}\n")
         return store.get(run_id)
-    store.set_started(run_id, run.pid)
+    store.set_started(run_id, run.pid, procinfo.start_time(run.pid))
 
     last_beat = time.monotonic()
     cancelling = False
@@ -335,7 +338,7 @@ def spawn_supervisor(app: App, prepared: Prepared) -> int:
         proc.stdin.close()
     except OSError:
         pass  # супервизор умер сразу; запуск подберёт recover_lost
-    app.runs.set_supervisor(run_id, proc.pid)
+    app.runs.set_supervisor(run_id, proc.pid, procinfo.start_time(proc.pid))
     # Долгоживущий родитель (сервер UI) не копит зомби.
     threading.Thread(target=proc.wait, daemon=True).start()
     return proc.pid
@@ -369,26 +372,31 @@ def cancel(app: App, run_id: str, wait: bool = True, wait_timeout: float | None 
 
 
 def _supervisor_gone(rec: Run) -> bool:
-    if rec.supervisor_pid is None:
-        # Между записью и стартом супервизора проходят доли секунды.
+    """Супервизора запуска точно нет. Чужой процесс с тем же pid супервизором не считается."""
+    if _rebooted_since(rec):
+        return True
+    if rec.supervisor_pid is None or rec.supervisor_started is None:
+        # Супервизор ещё не записался (доли секунды после старта) или время его старта
+        # узнать не вышло: судим только по heartbeat.
         return _stale(rec, seconds=HEARTBEAT_SECONDS * 2)
-    return not pid_alive(rec.supervisor_pid)
+    return not procinfo.same_process(rec.supervisor_pid, rec.supervisor_started)
 
 
 def _cancel_orphan(app: App, rec: Run, grace: float) -> None:
     """Супервизора нет: отменяем по группе процесса сами и закрываем запуск."""
     killed = False
-    if rec.pid and not _IS_WINDOWS and _group_alive(rec.pid):
-        soft_stop(rec.pid)
-        end = time.monotonic() + grace
-        while time.monotonic() < end and _group_alive(rec.pid):
-            time.sleep(POLL_SECONDS)
-        if _group_alive(rec.pid):
-            kill_tree(rec.pid)
+    if _own_group(rec):
+        if _IS_WINDOWS:
+            kill_tree(rec.pid)  # CTRL_BREAK без общей консоли не дойдёт
             killed = True
-    elif rec.pid and _IS_WINDOWS and pid_alive(rec.pid):
-        kill_tree(rec.pid)
-        killed = True
+        else:
+            soft_stop(rec.pid)
+            end = time.monotonic() + grace
+            while time.monotonic() < end and _own_group(rec):
+                time.sleep(POLL_SECONDS)
+            if _own_group(rec):
+                kill_tree(rec.pid)
+                killed = True
     _close_lost(app, rec, reason="cancelled", killed=killed)
 
 
@@ -407,11 +415,12 @@ def recover_lost(app: App) -> list[Run]:
     """Запуски `running` без живого супервизора закрывает как `failed (lost)`. Чистит каталоги секретов."""
     lost = []
     for rec in app.runs.running():
-        if pid_alive(rec.supervisor_pid) or not _stale(rec):
+        if not _rebooted_since(rec) and not (_supervisor_gone(rec) and _stale(rec)):
             continue
         killed = False
-        # Скрипт мог пережить супервизора: его группа не должна остаться сиротой.
-        if rec.pid and not _IS_WINDOWS and _group_alive(rec.pid):
+        # Скрипт мог пережить супервизора: его дерево не должно остаться сиротой.
+        # Убиваем, только если это точно процессы этого запуска.
+        if _own_group(rec):
             kill_tree(rec.pid)
             killed = True
         if _close_lost(app, rec, reason=REASON_LOST, killed=killed):
@@ -475,10 +484,11 @@ def _sweep_secret_dirs(app: App) -> None:
 
 
 def pid_alive(pid: int | None) -> bool:
+    """Есть живой процесс с таким pid (любой, не обязательно наш)."""
     if not pid:
         return False
     if _IS_WINDOWS:
-        return _win_pid_alive(pid)
+        return procinfo.start_time(pid) is not None
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -486,6 +496,13 @@ def pid_alive(pid: int | None) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _rebooted_since(rec: Run) -> bool:
+    """Система перезагружалась после создания запуска: ни одного его процесса уже нет."""
+    boot = procinfo.boot_time()
+    created = parse_ts(rec.created_at)
+    return boot is not None and created is not None and created.timestamp() < boot - procinfo.TOLERANCE
 
 
 def _group_alive(pgid: int) -> bool:
@@ -498,19 +515,20 @@ def _group_alive(pgid: int) -> bool:
     return True
 
 
-def _win_pid_alive(pid: int) -> bool:
-    import ctypes
-
-    PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-    STILL_ACTIVE = 259
-    kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-    handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-    if not handle:
+def _own_group(rec: Run) -> bool:
+    """Дерево процессов скрипта этого запуска ещё живо, и это точно оно, а не чужое с тем же pid."""
+    if not rec.pid or rec.pid_started is None or _rebooted_since(rec):
         return False
+    if _IS_WINDOWS:
+        return procinfo.same_process(rec.pid, rec.pid_started)
+    if not _group_alive(rec.pid):
+        return False
+    if procinfo.start_time(rec.pid) is None:
+        # Лидер группы уже умер (или зомби), а группа жива. Пока существует группа
+        # с таким id, ОС не выдаёт этот pid новому процессу, значит это остатки нашего дерева.
+        return True
     try:
-        code = ctypes.c_ulong()
-        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
-            return False
-        return code.value == STILL_ACTIVE
-    finally:
-        kernel32.CloseHandle(handle)
+        leader_of_own_group = os.getpgid(rec.pid) == rec.pid
+    except ProcessLookupError:
+        return False
+    return leader_of_own_group and procinfo.same_process(rec.pid, rec.pid_started)
