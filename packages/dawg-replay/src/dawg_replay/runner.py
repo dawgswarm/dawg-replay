@@ -263,7 +263,7 @@ class ScriptRun:
                 ENV_EVENTS: str(self.events_path.resolve()),
                 ENV_OUTPUT_DIR: str(self.output_dir.resolve()),
                 ENV_RUN_ID: self.run_id,
-                # Сырые логи пишутся сразу, а не при выходе; кодировка не зависит от локали Windows.
+                # Сырые логи пишутся сразу по ходу работы; кодировка не зависит от локали Windows.
                 "PYTHONUNBUFFERED": "1",
                 "PYTHONIOENCODING": "utf-8",
             }

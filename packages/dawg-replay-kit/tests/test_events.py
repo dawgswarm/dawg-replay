@@ -297,7 +297,7 @@ def test_close_stops_timer_and_nothing_written_after(tmp_path):
     em.metric("m", "M", 2)
     timer = em._timer
     assert timer is not None and timer.daemon
-    em.close()  # отложенное уходит в close, а не таймером после закрытия
+    em.close()  # отложенное уходит в close; после закрытия таймер ничего не пишет
     assert [e["value"] for e in read_jsonl(f)] == [1, 2]
     timer.join(1)
     assert not timer.is_alive()

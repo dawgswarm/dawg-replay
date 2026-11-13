@@ -202,7 +202,7 @@ def test_truncated_file_resets(run_dir):
 
 
 def test_incremental_read_of_big_file(run_dir):
-    """Дочитывание, а не перечитывание: poll читает только новые байты."""
+    """Дочитывание: poll читает только новые байты."""
     write(run_dir, *[ev("progress", id="p", label="P", done=i, total=10**6) for i in range(100_000)])
     v = RunView(run_dir)
     t0 = time.perf_counter()

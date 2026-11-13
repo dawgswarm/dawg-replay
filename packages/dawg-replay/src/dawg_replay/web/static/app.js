@@ -9,7 +9,7 @@
     e.detail.headers["X-CSRF-Token"] = csrf;
   });
 
-  // Ответ с ошибкой сервера (403 после перезапуска, 500) показываем, а не молча игнорируем.
+  // Ответ с ошибкой сервера (403 после перезапуска, 500) показываем человеку.
   document.addEventListener("htmx:responseError", function (e) {
     var status = e.detail.xhr.status;
     var text = status === 403

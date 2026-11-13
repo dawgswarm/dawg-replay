@@ -2,7 +2,7 @@
 
 Порождается `dawg-replay run` без `--follow` (см. dawg_replay.launch). Секреты,
 ключ и команду запуска читает из stdin одним JSON. SIGTERM, SIGINT и SIGBREAK
-(на Windows) отменяют запуск по 5.7, а не убивают супервизор.
+(на Windows) отменяют запуск по 5.7; сам супервизор при этом доводит запуск до итога.
 """
 
 from __future__ import annotations

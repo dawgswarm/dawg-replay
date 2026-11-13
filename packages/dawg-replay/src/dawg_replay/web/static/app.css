@@ -161,7 +161,7 @@ h2 { margin: 0; font-size: 1.15rem; line-height: 1.3; font-weight: 620; }
   overflow-x: auto;
 }
 
-/* --- список скриптов: строки, а не карточки --- */
+/* --- список скриптов: строки с разделителями --- */
 
 .scripts {
   list-style: none;

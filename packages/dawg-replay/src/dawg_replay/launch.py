@@ -567,7 +567,7 @@ def _group_alive(pgid: int) -> bool:
 
 
 def _own_group(rec: Run) -> bool:
-    """Дерево процессов скрипта этого запуска ещё живо, и это точно оно, а не чужое с тем же pid."""
+    """Дерево процессов скрипта этого запуска ещё живо. Чужое дерево с тем же pid сюда не подходит."""
     if not rec.pid or rec.pid_started is None or _rebooted_since(rec):
         return False
     if _IS_WINDOWS:
