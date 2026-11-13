@@ -119,8 +119,15 @@ def _mask(value: Any, secrets: list[str]) -> Any:
 class Emitter:
     """Пишет события: ставит `ts`, маскирует секреты, прореживает progress и metric.
 
-    Прореженное значение не теряется: последнее отложенное уходит со следующим
-    событием после окна или в `flush()`.
+    Прореженное значение не теряется: последнее отложенное уходит само, как только
+    закончится окно прореживания (фоновый поток-демон), либо раньше, со следующим
+    событием или в `flush()`/`close()`. Так полоска прогресса в приложении не
+    отстаёт, пока скрипт долго ждёт страницу.
+
+    Поток один на эмиттер, запускается при первом отложенном значении и работает
+    под тем же замком, что и запись, поэтому с `close()` не гоняется: после
+    закрытия он ничего не пишет и завершается. `auto_flush=False` отключает поток
+    (тестам с ручными часами нужна детерминированность).
     """
 
     def __init__(
@@ -130,6 +137,7 @@ class Emitter:
         output_dir: Path | None = None,
         clock: Callable[[], float] = time.monotonic,
         throttle: float = THROTTLE_SECONDS,
+        auto_flush: bool = True,
     ):
         self._sink = sink
         # Длинные секреты первыми, чтобы короткий не порвал длинный.
@@ -140,6 +148,9 @@ class Emitter:
         self._last: dict[tuple[str, str], float] = {}
         self._pending: dict[tuple[str, str], dict[str, Any]] = {}
         self._lock = threading.RLock()
+        self._wake = threading.Condition(self._lock)
+        self._auto_flush = auto_flush
+        self._timer: threading.Thread | None = None
         self._closed = False
 
     # --- низкий уровень ---
@@ -169,14 +180,50 @@ class Emitter:
                 self._write(event)
             else:
                 self._pending[key] = event
+                self._schedule()
 
     def _flush_expired(self, now: float | None = None) -> None:
         if not self._pending:
             return
         now = self._clock() if now is None else now
-        for key in [k for k in self._pending if now - self._last[k] >= self._throttle]:
+        # То же выражение, что в _next_deadline: таймер не крутится вхолостую из-за округления.
+        for key in [k for k in self._pending if self._last[k] + self._throttle <= now]:
             self._last[key] = now
             self._write(self._pending.pop(key))
+
+    # --- таймер отложенных значений ---
+
+    def _schedule(self) -> None:
+        """Будит поток таймера (вызывается под замком), при первом вызове запускает его."""
+        if not self._auto_flush or self._closed:
+            return
+        if self._timer is None or not self._timer.is_alive():
+            self._timer = threading.Thread(target=self._timer_loop, name="dawg-replay-kit-flush", daemon=True)
+            self._timer.start()
+        self._wake.notify()
+
+    def _next_deadline(self) -> float | None:
+        if not self._pending:
+            return None
+        return min(self._last[k] for k in self._pending) + self._throttle
+
+    def _timer_loop(self) -> None:
+        with self._lock:
+            while not self._closed:
+                deadline = self._next_deadline()
+                if deadline is None:
+                    self._wake.wait()
+                    continue
+                delay = deadline - self._clock()
+                if delay > 0:
+                    self._wake.wait(delay)
+                    continue
+                try:
+                    self._flush_expired()
+                except Exception:
+                    # Ошибку записи увидит основной поток на следующем событии;
+                    # поток таймера не должен умирать молча и забирать с собой отложенные значения.
+                    self._wake.wait(self._throttle)
 
     def flush(self) -> None:
         """Отправляет все отложенные progress и metric."""
@@ -191,6 +238,7 @@ class Emitter:
                 return
             self.flush()
             self._closed = True
+            self._wake.notify_all()  # поток таймера увидит _closed и выйдет
             self._sink.close()
 
     # --- API контракта ---
