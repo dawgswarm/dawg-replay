@@ -101,8 +101,18 @@ class Kit:
         self.browsers.close()
         if cancel.received() is not None:
             # Пишется после finally скрипта: отложенные события уже ушли, это последняя строка.
-            self.events.log("warn", "запуск прерван сигналом отмены")
+            self.events.log("warn", stop_message(self.autonomous))
         self.events.close()
+
+
+STOPPED_BY_APP = "запуск остановлен приложением (отмена или таймаут)"
+STOPPED_BY_SIGNAL = "запуск остановлен сигналом"
+
+
+def stop_message(autonomous: bool) -> str:
+    """Текст после мягкой остановки. Kit не знает причину: отмену и таймаут приложение
+    останавливает одним сигналом, а итог (`cancelled` или `timeout`) ставит само."""
+    return STOPPED_BY_SIGNAL if autonomous else STOPPED_BY_APP
 
 
 def _main_script() -> Path:

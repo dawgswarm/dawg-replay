@@ -277,7 +277,7 @@ def test_soft_cancel_runs_finally_atexit_and_flushes_pending_events(script, runs
     assert "finally скрипта" in msgs
     assert (run.output_dir / "atexit").exists()
     assert "SystemExit не должен ловиться как Exception" not in msgs
-    assert msgs[-1] == "запуск прерван сигналом отмены"
+    assert msgs[-1] == "запуск остановлен приложением (отмена или таймаут)"
     assert [e["done"] for e in evs if e["t"] == "progress"] == [1, 42]
 
 
@@ -358,7 +358,10 @@ def test_timeout_with_soft_stop_keeps_timeout_reason(script, runs_dir):
     run = make_run(script(KIT_CANCEL_BODY), runs_dir, timeout=1, grace=10)
     outcome = run.run()
     assert (outcome.label, outcome.killed) == ("failed (timeout)", False)
-    assert "finally скрипта" in [e.get("msg") for e in events(run)]
+    msgs = [e.get("msg") for e in events(run) if e["t"] == "log"]
+    assert "finally скрипта" in msgs
+    assert msgs[-1] == "запуск остановлен приложением (отмена или таймаут)"
+    assert not any("отмены" in m for m in msgs)
 
 
 @pytest.mark.skipif(not POSIX, reason="на Windows taskkill нужен живой корень дерева")
