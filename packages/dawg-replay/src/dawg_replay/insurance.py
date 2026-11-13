@@ -271,3 +271,94 @@ def release_session(api_key: str, session_id: str, base_url: str | None = None) 
         return s.release(session_id)
     finally:
         s.close()
+
+
+# --- остаточное окно: ручное освобождение (CLI `release`, кнопка UI) ---------------
+
+WARNING_TEXT = "возможно, остался браузер"
+
+
+@dataclass
+class SuspectRelease:
+    session_id: str
+    released: bool
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+class NotASuspect(ValueError):
+    """Сессия не из списка подозрительных этого запуска."""
+
+
+def load_report(run_dir: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads((Path(run_dir) / REPORT_FILE).read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def pending_suspects(run_dir: Path) -> list[dict[str, Any]]:
+    """Подозрительные сессии запуска, которые ещё не освобождены вручную."""
+    report = load_report(run_dir) or {}
+    return [s for s in report.get("suspects") or [] if isinstance(s, dict) and not s.get("released")]
+
+
+def warning_line(suspects: list[dict[str, Any]]) -> str:
+    ids = ", ".join(s["session_id"] for s in suspects)
+    return f"{WARNING_TEXT}: процесс завершился во время создания браузера. Сессии ключа, созданные в это время: {ids}"
+
+
+def release_suspects(
+    run_dir: Path,
+    session_ids: list[str] | None,
+    release: Callable[[str], bool],
+) -> list[SuspectRelease]:
+    """Освобождает подозрительные сессии запуска. None: все ещё не освобождённые.
+
+    Освободить можно только сессию из `suspects` этого запуска. Итог пишется в
+    `insurance.json` (у сессии `released`, `released_at` или `release_error`) и строками
+    `log` в `events.jsonl`. `session close` не пишется: этот запуск сессию не открывал.
+    """
+    run_dir = Path(run_dir)
+    report = load_report(run_dir) or {}
+    suspects = [s for s in report.get("suspects") or [] if isinstance(s, dict)]
+    by_id = {s.get("session_id"): s for s in suspects}
+    pending = [s["session_id"] for s in suspects if not s.get("released")]
+    if session_ids is None:
+        targets = pending
+    else:
+        unknown = [sid for sid in session_ids if sid not in by_id]
+        if unknown:
+            have = ", ".join(pending) or "нет"
+            raise NotASuspect(
+                f"сессии {', '.join(unknown)} нет среди подозрительных сессий запуска; можно освободить: {have}"
+            )
+        targets = [sid for sid in dict.fromkeys(session_ids) if not by_id[sid].get("released")]
+
+    results: list[SuspectRelease] = []
+    lines: list[tuple[str, str]] = []
+    for sid in targets:
+        try:
+            ok = release(sid)
+            err = None if ok else "сессия осталась в списке ключа"
+        except Exception as e:
+            ok, err = False, str(e)
+        results.append(SuspectRelease(sid, ok, err))
+        entry = by_id[sid]
+        if ok:
+            entry["released"] = True
+            entry["released_at"] = now_iso()
+            entry.pop("release_error", None)
+            lines.append(("info", f"остаточное окно: сессия {sid} освобождена вручную"))
+        else:
+            entry["release_error"] = err
+            lines.append(("error", f"остаточное окно: сессия {sid} не освобождена: {err}"))
+
+    if results:
+        report["suspects"] = suspects
+        (run_dir / REPORT_FILE).write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        _append(run_dir / "events.jsonl", lines, [])
+    return results
