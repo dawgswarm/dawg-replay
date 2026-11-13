@@ -45,6 +45,11 @@ class Paths:
         """Временные файлы параметров с секретами живых запусков (0700)."""
         return self.home / "tmp"
 
+    @property
+    def dev_kit(self) -> Path:
+        """Сборки локального kit для режима разработки."""
+        return self.home / "dev-kit"
+
     def script_dir(self, name: str) -> Path:
         return self.scripts / name
 
