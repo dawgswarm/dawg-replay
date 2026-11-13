@@ -1,0 +1,16 @@
+[project]
+name = "dawg-replay"
+version = "0.1.0"
+description = "Локальное приложение для запуска скриптов сбора данных через браузеры DAWG"
+requires-python = ">=3.10"
+dependencies = ["dawg-replay-kit"]
+
+[project.scripts]
+dawg-replay = "dawg_replay.cli:main"
+
+[tool.uv.sources]
+dawg-replay-kit = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

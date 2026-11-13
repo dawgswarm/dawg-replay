@@ -1,0 +1,22 @@
+[project]
+name = "dawg-replay-workspace"
+version = "0"
+requires-python = ">=3.10"
+dependencies = ["dawg-replay", "dawg-replay-kit"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.uv.sources]
+dawg-replay = { workspace = true }
+dawg-replay-kit = { workspace = true }
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/dawg-replay/tests", "packages/dawg-replay-kit/tests"]
+addopts = "--import-mode=importlib"
