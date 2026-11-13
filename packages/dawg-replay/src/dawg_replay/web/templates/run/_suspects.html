@@ -1,0 +1,29 @@
+<div id="run-suspects">
+{% if release_lines %}
+  <div class="notice {% if release_ok %}notice-ok{% else %}notice-error{% endif %}" role="status">
+    {% for line in release_lines %}<p>{{ line }}</p>{% endfor %}
+  </div>
+{% endif %}
+{% if run.suspects %}
+  <section class="warning" aria-labelledby="suspects-title">
+    <h2 id="suspects-title">Возможно, остался браузер</h2>
+    <p>Скрипт остановился, когда платформа DAWG как раз создавала для него браузер, поэтому неизвестно, какой браузер его. В это время на вашем ключе появились браузеры из списка ниже. Если вы не запускали их сами (например, из агента), освободите их: открытый браузер тратит минуты.</p>
+    <ul class="suspects">
+      {% for x in run.suspects %}
+      <li>
+        <span><span class="mono">{{ x.session_id }}</span>, создан {{ x.started_at | when }}</span>
+        <form hx-post="/runs/{{ run.id }}/release" hx-target="#run-suspects" hx-swap="outerHTML">
+          <input type="hidden" name="session_id" value="{{ x.session_id }}">
+          <button class="secondary">Освободить</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% if run.suspects | length > 1 %}
+    <form hx-post="/runs/{{ run.id }}/release" hx-target="#run-suspects" hx-swap="outerHTML">
+      <button>Освободить все ({{ run.suspects | length }})</button>
+    </form>
+    {% endif %}
+  </section>
+{% endif %}
+</div>

@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ run.title or run.script }}: запуск, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/run.css"><script src="/static/run.js" defer></script>{% endblock %}
+{% block content %}
+<div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" {% if running or not run.finished_at %}data-live{% endif %}>
+  {{ panels.head | safe }}
+  {{ panels.result | safe }}
+  {{ panels.suspects | safe }}
+  {{ panels.trail | safe }}
+  <div class="run-now">
+    {{ panels.progress | safe }}
+    {{ panels.metrics | safe }}
+  </div>
+  {{ panels.files | safe }}
+  {{ panels.tables | safe }}
+
+  <section class="run-section run-log-section" aria-labelledby="log-title">
+    <div class="run-section-head">
+      <h2 id="log-title">Журнал</h2>
+      <label class="log-filter">Показывать
+        <select id="log-level" aria-controls="run-log">
+          <option value="debug">всё, включая отладку</option>
+          <option value="info" selected>обычные сообщения и важнее</option>
+          <option value="warn">предупреждения и ошибки</option>
+          <option value="error">только ошибки</option>
+        </select>
+      </label>
+    </div>
+    {% if s.log_total > s.log|length %}<p class="hint">Показаны последние {{ s.log|length }} сообщений из {{ s.log_total }}.</p>{% endif %}
+    <ol id="run-log" class="log" data-min="info" aria-live="polite">
+      {% for item in log_html %}{{ item | safe }}{% endfor %}
+    </ol>
+    <p class="log-empty hint">{% if running %}Сообщений пока нет.{% else %}Скрипт не писал сообщений в журнал.{% endif %}</p>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,22 @@
+<section id="run-files" class="run-section" aria-labelledby="files-title">
+  <div class="run-section-head">
+    <h2 id="files-title">Результаты</h2>
+    <form hx-post="/runs/{{ run.id }}/open-folder" hx-target="#files-notice" hx-swap="innerHTML">
+      <button class="secondary">Открыть папку</button>
+    </form>
+  </div>
+  <div id="files-notice"></div>
+  {% if s.artifacts %}
+  <ul class="files">
+    {% for a in s.artifacts %}
+    <li class="file{% if not a.exists %} file-missing{% endif %}">
+      <span class="file-label">{{ a.label }}</span>
+      <span class="file-meta">{{ a.path }}{% if a.exists %}, {{ a.size | size }}{% else %}, файла нет на диске{% endif %}</span>
+      {% if a.exists %}<a class="button" href="/runs/{{ run.id }}/files/{{ a.path | urlencode }}" download>Скачать</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="hint">{% if running %}Файлы появятся здесь, когда скрипт их сохранит.{% else %}Скрипт не сохранял файлов.{% endif %}</p>
+  {% endif %}
+</section>
