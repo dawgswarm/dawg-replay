@@ -507,7 +507,7 @@ def parse_manifest(text: str) -> Manifest:
 
     Собирает все найденные ошибки и бросает ManifestError со списком.
     """
-    text = text.replace("\r\n", "\n")
+    text = text.removeprefix("\ufeff").replace("\r\n", "\n")
     issues: list[Issue] = []
     blocks = _read_blocks(text, issues)
 
@@ -536,7 +536,7 @@ def load_manifest(path: str | Path) -> Manifest:
     """Читает манифест из файла. Ошибки чтения файла тоже приходят как ManifestError."""
     p = Path(path)
     try:
-        text = p.read_text(encoding="utf-8")
+        text = p.read_text(encoding="utf-8-sig")
     except FileNotFoundError:
         raise ManifestError([Issue("file_not_found", "", f"файл не найден: {p}")]) from None
     except IsADirectoryError:

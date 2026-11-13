@@ -101,3 +101,9 @@ def test_entry_point_runs(script):
     )
     assert r.returncode == 0, r.stderr
     assert json.loads(r.stdout)["ok"] is True
+
+
+def test_validate_file_with_bom(tmp_path, capsys):
+    f = tmp_path / "script.py"
+    f.write_bytes(GOOD.encode("utf-8-sig"))
+    assert main(["validate", str(f)]) == 0

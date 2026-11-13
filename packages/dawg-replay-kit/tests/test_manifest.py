@@ -345,3 +345,13 @@ def test_load_manifest_not_utf8(tmp_path):
 def test_crlf_line_endings():
     m = parse_manifest(SPEC_EXAMPLE.replace("\n", "\r\n"))
     assert m.name == "ozon-search-cards"
+
+
+def test_bom_in_text():
+    assert parse_manifest("\ufeff" + SPEC_EXAMPLE).name == "ozon-search-cards"
+
+
+def test_bom_in_file(tmp_path):
+    f = tmp_path / "script.py"
+    f.write_bytes(SPEC_EXAMPLE.encode("utf-8-sig"))
+    assert load_manifest(f).name == "ozon-search-cards"
