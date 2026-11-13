@@ -1,0 +1,12 @@
+{
+  "name": "dawg-replay",
+  "description": "Плагины DAWG для dawg-replay",
+  "owner": { "name": "DAWG", "url": "https://dawgswarm.ru" },
+  "plugins": [
+    {
+      "name": "dawg-replay-builder",
+      "source": "./",
+      "description": "Агент собирает скрипты сбора данных для dawg-replay через браузер DAWG"
+    }
+  ]
+}
