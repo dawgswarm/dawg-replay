@@ -8,7 +8,7 @@
 # name = "wb-search-cards"
 # title = "Wildberries: карточки по поисковому запросу"
 # description = "Обходит выдачу Wildberries по запросу и собирает название, бренд, цену, рейтинг, число оценок и продавца."
-# version = 1
+# version = 2
 # timeout_minutes = 30
 #
 # [[params]]
@@ -221,7 +221,7 @@ def main() -> None:
         if collector.count:
             kit.artifact(csv_path, "Карточки (CSV)", "text/csv")
 
-    summary = f"«{query}»: {collector.count} карточек с {pages_done} стр."
+    summary = f"«{query}»: {collector.count} карточек, страниц выдачи: {pages_done}"
     if total_found is not None:
         summary += f" (всего на WB {total_found})"
     if error is None:
