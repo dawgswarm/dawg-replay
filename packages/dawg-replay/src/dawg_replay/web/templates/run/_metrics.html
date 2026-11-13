@@ -1,0 +1,13 @@
+<section id="run-metrics" class="run-section{% if not s.metrics %} is-empty{% endif %}" aria-labelledby="metrics-title">
+  {% if s.metrics %}
+  <h2 id="metrics-title">Показатели</h2>
+  <dl class="metrics">
+    {% for m in s.metrics.values() %}
+    <div class="metric">
+      <dt>{{ m.label }}</dt>
+      <dd><span class="metric-value">{{ m.value | value }}</span>{% if m.unit %} <span class="metric-unit">{{ m.unit }}</span>{% endif %}</dd>
+    </div>
+    {% endfor %}
+  </dl>
+  {% endif %}
+</section>

@@ -1,0 +1,19 @@
+<section id="run-tables" class="run-section{% if not s.tables %} is-empty{% endif %}" aria-labelledby="tables-title">
+  {% if s.tables %}
+  <h2 id="tables-title">Данные</h2>
+  {% for name, t in s.tables.items() %}
+  <div class="table-block">
+    <h3>{{ name }}</h3>
+    <p class="hint">{% if t.truncated %}Показаны первые {{ t.shown | value }} строк из {{ t.total | value }}. Все данные в файлах результатов.{% else %}Строк: {{ t.total | value }}.{% endif %}</p>
+    <div class="table-scroll" tabindex="0" role="region" aria-label="Таблица {{ name }}">
+      <table>
+        <thead><tr>{% for c in t.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for r in t.rows %}<tr>{% for c in t.columns %}{% set v = r.get(c) %}<td{% if v is number %} class="num"{% endif %}>{{ v | cell }}</td>{% endfor %}</tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</section>

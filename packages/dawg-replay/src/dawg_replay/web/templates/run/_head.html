@@ -1,0 +1,25 @@
+{% set st = run.label | status %}
+<div id="run-head" class="page-head run-head">
+  <p class="crumbs"><a href="/scripts">Скрипты</a>{% if run.script and not run.draft %} / <a href="/scripts/{{ run.script }}">{{ run.title or run.script }}</a>{% endif %}</p>
+  <div class="run-title">
+    <h1>{{ run.title or run.script }}</h1>
+    {% if running %}
+      {% if run.cancel_requested %}
+        <button class="secondary" disabled>Останавливаем…</button>
+      {% else %}
+        <button class="secondary danger" hx-post="/runs/{{ run.id }}/cancel" hx-target="#run-head" hx-swap="outerHTML"
+                hx-confirm="Остановить запуск? Скрипт сохранит собранное и закроет браузеры.">Остановить</button>
+      {% endif %}
+    {% endif %}
+  </div>
+  <p class="run-meta">
+    <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+    <span>начат {{ run.created_at | when }}{% if run.finished_at %}, закончен {{ run.finished_at | when }}{% endif %}</span>
+    {% if s.browsers.open or running %}
+      <span class="browsers{% if s.browsers.open %} browsers-on{% endif %}">
+        {% if s.browsers.open %}открыто браузеров: {{ s.browsers.open }}{% elif s.browsers.provisioning %}браузер запускается{% else %}браузеры не открыты{% endif %}
+      </span>
+    {% endif %}
+  </p>
+  {% if run.draft %}<p class="hint">Черновой запуск файла, скрипт не зарегистрирован.</p>{% endif %}
+</div>

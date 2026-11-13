@@ -1,0 +1,14 @@
+<section id="run-progress" class="run-section{% if not s.progress %} is-empty{% endif %}" aria-labelledby="progress-title">
+  {% if s.progress %}
+  <h2 id="progress-title">Прогресс</h2>
+  <ul class="bars">
+    {% for p in s.progress.values() %}
+    <li class="bar">
+      <span class="bar-label">{{ p.label }}</span>
+      <span class="bar-count">{% if p.total %}{{ p.done | value }} из {{ p.total | value }}{% else %}{{ p.done | value }}{% endif %}</span>
+      {% if p.total %}<progress class="meter" value="{{ p.done if p.done <= p.total else p.total }}" max="{{ p.total }}">{{ p.done }} из {{ p.total }}</progress>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>

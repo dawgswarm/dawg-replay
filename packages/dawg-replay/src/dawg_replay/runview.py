@@ -50,6 +50,7 @@ DEFAULT_ROWS_LIMIT = 500
 DEFAULT_LOG_LIMIT = 2000
 DEFAULT_HISTORY = 5000
 READ_CHUNK = 1 << 20
+HEAD_BYTES = 256  # по началу файла видно, что его подменили, даже если размер не уменьшился
 
 RunInfo = Callable[[], "dict[str, Any] | None"]
 
@@ -107,6 +108,7 @@ class RunView:
 
     def _reset_state(self) -> None:
         self._pos = 0
+        self._head = b""
         self._buf = b""
         self._line_no = 0
         self.stage: str | None = None
@@ -166,7 +168,7 @@ class RunView:
             size = self.events_path.stat().st_size
         except FileNotFoundError:
             return
-        if size < self._pos:
+        if size < self._pos or (self._head and not self._same_head()):
             # Файл подменили или обрезали: начинаем заново, клиентам нужен новый снимок.
             run = self.run
             self._reset_state()
@@ -180,12 +182,21 @@ class RunView:
                 chunk = f.read(READ_CHUNK)
                 if not chunk:
                     break
+                if len(self._head) < HEAD_BYTES:
+                    self._head += chunk[: HEAD_BYTES - len(self._head)]
                 self._pos += len(chunk)
                 self._buf += chunk
                 *lines, self._buf = self._buf.split(b"\n")
                 for raw in lines:
                     self._line_no += 1
                     self._apply_line(raw)
+
+    def _same_head(self) -> bool:
+        try:
+            with open(self.events_path, "rb") as f:
+                return f.read(len(self._head)) == self._head
+        except OSError:
+            return False
 
     def _apply_line(self, raw: bytes) -> None:
         line = raw.decode("utf-8", errors="replace").rstrip("\r")

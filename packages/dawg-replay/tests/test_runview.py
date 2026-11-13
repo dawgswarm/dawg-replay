@@ -235,7 +235,10 @@ def test_incremental_read_of_big_file(run_dir):
     finally:
         builtins.open = builtins_open
     assert [c.kind for c in changes] == ["stage"]
-    assert sum(len(r) for r in reads) == len(write_line.encode("utf-8"))  # прочитан только хвост
+    from dawg_replay.runview import HEAD_BYTES
+
+    # Прочитаны только хвост и начало файла (проверка, что файл не подменили).
+    assert sum(len(r) for r in reads) == len(write_line.encode("utf-8")) + HEAD_BYTES
     assert tail < first / 10
     assert v.poll() == []  # без новых байт ничего не читается
 
@@ -288,3 +291,12 @@ def test_for_run_with_app(app, home):
     c = v.poll()
     assert [x.kind for x in c] == ["run"] and c[0].data["label"] == "ok" and c[0].data["summary"] == "готово"
     assert v.finished
+
+
+def test_same_size_rewrite_resets(run_dir):
+    write(run_dir, ev("stage", name="A"))
+    v = RunView(run_dir)
+    seq = v.snapshot()["seq"]
+    write(run_dir, ev("stage", name="Z"), mode="w")  # тот же размер, другое содержимое
+    assert v.changes(seq)["resync"] is True
+    assert v.snapshot()["stage"] == "Z"

@@ -1,0 +1,302 @@
+/* dawg-replay, экран запуска. Токены цвета и шрифтов из app.css. */
+
+.run { max-width: 62rem; }
+
+.run-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+}
+.run-title h1 { margin-bottom: 0.6rem; }
+
+.run-head { max-width: none; margin-bottom: 1.5rem; }
+
+.run-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.9rem;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.browsers { font-size: 0.92rem; }
+.browsers-on { color: var(--ink); font-weight: 550; }
+
+button.danger { color: var(--failed); border-color: var(--failed); }
+button.danger:hover { background: var(--failed-bg); color: var(--failed); border-color: var(--failed); }
+
+.run-section {
+  padding: 1.5rem 0 1.6rem;
+  border-top: 1px solid var(--line);
+}
+.run-section.is-empty { display: none; }
+.run-section > h2 { margin-bottom: 0.9rem; }
+
+.run-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem 1rem;
+  margin-bottom: 0.9rem;
+}
+
+h3 { margin: 0 0 0.2rem; font: 600 1rem/1.3 var(--font); }
+
+.mono { font-family: var(--mono); font-size: 0.9em; }
+
+/* --- итог --- */
+
+.result {
+  margin: 0 0 1.5rem;
+  padding: 1.1rem 1.25rem 1.2rem;
+  border-left: 4px solid var(--ink-soft);
+  border-radius: 0 var(--radius-m) var(--radius-m) 0;
+  background: var(--surface);
+  max-width: 48rem;
+}
+.result h2 { margin-bottom: 0.4rem; }
+.result-ok { border-color: var(--ok); }
+.result-partial { border-color: var(--partial); }
+.result-failed { border-color: var(--failed); }
+.result-summary p, .result-summary ul { margin: 0.35rem 0 0; }
+.result-summary ul { padding-left: 1.2rem; }
+.result-summary code { font-family: var(--mono); font-size: 0.9em; }
+.result-reason { margin: 0.6rem 0 0; color: var(--ink-soft); }
+
+/* --- остаточное окно --- */
+
+.warning {
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.25rem 1.2rem;
+  border: 1px solid var(--partial);
+  border-radius: var(--radius-m);
+  background: var(--partial-bg);
+  max-width: 48rem;
+}
+.warning h2 { color: var(--partial); margin-bottom: 0.4rem; }
+.warning p { margin: 0 0 0.8rem; }
+.suspects { list-style: none; margin: 0 0 0.9rem; padding: 0; }
+.suspects li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+#run-suspects .notice p { margin: 0; }
+
+/* --- шаги: пунктирная тропа, точка на текущем шаге --- */
+
+.trail {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 0;
+}
+
+.trail-step {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 9rem;
+  max-width: 16rem;
+  padding: 1.1rem 1.5rem 0 0;
+  color: var(--ink-soft);
+}
+
+/* Отрезок тропы к следующему шагу. */
+.trail-step::before {
+  content: "";
+  position: absolute;
+  top: 0.35rem;
+  left: 0.6rem;
+  right: 0;
+  height: 2px;
+  background: repeating-linear-gradient(90deg, var(--action) 0 5px, transparent 5px 9px);
+  opacity: 0.55;
+}
+.trail-step:last-child::before { display: none; }
+
+/* Точка шага. */
+.trail-step::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  border-radius: 50%;
+  border: 2px solid var(--action);
+  background: var(--paper);
+}
+.trail-current { color: var(--ink); }
+.trail-current::after { background: var(--action); }
+.trail-active::after { animation: pulse 1.6s ease-in-out infinite; }
+
+.trail-name { font-weight: 550; line-height: 1.3; }
+.trail-current .trail-name { font-weight: 650; }
+.trail-time { font-size: 0.85rem; color: var(--ink-soft); }
+
+/* --- прогресс и показатели --- */
+
+.run-now {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 3rem;
+  border-top: 1px solid var(--line);
+}
+.run-now .run-section { border-top: 0; }
+.run-now:not(:has(.run-section:not(.is-empty))) { display: none; }
+
+.bars { list-style: none; margin: 0; padding: 0; }
+.bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 1rem;
+  margin-bottom: 1rem;
+}
+.bar-label { font-weight: 550; }
+.bar-count { color: var(--ink-soft); }
+.bar .meter { grid-column: 1 / -1; max-width: none; }
+
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.1rem 2.25rem;
+  margin: 0;
+}
+.metric dt { color: var(--ink-soft); font-size: 0.9rem; }
+.metric dd { margin: 0.1rem 0 0; }
+.metric-value { font: 650 1.7rem/1.1 var(--font-display); }
+.metric-unit { color: var(--ink-soft); }
+
+/* --- файлы --- */
+
+.files { list-style: none; margin: 0; padding: 0; }
+.file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.1rem 1rem;
+  align-items: center;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line);
+}
+.file:first-child { border-top: 0; }
+.file-label { font-weight: 600; }
+.file-meta { grid-column: 1; color: var(--ink-soft); font-size: 0.9rem; overflow-wrap: anywhere; }
+.file .button { grid-column: 2; grid-row: 1 / span 2; }
+.file-missing .file-label { color: var(--ink-soft); }
+#files-notice:empty { display: none; }
+
+/* --- таблицы --- */
+
+.table-block { margin-bottom: 1.5rem; }
+.table-block .hint { margin: 0 0 0.6rem; }
+.table-scroll {
+  overflow: auto;
+  max-height: 28rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+}
+table { border-collapse: collapse; font-size: 0.9rem; min-width: 100%; }
+th, td {
+  padding: 0.45rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--line);
+  min-width: 5rem;
+  max-width: 24rem;
+  overflow-wrap: break-word;
+}
+td.num { white-space: nowrap; min-width: 0; }
+th { position: sticky; top: 0; background: var(--surface); font-weight: 600; white-space: nowrap; }
+tbody tr:last-child td { border-bottom: 0; }
+
+/* --- журнал --- */
+
+.log-filter { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-weight: 400; color: var(--ink-soft); font-size: 0.92rem; }
+.log-filter select {
+  min-height: 2.2rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.log {
+  list-style: none;
+  margin: 0;
+  padding: 0.3rem 0;
+  max-height: 32rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  font-size: 0.9rem;
+}
+.log-entry {
+  display: grid;
+  grid-template-columns: 4.6rem 6.5rem minmax(0, 1fr);
+  gap: 0 0.6rem;
+  padding: 0.25rem 0.8rem;
+}
+.log-time { color: var(--ink-soft); font-family: var(--mono); font-size: 0.85rem; }
+.log-level { color: var(--ink-soft); font-size: 0.85rem; }
+.log-msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.lvl-warn .log-level { color: var(--partial); font-weight: 600; }
+.lvl-error { background: var(--failed-bg); }
+.lvl-error .log-level, .lvl-error .log-msg { color: var(--failed); font-weight: 550; }
+.lvl-raw .log-msg { font-family: var(--mono); font-size: 0.85rem; color: var(--ink-soft); }
+.log-note { font-family: var(--font); }
+.log-app { border-left: 3px solid var(--action); }
+.log-source {
+  display: inline-block;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--running-bg);
+  color: var(--running);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* Фильтр по уровню: класс на списке скрывает строки ниже выбранного уровня. Сырые строки видны всегда. */
+.log[data-min="info"] .lvl-debug,
+.log[data-min="warn"] .lvl-debug, .log[data-min="warn"] .lvl-info,
+.log[data-min="error"] .lvl-debug, .log[data-min="error"] .lvl-info, .log[data-min="error"] .lvl-warn { display: none; }
+
+.log-empty { display: none; }
+.log-is-empty .log { display: none; }
+.log-is-empty .log-empty { display: block; }
+
+/* --- узкие экраны --- */
+
+@media (max-width: 720px) {
+  .run-now { grid-template-columns: 1fr; }
+  .trail { flex-direction: column; gap: 0; }
+  .trail-step { max-width: none; padding: 0 0 1.1rem 1.6rem; }
+  .trail-step::before {
+    top: 0.85rem; bottom: 0; left: 0.33rem; right: auto; width: 2px; height: auto;
+    background: repeating-linear-gradient(180deg, var(--action) 0 5px, transparent 5px 9px);
+  }
+  .trail-step::after { top: 0.2rem; }
+  .log-entry { grid-template-columns: 4.6rem minmax(0, 1fr); }
+  .log-level { grid-column: 2; }
+  .log-msg { grid-column: 1 / -1; }
+  .file { grid-template-columns: 1fr; }
+  .file .button { grid-column: 1; grid-row: auto; justify-self: start; margin-top: 0.4rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trail-active::after { animation: none; }
+}

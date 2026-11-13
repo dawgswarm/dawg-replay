@@ -18,6 +18,7 @@ from starlette.templating import Jinja2Templates
 from dawg_replay import forms
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
+from dawg_replay.web import run_screen
 from dawg_replay.web.security import Secrets
 
 # Статус запуска словами для человека и класс оформления.
@@ -203,15 +204,6 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         return await run_in_threadpool(work)
 
-    def run_page(request: Request) -> Response:
-        run_id = request.path_params["run_id"]
-        with _ui(request).open_app() as app:
-            try:
-                run = app.runs.get(run_id).to_dict()
-            except ReplayError as e:
-                return page(request, "error.html", active="scripts", message=e.message, status_code=404)
-        return page(request, "run_stub.html", active="scripts", run=run)
-
     async def runs_events(request: Request) -> Response:
         """SSE: сигнал «запуски изменились» для живого обновления списков."""
         from dawg_replay.web.server import sse_stream
@@ -291,7 +283,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
-        Route("/runs/{run_id}", run_page),
+        *run_screen.routes(templates),
         Route("/events/runs", runs_events),
         Route("/settings", settings),
         Route("/settings/key", settings_key, methods=["POST"]),

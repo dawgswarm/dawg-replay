@@ -1,0 +1,5 @@
+<li class="log-entry lvl-{{ e.level }}{% if e.source %} log-app{% endif %}">
+  <span class="log-time">{{ e.ts | clock }}</span>
+  <span class="log-level">{{ LEVEL_WORDS.get(e.level, e.level) }}</span>
+  <span class="log-msg">{% if e.source %}<span class="log-source">приложение</span> {% endif %}{{ e.msg }}{% if e.note %}<span class="log-note"> ({{ e.note }}{% if e.line %}, строка {{ e.line }}{% endif %})</span>{% endif %}</span>
+</li>
