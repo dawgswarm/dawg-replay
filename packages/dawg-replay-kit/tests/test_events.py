@@ -39,7 +39,8 @@ def sink():
 
 @pytest.fixture
 def em(sink, clock, tmp_path):
-    return Emitter(sink, secrets=["s3cret", "tok"], output_dir=tmp_path, clock=clock)
+    # Ручные часы: таймер отключён, отложенное уходит только по событиям (это проверяется ниже).
+    return Emitter(sink, secrets=["s3cret", "tok"], output_dir=tmp_path, clock=clock, auto_flush=False)
 
 
 def strip_ts(events):
@@ -234,3 +235,140 @@ def test_console_format(tmp_path):
     assert "ИТОГ ok: готово" in text
     assert "s3cret" not in text
     assert all(re.match(r"\[\d\d:\d\d:\d\d\] ", line) for line in text.splitlines())
+
+
+# --- отложенное значение уходит по таймеру ------------------------------------
+
+import subprocess  # noqa: E402
+import sys  # noqa: E402
+import threading  # noqa: E402
+import time  # noqa: E402
+
+
+def read_jsonl(path):
+    return [json.loads(x) for x in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_pending_progress_goes_out_by_timer_without_events(tmp_path):
+    f = tmp_path / "events.jsonl"
+    em = Emitter(JsonlSink(f))
+    em.progress("p", "Страницы", 1, 10)
+    em.progress("p", "Страницы", 2, 10)  # в окне прореживания: отложено
+    em.metric("m", "Карточки", 5)
+    em.metric("m", "Карточки", 7)
+    assert [e.get("done", e.get("value")) for e in read_jsonl(f)] == [1, 5]
+    time.sleep(0.4)  # скрипт ждёт страницу, событий нет
+    assert [e.get("done", e.get("value")) for e in read_jsonl(f)] == [1, 5, 2, 7]
+    em.close()
+
+
+def test_timer_fires_close_to_window(tmp_path):
+    f = tmp_path / "events.jsonl"
+    em = Emitter(JsonlSink(f))
+    em.progress("p", "P", 1, 10)
+    t0 = time.monotonic()
+    em.progress("p", "P", 2, 10)
+    deadline = t0 + 2
+    while len(read_jsonl(f)) < 2 and time.monotonic() < deadline:
+        time.sleep(0.005)
+    elapsed = time.monotonic() - t0
+    assert len(read_jsonl(f)) == 2
+    assert 0.2 <= elapsed < 0.6, elapsed  # окно 0.25 с плюс запас на загруженную машину
+    em.close()
+
+
+def test_timer_respects_newer_value_and_window(tmp_path):
+    f = tmp_path / "events.jsonl"
+    em = Emitter(JsonlSink(f))
+    for i in range(1, 51):  # плотный цикл ~0.5 с
+        em.progress("p", "P", i, 100)
+        time.sleep(0.01)
+    time.sleep(0.35)
+    done = [e["done"] for e in read_jsonl(f)]
+    assert done[-1] == 50  # последнее значение не потерялось
+    assert len(done) <= 5  # не чаще 4 раз в секунду, плюс первое
+    em.close()
+
+
+def test_close_stops_timer_and_nothing_written_after(tmp_path):
+    f = tmp_path / "events.jsonl"
+    em = Emitter(JsonlSink(f))
+    em.metric("m", "M", 1)
+    em.metric("m", "M", 2)
+    timer = em._timer
+    assert timer is not None and timer.daemon
+    em.close()  # отложенное уходит в close, а не таймером после закрытия
+    assert [e["value"] for e in read_jsonl(f)] == [1, 2]
+    timer.join(1)
+    assert not timer.is_alive()
+    em.metric("m", "M", 3)
+    time.sleep(0.3)
+    assert [e["value"] for e in read_jsonl(f)] == [1, 2]
+
+
+def test_close_races_with_timer(tmp_path):
+    # Закрытие ровно на границе окна много раз подряд: без исключений и без записи после закрытия.
+    for i in range(30):
+        f = tmp_path / f"e{i}.jsonl"
+        sink = JsonlSink(f)
+        em = Emitter(sink, throttle=0.01)
+        em.progress("p", "P", 1, 10)
+        em.progress("p", "P", 2, 10)
+        time.sleep(0.01)
+        em.close()
+        assert [e["done"] for e in read_jsonl(f)] == [1, 2]
+
+
+def test_concurrent_updates_from_threads(tmp_path):
+    f = tmp_path / "events.jsonl"
+    em = Emitter(JsonlSink(f), throttle=0.05)
+
+    def work(n):
+        for i in range(1, 101):
+            em.progress(f"p{n}", "P", i, 1000)
+
+    threads = [threading.Thread(target=work, args=(n,)) for n in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    time.sleep(0.2)
+    events = read_jsonl(f)
+    last = {}
+    for e in events:
+        last[e["id"]] = e["done"]
+    assert last == {f"p{n}": 100 for n in range(4)}
+    em.close()
+
+
+SIGTERM_SCRIPT = """
+import os, signal, sys, time
+from pathlib import Path
+from dawg_replay_kit import cancel
+from dawg_replay_kit.events import Emitter, JsonlSink
+
+em = Emitter(JsonlSink(sys.argv[1]))
+cancel.install()
+try:
+    em.progress("p", "P", 1, 10)
+    em.progress("p", "P", 2, 10)
+    time.sleep(0.4)          # таймер уже отправил 2
+    em.progress("p", "P", 3, 10)  # окно после таймерной отправки 2 ещё идёт: отложено
+    em.progress("p", "P", 4, 10)  # заменяет 3; сигнал приходит раньше таймера
+    os.kill(os.getpid(), signal.SIGTERM)
+    time.sleep(5)
+finally:
+    em.log("info", "finally")
+    em.close()
+"""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM самому себе проверяется на POSIX")
+def test_sigterm_exit_with_timer(tmp_path):
+    f = tmp_path / "events.jsonl"
+    p = subprocess.run([sys.executable, "-c", SIGTERM_SCRIPT, str(f)], capture_output=True, text=True, timeout=20)
+    assert p.returncode == 143, p.stderr
+    assert "Traceback" not in p.stderr and "Exception" not in p.stderr, p.stderr
+    events = read_jsonl(f)
+    assert [e.get("done") for e in events if e["t"] == "progress"] == [1, 2, 4]
+    assert "finally" in [e.get("msg") for e in events]
