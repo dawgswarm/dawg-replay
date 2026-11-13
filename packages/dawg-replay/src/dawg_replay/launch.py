@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import hooks, procinfo
+from dawg_replay import devkit, hooks, procinfo
 from dawg_replay.errors import ReplayError
 from dawg_replay.registry import invalid_manifest
 from dawg_replay.runner import (
@@ -86,6 +86,21 @@ def script_command() -> list[str]:
     return cmd
 
 
+def run_command(app: App) -> tuple[list[str], dict[str, str]]:
+    """Команда запуска script.py и добавки к окружению.
+
+    `DAWG_REPLAY_SCRIPT_COMMAND` (тесты) важнее всего. Иначе `uv run`, а с настройкой
+    `dev_kit_source` ещё локальная сборка kit (dawg_replay.devkit).
+    """
+    if os.environ.get(ENV_SCRIPT_COMMAND):
+        return script_command(), {}
+    source = app.config.dev_kit_source
+    if not source:
+        return list(DEFAULT_COMMAND), {}
+    kit = devkit.ensure(source, app.paths.dev_kit)
+    return [*DEFAULT_COMMAND, *kit.uv_args], kit.env
+
+
 # --- подготовка ----------------------------------------------------------------
 
 
@@ -100,6 +115,7 @@ class Prepared:
     base_url: str | None
     command: list[str]
     warnings: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
 
     def payload(self) -> dict[str, Any]:
         return {
@@ -108,6 +124,7 @@ class Prepared:
             "api_key": self.api_key,
             "base_url": self.base_url,
             "command": self.command,
+            "env": self.env,
         }
 
 
@@ -190,6 +207,7 @@ def prepare(
     if api_key is None:
         warnings.append("ключ DAWG не задан (dawg-replay config set-key): браузеры DAWG в этом запуске недоступны")
     timeout_minutes = min(manifest.timeout_minutes, cfg.max_timeout_minutes)
+    command, env = run_command(app)
 
     run_id = new_run_id()
     run_dir = app.paths.run_dir(run_id)
@@ -221,8 +239,9 @@ def prepare(
         secret_names=secret_names,
         api_key=api_key,
         base_url=cfg.base_url or None,
-        command=script_command(),
+        command=command,
         warnings=warnings,
+        env=env,
     )
 
 
@@ -253,6 +272,7 @@ def supervise(
         timeout=rec.timeout_seconds,
         grace=cfg.cancel_grace_seconds,
         command=payload.get("command") or DEFAULT_COMMAND,
+        env=payload.get("env") or None,
         after_exit=hooks.after_exit_hooks(),
         secrets_dir=app.paths.secrets_tmp,
     )

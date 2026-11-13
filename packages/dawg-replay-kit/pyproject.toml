@@ -1,9 +1,13 @@
 [project]
 name = "dawg-replay-kit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Библиотека для скриптов dawg-replay: параметры, события, браузеры DAWG"
 requires-python = ">=3.10"
 dependencies = ["tomli>=2; python_version < '3.11'"]
+
+[tool.hatch.version]
+# Единственное место версии: __version__ в пакете. Мажор kit совпадает с мажором контракта.
+path = "src/dawg_replay_kit/__init__.py"
 
 [build-system]
 requires = ["hatchling"]
