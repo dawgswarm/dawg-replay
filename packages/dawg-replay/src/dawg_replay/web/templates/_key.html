@@ -1,0 +1,26 @@
+<div id="key-panel">
+  <p class="key-state">
+    {% if s.keyring_error %}
+      <span class="status status-failed">хранилище паролей недоступно</span> {{ s.keyring_error }}
+    {% elif s.api_key_set %}
+      Ключ сохранён: <span class="key-hint">{{ s.api_key_hint }}</span>
+    {% else %}
+      Ключ не задан. Без него скрипты не смогут открыть браузер.
+    {% endif %}
+  </p>
+
+  {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+  {% if usage and saved %}<p class="notice notice-ok" role="status">Ключ проверен и сохранён{% if usage.plan %}, тариф «{{ usage.plan }}»{% endif %}.</p>{% endif %}
+  {% if usage and checked %}<p class="notice notice-ok" role="status">Ключ работает{% if usage.plan %}, тариф «{{ usage.plan }}»{% endif %}.</p>{% endif %}
+
+  <form class="key-form" hx-post="/settings/key" hx-target="#key-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <label for="api_key">{% if s.api_key_set %}Заменить ключ{% else %}Ключ из личного кабинета DAWG{% endif %}</label>
+    <div class="row">
+      <input id="api_key" name="api_key" type="password" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Проверить и сохранить</button>
+    </div>
+  </form>
+  {% if s.api_key_set %}
+  <button class="secondary" hx-post="/settings/key/check" hx-target="#key-panel" hx-swap="outerHTML" hx-disabled-elt="this">Проверить сохранённый ключ</button>
+  {% endif %}
+</div>

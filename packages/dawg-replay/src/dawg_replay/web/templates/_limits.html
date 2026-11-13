@@ -1,0 +1,15 @@
+<form id="limits-panel" class="limits" hx-post="/settings/limits" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+  {% if saved %}<p class="notice notice-ok" role="status">Ограничения сохранены.</p>{% endif %}
+  <div class="field">
+    <label for="max_parallel_runs">Сколько запусков могут идти одновременно</label>
+    <input id="max_parallel_runs" name="max_parallel_runs" type="number" min="1" inputmode="numeric" value="{{ s.max_parallel_runs }}" required>
+    <p class="hint">Лишний запуск приложение не начнёт и объяснит, какие уже идут.</p>
+  </div>
+  <div class="field">
+    <label for="max_timeout_minutes">Самый долгий запуск, минут</label>
+    <input id="max_timeout_minutes" name="max_timeout_minutes" type="number" min="1" inputmode="numeric" value="{{ s.max_timeout_minutes }}" required>
+    <p class="hint">У каждого скрипта свой предел времени. Здесь общий потолок: дольше этого не проработает ни один запуск.</p>
+  </div>
+  <button type="submit">Сохранить ограничения</button>
+</form>

@@ -72,6 +72,9 @@ def _toml_value(v: Any) -> str:
     return str(v)
 
 
+coerce = _coerce  # проверка и приведение значения настройки для внешних модулей
+
+
 def save_config(path: Path, cfg: Config) -> None:
     lines = [f"{k} = {_toml_value(v)}" for k, v in cfg.to_dict().items()]
     tmp = path.with_suffix(".toml.tmp")

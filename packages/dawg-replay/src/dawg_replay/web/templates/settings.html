@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Настройки, dawg-replay{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Настройки</h1>
+</div>
+
+<section class="panel" aria-labelledby="key-title">
+  <h2 id="key-title">Ключ DAWG</h2>
+  <p class="hint">По ключу скрипты получают облачные браузеры DAWG, за работу браузеров списываются минуты тарифа. Ключ хранится в системном хранилище паролей, на экране видны только последние четыре символа.</p>
+  {% include "_key.html" %}
+</section>
+
+<section class="panel" aria-labelledby="usage-title">
+  <h2 id="usage-title">Минуты и браузеры</h2>
+  <div id="usage" hx-get="/settings/usage" hx-trigger="load, key-saved from:body" hx-swap="innerHTML">
+    <p class="hint">Спрашиваю у платформы DAWG…</p>
+  </div>
+</section>
+
+<section class="panel" aria-labelledby="limits-title">
+  <h2 id="limits-title">Ограничения запусков</h2>
+  {% include "_limits.html" %}
+</section>
+{% endblock %}

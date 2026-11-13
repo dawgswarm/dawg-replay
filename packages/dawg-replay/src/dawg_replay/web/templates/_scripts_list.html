@@ -1,0 +1,36 @@
+<div id="scripts-list" hx-get="/scripts/_list" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
+{% if not items %}
+  <div class="empty">
+    <h2>Скриптов пока нет</h2>
+    <p>Попросите агента собрать скрипт под вашу задачу. Готовый файл добавьте командой</p>
+    <pre class="command">dawg-replay add script.py</pre>
+    <p>и он появится здесь.</p>
+  </div>
+{% else %}
+  <ul class="scripts">
+  {% for item in items %}
+    {% set s = item.script %}{% set r = item.last_run %}
+    <li class="script">
+      <div class="script-main">
+        <h2><a href="/scripts/{{ s.name }}">{{ s.title }}</a></h2>
+        {% if s.description %}<p class="script-desc">{{ s.description }}</p>{% endif %}
+        <p class="script-id">{{ s.name }}, версия {{ s.current_version }}</p>
+      </div>
+      <div class="script-last">
+        {% if r %}
+          {% set st = r.label | status %}
+          <a class="last-run" href="/runs/{{ r.id }}">
+            <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+            <span class="last-when">{{ r.created_at | when }}</span>
+          </a>
+          {% if r.summary %}<p class="last-summary">{{ r.summary }}</p>{% endif %}
+        {% else %}
+          <p class="never">Ещё не запускался</p>
+        {% endif %}
+      </div>
+      <a class="button" href="/scripts/{{ s.name }}">Запустить</a>
+    </li>
+  {% endfor %}
+  </ul>
+{% endif %}
+</div>

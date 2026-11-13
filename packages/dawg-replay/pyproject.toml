@@ -6,6 +6,11 @@ requires-python = ">=3.10"
 dependencies = [
     "dawg-replay-kit",
     "dawg-sdk-python>=0.4,<0.5",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "python-multipart>=0.0.9",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
     "keyring>=25",
     "platformdirs>=4",
     "tomli>=2; python_version < '3.11'",

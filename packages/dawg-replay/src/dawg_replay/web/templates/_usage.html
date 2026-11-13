@@ -1,0 +1,16 @@
+{% if usage %}
+  {% set inc = usage.included_minutes or 0 %}{% set rem = usage.remaining_minutes %}
+  {% if rem is not none %}
+  <p class="usage-main"><span class="usage-num">{{ rem | number }}</span> мин осталось{% if inc %} из {{ inc | number }}{% endif %}{% if usage.plan %} по тарифу «{{ usage.plan }}»{% endif %}</p>
+  {% if inc %}
+  <progress class="meter" max="{{ inc }}" value="{{ [[rem, 0] | max, inc] | min }}" aria-label="Осталось минут"></progress>
+  {% endif %}
+  {% endif %}
+  {% if usage.max_browsers %}
+  <p class="hint">Браузеров открыто сейчас: {{ usage.active_browsers or 0 }} из {{ usage.max_browsers }} по тарифу. Сюда входят и браузеры других программ на этом ключе.</p>
+  {% endif %}
+{% elif code == "no_api_key" %}
+  <p class="hint">Сохраните ключ, чтобы увидеть остаток минут.</p>
+{% else %}
+  <p class="notice notice-error">{{ error }}</p>
+{% endif %}

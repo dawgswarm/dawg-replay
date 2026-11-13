@@ -87,6 +87,10 @@ class FakeDawg:
                     return
                 if self.path == "/api/v1/browsers":
                     return self._send(200, {"success": True, "data": list(fake.sessions.values())})
+                if self.path == "/api/v1/usage":
+                    return self._send(200, {"success": True, "data": {
+                        "plan": "test", "usedMinutes": 12.5, "includedMinutes": 600, "remainingMinutes": 587.5,
+                        "activeBrowsers": len(fake.sessions), "maxBrowsers": 5}})
                 parts = self.path.strip("/").split("/")
                 if len(parts) == 5 and parts[:2] == ["dawg", "baas"] and parts[3:] == ["json", "version"]:
                     bid = parts[2]
