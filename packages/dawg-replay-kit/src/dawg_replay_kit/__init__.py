@@ -11,6 +11,10 @@
 Окружение читается при первом обращении к kit: манифест из файла скрипта,
 параметры из `DAWG_SCRIPT_PARAMS` или из аргументов командной строки.
 Если параметры не подходят, скрипт завершается с кодом 2 и объяснением в stderr.
+
+При инициализации kit ставит обработчик SIGTERM (на Windows CTRL_BREAK): отмена
+запуска из приложения превращается в SystemExit(143), поэтому `finally`
+и `atexit` срабатывают, а отложенные события дописываются в файл.
 """
 
 from __future__ import annotations
@@ -21,6 +25,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from dawg_replay_kit import cancel
 from dawg_replay_kit.events import Log
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
@@ -61,6 +66,8 @@ def init(**kwargs: Any) -> Kit:
                 print(f"dawg-replay-kit: {e}", file=sys.stderr, flush=True)
                 raise SystemExit(EXIT_BAD_PARAMS) from None
             atexit.register(_kit.close)
+            # SIGTERM и CTRL_BREAK превращаются в SystemExit: finally и atexit успевают отработать.
+            cancel.install()
         return _kit
 
 

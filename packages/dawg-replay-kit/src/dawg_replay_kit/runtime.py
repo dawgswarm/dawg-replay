@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from dawg_replay_kit import parameters
+from dawg_replay_kit import cancel, parameters
 from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink, Sink
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import Params, ParamsError
@@ -88,6 +88,9 @@ class Kit:
         return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous)
 
     def close(self) -> None:
+        if cancel.received() is not None:
+            # Пишется после finally скрипта: отложенные события уже ушли, это последняя строка.
+            self.events.log("warn", "запуск прерван сигналом отмены")
         self.events.close()
 
 
