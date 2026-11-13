@@ -22,13 +22,14 @@
 from __future__ import annotations
 
 import json
+import threading
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
-from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL, Sessions
+from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL, HTTP_TIMEOUT, Sessions
 from dawg_replay_kit.events import now_iso
 
 REPORT_FILE = "insurance.json"
@@ -38,6 +39,27 @@ SOURCE = "dawg-replay"
 # между отправкой POST и ответом (таймаут POST в kit 30 с). Запас на расхождение часов.
 WINDOW_BEFORE = timedelta(seconds=15)
 WINDOW_AFTER = timedelta(seconds=90)
+
+# Если процесс оборвался во время POST, платформа может доделать браузер уже после
+# его смерти. Перед поиском suspects ждём, пока POST гарантированно закончился бы:
+# provisioning + таймаут POST в kit + запас. Не дольше этого срока от текущего момента
+# (защита от странных ts в событиях).
+POST_TIMEOUT = timedelta(seconds=HTTP_TIMEOUT)
+POST_MARGIN = timedelta(seconds=5)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# wait(seconds) -> True, если подождали полностью; False, если ожидание прервали.
+Wait = Callable[[float], bool]
+
+
+def event_wait(stop: threading.Event | None) -> Wait:
+    """Ожидание, которое прерывается событием `stop` (отмена запуска, выход приложения)."""
+    stop = stop if stop is not None else threading.Event()
+    return lambda seconds: not stop.wait(seconds)
 
 
 class SessionsApi(Protocol):
@@ -62,6 +84,8 @@ class Report:
     suspects: list[dict[str, Any]] = field(default_factory=list)  # сессии ключа из окна provisioning
     pending_provisioning: list[str] = field(default_factory=list)
     error: str | None = None
+    waited_s: float = 0.0  # сколько ждали окончания POST перед поиском suspects
+    wait_interrupted: bool = False
 
     @property
     def clean(self) -> bool:
@@ -144,11 +168,34 @@ def find_suspects(
     return out
 
 
-def insure(run_dir: Path, api: Callable[[], SessionsApi] | None, finished_at: str | None = None) -> Report:
+def post_wait_seconds(pending: list[str], now: datetime) -> float:
+    """Сколько ждать перед поиском suspects: до последнего provisioning + таймаут POST + запас."""
+    starts = [t for t in (_parse_ts(ts) for ts in pending) if t is not None]
+    if not starts:
+        return 0.0
+    limit = POST_TIMEOUT + POST_MARGIN
+    until = max(starts) + limit
+    return max(0.0, min((until - now).total_seconds(), limit.total_seconds()))
+
+
+def insure(
+    run_dir: Path,
+    api: Callable[[], SessionsApi] | None,
+    finished_at: str | None = None,
+    *,
+    now: Callable[[], datetime] | None = None,
+    wait: Wait | None = None,
+) -> Report:
     """Освобождает браузеры запуска по его событиям. Пишет итог в лог запуска и insurance.json.
 
     `api` создаёт клиента только если есть что делать; None значит, что ключа DAWG нет.
+    Сессии с `open` без `close` освобождаются сразу. Только если есть `provisioning`
+    без `open` и `failed`, перед списком сессий ключа страховка ждёт окончания POST
+    (`post_wait_seconds`). `wait` прерываемый: при отмене или выходе приложения
+    список берётся сразу, итог тот же, в отчёте `wait_interrupted`.
     """
+    now = now if now is not None else _utcnow
+    wait = wait if wait is not None else event_wait(None)
     run_dir = Path(run_dir)
     events_path = run_dir / "events.jsonl"
     scan = scan_events(events_path)
@@ -188,6 +235,19 @@ def insure(run_dir: Path, api: Callable[[], SessionsApi] | None, finished_at: st
                     report.failed.append({"session_id": sid, "error": str(e)})
                     lines.append(("error", f"страховка: браузер {sid} не освобождён: {e}"))
             if scan.pending:
+                delay = post_wait_seconds(scan.pending, now())
+                if delay > 0:
+                    started = now()
+                    report.wait_interrupted = not wait(delay)
+                    report.waited_s = round(max(0.0, (now() - started).total_seconds()), 3)
+                    if report.wait_interrupted:
+                        lines.append(
+                            (
+                                "warn",
+                                "страховка: ожидание окончания создания браузера прервано, "
+                                "список сессий ключа может быть неполным",
+                            )
+                        )
                 try:
                     report.suspects = find_suspects(client.list(), scan.pending, scan.known, finished_at)
                 except Exception as e:
@@ -245,9 +305,11 @@ def hook(
     api_key: str | Callable[[], str | None] | None,
     base_url: str | Callable[[], str | None] | None = None,
     sessions: Callable[[], SessionsApi] | None = None,
+    stop: threading.Event | None = None,
 ):
     """Хук after_exit. Ключ и base_url можно передать функциями: тогда они читаются
-    (keyring, config.toml) только если страховке есть что делать."""
+    (keyring, config.toml) только если страховке есть что делать. `stop` прерывает
+    ожидание окончания POST (отмена запуска, выход приложения)."""
 
     def factory() -> SessionsApi:
         if sessions is not None:
@@ -259,7 +321,12 @@ def hook(
         return Sessions(key, url or DEFAULT_BASE_URL)
 
     def insurance(outcome: Any) -> None:
-        insure(outcome.run_dir, factory if (sessions is not None or api_key) else None, getattr(outcome, "finished_at", None))
+        insure(
+            outcome.run_dir,
+            factory if (sessions is not None or api_key) else None,
+            getattr(outcome, "finished_at", None),
+            wait=event_wait(stop),
+        )
 
     return insurance
 

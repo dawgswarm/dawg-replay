@@ -261,6 +261,9 @@ def supervise(
     rec = store.get(run_id)
     store.set_supervisor(run_id, os.getpid(), procinfo.start_time(os.getpid()))
     cfg = app.config
+    # Прерывает ожидание страховки (окончание POST) при отмене или выходе приложения.
+    # Цикл ниже крутится и пока работают хуки, так что отмена доходит и до них.
+    hooks_stop = threading.Event()
     run = ScriptRun(
         rec.script_path,
         run_id,
@@ -273,7 +276,7 @@ def supervise(
         grace=cfg.cancel_grace_seconds,
         command=payload.get("command") or DEFAULT_COMMAND,
         env=payload.get("env") or None,
-        after_exit=[_insurance(app, payload.get("api_key")), *hooks.after_exit_hooks()],
+        after_exit=[_insurance(app, payload.get("api_key"), stop=hooks_stop), *hooks.after_exit_hooks()],
         secrets_dir=app.paths.secrets_tmp,
     )
     try:
@@ -297,6 +300,7 @@ def supervise(
             (interrupted is not None and interrupted.is_set()) or store.cancel_requested(run_id)
         ):
             cancelling = True
+            hooks_stop.set()
             run.cancel()
         if time.monotonic() - last_beat >= HEARTBEAT_SECONDS:
             store.heartbeat(run_id)
@@ -482,8 +486,9 @@ def _close_lost(app: App, rec: Run, reason: str, killed: bool) -> bool:
     return True
 
 
-def _insurance(app: App, api_key: str | None = None):
-    """Страховка браузеров. Ключ из payload запуска, иначе из keyring; читается, только если есть что освобождать."""
+def _insurance(app: App, api_key: str | None = None, stop: threading.Event | None = None):
+    """Страховка браузеров. Ключ из payload запуска, иначе из keyring; читается, только если есть что освобождать.
+    `stop` прерывает ожидание окончания POST при отмене или выходе приложения."""
 
     def key() -> str | None:
         if api_key:
@@ -499,7 +504,7 @@ def _insurance(app: App, api_key: str | None = None):
         except ReplayError:
             return None
 
-    return insurance.hook(key, base_url)
+    return insurance.hook(key, base_url, stop=stop)
 
 
 def _remove_secret_dirs(app: App, run_id: str) -> None:
