@@ -119,9 +119,18 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 
 def _runs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     launch.recover_lost(app)
+    from dawg_replay import cli_release
+
     runs = app.runs.list(args.name, args.limit)
-    text = "\n".join(_run_line(r) for r in runs) or "запусков нет"
-    return {"runs": [r.to_dict() for r in runs]}, text
+    out, lines = [], []
+    for r in runs:
+        suspects = cli_release.suspects_for(app, r.id)
+        out.append({**r.to_dict(), "suspects": suspects})
+        line = _run_line(r)
+        if suspects:
+            line += f"\n    возможно, остался браузер ({len(suspects)}): dawg-replay logs {r.id}"
+        lines.append(line)
+    return {"runs": out}, "\n".join(lines) or "запусков нет"
 
 
 def _read(path: Path) -> str:
@@ -133,8 +142,12 @@ def _read(path: Path) -> str:
 
 def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     launch.recover_lost(app)
+    from dawg_replay import cli_release
+
     rec = app.runs.get(args.run_id)
     run_dir = app.paths.run_dir(rec.id)
+    suspects = cli_release.suspects_for(app, rec.id)
+    warning = "\n".join(cli_release.warning_lines(app, rec.id))
     if args.events:
         lines = _read(run_dir / "events.jsonl").splitlines()
         events: list[Any] = []
@@ -145,12 +158,16 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
                 events.append({"t": "raw", "line": line})
         sink = ConsoleSink(None, run_dir / "output")
         text = "\n".join(format_event_line(line, sink) for line in lines) or "событий нет"
-        return {"run": rec.to_dict(), "events": events}, text
+        if warning:
+            text += "\n\n" + warning
+        return {"run": rec.to_dict(), "events": events, "suspects": suspects}, text
     stdout, stderr = _read(run_dir / "stdout.log"), _read(run_dir / "stderr.log")
     parts = [f"запуск {rec.id}: {rec.label}"]
+    if warning:
+        parts.append(warning)
     parts += ["--- stdout ---", stdout.rstrip("\n")] if stdout else ["--- stdout пуст ---"]
     parts += ["--- stderr ---", stderr.rstrip("\n")] if stderr else ["--- stderr пуст ---"]
-    return {"run": rec.to_dict(), "stdout": stdout, "stderr": stderr}, "\n".join(parts)
+    return {"run": rec.to_dict(), "stdout": stdout, "stderr": stderr, "suspects": suspects}, "\n".join(parts)
 
 
 def _cancel(app: App, args: argparse.Namespace) -> tuple[dict, str]:
