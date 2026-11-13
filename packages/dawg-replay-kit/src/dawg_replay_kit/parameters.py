@@ -90,8 +90,30 @@ class Params:
         return f"Params({self.to_dict()!r})"
 
 
+TEXT_TYPES = ("string", "text", "url", "secret", "enum")
+
+
+def is_blank(param: Param, value: Any) -> bool:
+    """Значение считается незаданным: None, строка из одних пробелов (string, text, url,
+    secret, enum) или пустой список (url_list, string_list).
+
+    Единственное место этого правила: им пользуются и kit, и приложение (через resolve).
+    """
+    if value is None:
+        return True
+    if param.type in TEXT_TYPES:
+        return isinstance(value, str) and not value.strip()
+    if param.type in LIST_TYPES:
+        return isinstance(value, (list, tuple)) and len(value) == 0
+    return False
+
+
 def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params:
-    """Проверяет значения и подставляет default. Все ошибки собираются в одну ParamsError."""
+    """Проверяет значения и подставляет default. Все ошибки собираются в одну ParamsError.
+
+    Пустое значение (`is_blank`) считается незаданным: берётся default, у обязательного
+    параметра без default это ошибка, у необязательного значения нет.
+    """
     problems: list[str] = []
     known = {p.name for p in manifest.params}
     for name in given:
@@ -100,12 +122,15 @@ def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params
 
     values: dict[str, Any] = {}
     for p in manifest.params:
-        if p.name in given and given[p.name] is not None:
+        if p.name in given and not is_blank(p, given[p.name]):
             value = given[p.name]
-        elif p.has_default:
+        elif p.has_default and not is_blank(p, p.default):
             value = p.default
         elif p.required:
-            problems.append(f"`{p.name}`: {_missing_hint(p, source)}")
+            hint = _missing_hint(p, source)
+            if p.name in given and given[p.name] is not None:
+                hint += " (пустое значение не считается)"
+            problems.append(f"`{p.name}`: {hint}")
             continue
         else:
             continue

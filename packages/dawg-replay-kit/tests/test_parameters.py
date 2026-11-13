@@ -173,3 +173,133 @@ def test_help_mentions_secret_env(manifest):
     text = build_arg_parser(manifest, "script.py").format_help()
     assert "--max-pages" in text and "DAWG_SECRET_SHEET_TOKEN" in text
     assert "--sheet-token" not in text
+
+
+# --- пустое значение = не задано ------------------------------------------------
+
+from dawg_replay_kit.manifest import parse_manifest  # noqa: E402
+from dawg_replay_kit.parameters import is_blank, resolve  # noqa: E402
+
+BLANKS_MANIFEST = """\
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["dawg-replay-kit"]
+# ///
+
+# /// dawg-script
+# contract = 1
+# name = "blanks"
+# title = "Пустые значения"
+# version = 1
+#
+# [[params]]
+# name = "query"
+# type = "string"
+# title = "Запрос"
+# required = true
+#
+# [[params]]
+# name = "note"
+# type = "text"
+# title = "Заметка"
+#
+# [[params]]
+# name = "site"
+# type = "url"
+# title = "Сайт"
+# default = "https://example.com"
+#
+# [[params]]
+# name = "mode"
+# type = "enum"
+# title = "Режим"
+# choices = ["fast", "full"]
+# default = "fast"
+#
+# [[params]]
+# name = "urls"
+# type = "url_list"
+# title = "Адреса"
+#
+# [[params]]
+# name = "tags"
+# type = "string_list"
+# title = "Метки"
+# required = true
+#
+# [[params]]
+# name = "token"
+# type = "secret"
+# title = "Токен"
+#
+# [[params]]
+# name = "pages"
+# type = "int"
+# title = "Страницы"
+# default = 1
+# ///
+"""
+
+
+@pytest.fixture
+def blanks():
+    return parse_manifest(BLANKS_MANIFEST)
+
+
+@pytest.mark.parametrize("value", ["", "   ", "\t\n "])
+def test_blank_required_string_is_missing(blanks, value):
+    with pytest.raises(ParamsError) as e:
+        resolve(blanks, {"query": value, "tags": ["a"]}, "приложение")
+    msg = str(e.value)
+    assert "`query`" in msg and "не задан" in msg and "пустое значение не считается" in msg
+
+
+def test_blank_optional_values_fall_back(blanks):
+    p = resolve(
+        blanks,
+        {"query": "x", "tags": ["a"], "note": "  ", "site": " ", "mode": "", "urls": [], "token": "   "},
+        "приложение",
+    )
+    assert p.note is None  # без default: значения нет
+    assert p.site == "https://example.com" and p.mode == "fast"  # default
+    assert p.urls is None and p.token is None
+    assert p.to_dict(mask_secrets=False) == {"query": "x", "site": "https://example.com", "mode": "fast", "tags": ["a"], "pages": 1}
+
+
+def test_empty_required_list_is_missing(blanks):
+    with pytest.raises(ParamsError, match="`tags`"):
+        resolve(blanks, {"query": "x", "tags": []}, "приложение")
+
+
+def test_non_blank_values_untouched(blanks):
+    p = resolve(blanks, {"query": "  ноутбук ", "tags": [""], "pages": 0}, "приложение")
+    assert p.query == "  ноутбук "  # не пустое: как есть
+    assert p.tags == [""]  # пустой только сам список
+    assert p.pages == 0  # для чисел правило не действует
+
+
+def test_is_blank_by_type(blanks):
+    by = {p.name: p for p in blanks.params}
+    assert is_blank(by["query"], " ") and is_blank(by["mode"], "") and is_blank(by["token"], "  ")
+    assert is_blank(by["urls"], []) and is_blank(by["tags"], ())
+    assert is_blank(by["query"], None)
+    assert not is_blank(by["query"], "a") and not is_blank(by["tags"], ["a"]) and not is_blank(by["pages"], 0)
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_from_cli_blank_required(manifest, value):
+    with pytest.raises(ParamsError) as e:
+        cli(manifest, ["--query", value])
+    assert "--query" in str(e.value) and "пустое значение не считается" in str(e.value)
+
+
+def test_from_cli_blank_secret_env_ignored(manifest):
+    p = cli(manifest, ["--query", "x"], env={"DAWG_SECRET_SHEET_TOKEN": "   "})
+    assert p.sheet_token is None
+
+
+def test_from_cli_blank_in_params_file(manifest, tmp_path):
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps({"query": "  "}), encoding="utf-8")
+    with pytest.raises(ParamsError, match="`query`"):
+        cli(manifest, ["--params", str(f)])

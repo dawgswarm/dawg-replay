@@ -472,3 +472,32 @@ def test_cancel_does_not_signal_foreign_group(app, foreign):
     assert (rec.label, rec.killed) == ("failed (cancelled)", False)
     time.sleep(0.2)
     assert other_sup.poll() is None and other_script.poll() is None
+
+
+# --- пустое значение параметра = не задано (dr-14) ---------------------------------
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_blank_required_value_fails_before_start(cli, registered, home, value):
+    code, data = cli("run", registered, "--set", f"query={value}", "--follow")
+    assert code == 1 and data["error"]["code"] == "bad_params"
+    assert "query" in data["error"]["message"] and "пустое значение не считается" in data["error"]["message"]
+    code, data = cli("runs")
+    assert data["runs"] == []  # записи running нет
+    assert not any((Path(home) / "runs").iterdir())
+
+
+def test_blank_required_value_in_background_and_params_file(cli, registered, home, tmp_path):
+    code, data = cli("run", registered, "--set", "query= ")
+    assert code == 1 and data["error"]["code"] == "bad_params"
+    f = tmp_path / "p.json"
+    f.write_text(json.dumps({"query": "   "}), encoding="utf-8")
+    code, data = cli("run", registered, "--params", str(f))
+    assert code == 1 and data["error"]["code"] == "bad_params"
+    assert cli("runs")[1]["runs"] == []
+
+
+def test_blank_optional_value_takes_default(cli, registered, home):
+    code, data = cli("run", registered, "--set", "query=x", "--set", "sort=  ", "--follow")
+    assert code == 0, data
+    assert seen(home, data["run"]["id"])["values"]["sort"] == "new"
