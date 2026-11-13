@@ -32,6 +32,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -291,7 +292,9 @@ def _human(p: Param, problem: str) -> str:
     if p.type in LIST_TYPES and "max_items" in problem:
         return f"не больше {p.max_items} строк, а введено больше"
     if p.type in ("url", "url_list") and "http" in problem:
-        return problem.replace("ожидается адрес", "нужен адрес")
+        # kit пишет значение в repr ('ozon.ru'), в форме нужны «ёлочки».
+        text = problem.replace("ожидается адрес", "нужен адрес")
+        return re.sub(r"получено (['\"])(.*)\1$", lambda m: f"введено «{m.group(2)}»", text)
     if p.type == "string" and "переводить строку" in problem:
         return "одна строка, без переводов строки"
     return problem
