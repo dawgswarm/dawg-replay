@@ -40,6 +40,11 @@ class Paths:
     def runs(self) -> Path:
         return self.home / "runs"
 
+    @property
+    def secrets_tmp(self) -> Path:
+        """Временные файлы параметров с секретами живых запусков (0700)."""
+        return self.home / "tmp"
+
     def script_dir(self, name: str) -> Path:
         return self.scripts / name
 
