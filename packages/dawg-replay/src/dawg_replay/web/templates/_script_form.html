@@ -1,0 +1,39 @@
+{% from "_field.html" import field %}
+<div id="script-form">
+  <div class="presets">
+    {% if f.presets %}
+    <label for="preset-select">Пресет</label>
+    <select id="preset-select" name="_preset" hx-get="/scripts/{{ f.name }}/_form" hx-target="#script-form" hx-swap="outerHTML">
+      <option value="" {% if not f.preset %}selected{% endif %}>без пресета: значения по умолчанию</option>
+      {% for p in f.presets %}<option value="{{ p }}" {% if f.preset == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+    </select>
+    {% else %}
+    <p class="hint">Пресетов пока нет. Заполните поля и сохраните их под именем внизу формы.</p>
+    {% endif %}
+  </div>
+
+  {% if f.dropped %}
+  <p class="notice notice-warn">Пресет «{{ f.preset }}» сохранён для другой версии скрипта. Текущая версия не принимает {{ "поле" if f.dropped | length == 1 else "поля" }} {{ f.dropped | join(", ") }}, {{ "его" if f.dropped | length == 1 else "их" }} значения пропущены.</p>
+  {% endif %}
+  {% if f.notice %}<p class="notice notice-ok" role="status">{{ f.notice }}</p>{% endif %}
+  {% if f.form_error %}<p class="notice notice-error" role="alert">{{ f.form_error }}</p>
+  {% elif f.has_errors %}<p class="notice notice-error" role="alert">Проверьте отмеченные поля: запуск не начат.</p>{% endif %}
+
+  <form id="params-form" hx-post="/scripts/{{ f.name }}/run" hx-target="#script-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" novalidate>
+    <input type="hidden" name="_preset" value="{{ f.preset or '' }}">
+    {% for fl in f.fields %}{{ field(fl) }}{% else %}<p class="hint">У скрипта нет параметров.</p>{% endfor %}
+    <div class="form-actions">
+      <button type="submit" class="run-button">Запустить</button>
+    </div>
+    {% if f.fields %}
+    <div class="preset-save">
+      <label for="preset-name">Сохранить эти значения как пресет</label>
+      <div class="row">
+        <input id="preset-name" name="_preset_name" type="text" placeholder="например, ноутбуки по цене" value="{{ f.preset or '' }}">
+        <button type="button" class="secondary" hx-post="/scripts/{{ f.name }}/presets" hx-include="#params-form" hx-target="#script-form" hx-swap="outerHTML">Сохранить пресет</button>
+      </div>
+      <p class="hint">Секреты в пресет не попадают. Пресет с тем же именем перезаписывается.</p>
+    </div>
+    {% endif %}
+  </form>
+</div>

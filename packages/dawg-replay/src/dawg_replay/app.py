@@ -104,6 +104,26 @@ class App:
 
         return hashlib.sha1(repr([tuple(r) for r in rows]).encode()).hexdigest()[:16]
 
+    def script_view(self, name: str, runs_limit: int = 20) -> dict[str, Any]:
+        """Экран скрипта: описание, версии, пресеты, история запусков, код текущей версии."""
+        script = self.registry.get(name)
+        current = self.registry.version(name)
+        try:
+            code = current.path.read_text(encoding="utf-8-sig")
+        except OSError as e:
+            code = None
+            code_error = f"файл текущей версии не читается: {e.strerror}"
+        else:
+            code_error = None
+        return {
+            "script": script.to_dict(),
+            "versions": [v.to_dict() for v in reversed(self.registry.versions(name))],
+            "presets": [p.name for p in self.list_presets(name)],
+            "runs": [r.to_dict() for r in self.runs.list(name, runs_limit)],
+            "code": code,
+            "code_error": code_error,
+        }
+
     def scripts_overview(self) -> list[dict[str, Any]]:
         """Список для экрана Скрипты: скрипт и его последний запуск."""
         out = []
