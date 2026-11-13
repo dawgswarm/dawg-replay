@@ -60,7 +60,7 @@ def boot_time() -> float | None:
 
 
 def same_process(pid: int | None, expected_start: float | None) -> bool:
-    """Процесс `pid` жив и стартовал тогда же, когда записанный. Без записи времени — False."""
+    """Процесс `pid` жив и стартовал тогда же, когда записанный. Без записи времени False."""
     if not pid or expected_start is None:
         return False
     actual = start_time(pid)
@@ -99,7 +99,7 @@ def _ps_start_time(pid: int) -> float | None:
     line = p.stdout.strip()
     if p.returncode != 0 or not line:
         return None
-    # "Sat Nov 14 02:35:27 2026 Ss": первые 5 слов — время, дальше состояние.
+    # "Sat Nov 14 02:35:27 2026 Ss": первые 5 слов это время, дальше состояние.
     parts = line.split()
     if len(parts) < 5:
         return None

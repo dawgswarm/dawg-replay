@@ -30,7 +30,7 @@
       <label for="preset-name">Сохранить эти значения как пресет</label>
       <div class="row">
         <input id="preset-name" name="_preset_name" type="text" placeholder="например, ноутбуки по цене" value="{{ f.preset or '' }}">
-        <button type="button" class="secondary" hx-post="/scripts/{{ f.name }}/presets" hx-include="#params-form" hx-target="#script-form" hx-swap="outerHTML">Сохранить пресет</button>
+        <button type="button" class="secondary" hx-post="/scripts/{{ f.name }}/presets" hx-include="#params-form" hx-target="#script-form" hx-swap="outerHTML" hx-disabled-elt="this">Сохранить пресет</button>
       </div>
       <p class="hint">Секреты в пресет не попадают. Пресет с тем же именем перезаписывается.</p>
     </div>

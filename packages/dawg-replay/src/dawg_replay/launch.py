@@ -183,7 +183,7 @@ def prepare(
     sets: Sequence[str] | None = None,
     values: Mapping[str, Any] | None = None,
 ) -> Prepared:
-    """`values` — проверенные значения без секретов (форма UI, dawg_replay.forms)."""
+    """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms)."""
     recover_lost(app)
     manifest, script_path, draft, version = _target(app, target)
     values = merge_values(app, manifest, preset, params_file, sets, values)
@@ -261,7 +261,7 @@ def supervise(
     interrupted: threading.Event | None = None,
     on_tick: Callable[[], None] | None = None,
 ) -> Run:
-    """Ведёт запуск до конца и записывает итог. `interrupted` — отмена изнутри (Ctrl+C, SIGTERM)."""
+    """Ведёт запуск до конца и записывает итог. `interrupted`: отмена изнутри (Ctrl+C, SIGTERM)."""
     store = app.runs
     rec = store.get(run_id)
     store.set_supervisor(run_id, os.getpid(), procinfo.start_time(os.getpid()))
