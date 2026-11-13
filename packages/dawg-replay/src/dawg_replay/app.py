@@ -12,6 +12,7 @@ from dawg_replay.errors import ReplayError
 from dawg_replay.paths import Paths, default_home
 from dawg_replay.presets import Preset, Presets
 from dawg_replay.registry import Registry
+from dawg_replay.runs import RunStore
 from dawg_replay.secrets import Backend, SecretStore
 
 
@@ -22,6 +23,7 @@ class App:
         self.db: sqlite3.Connection = connect(self.paths.db)
         self.registry = Registry(self.db, self.paths)
         self.presets = Presets(self.db)
+        self.runs = RunStore(self.db)
         self.secrets = SecretStore(keyring_backend)
 
     def close(self) -> None:

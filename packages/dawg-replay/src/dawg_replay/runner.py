@@ -36,8 +36,7 @@
 оставшиеся в группе процессы тоже убиваются, сирот не остаётся.
 
 После того как процесс и его дерево завершились, вызываются хуки `after_exit`.
-Первым всегда идёт страховка браузеров (5.6, `insurance.py`): она освобождает
-сессии с `open` без `close`. Отключается только в тестах: `insure=False`.
+Через них подключается страховка браузеров (5.6): `launch` ставит её первой.
 """
 
 from __future__ import annotations
@@ -132,7 +131,8 @@ class ScriptRun:
     `secret_names` перечисляет параметры типа `secret`. `timeout` в секундах,
     None без ограничения. `command` задаёт, чем запускать файл (по умолчанию
     `uv run`), тесты подставляют интерпретатор. `env` дописывается поверх
-    окружения процесса приложения.
+    окружения процесса приложения. `secrets_dir` задаёт, где создавать временный
+    каталог с файлом секретов (по умолчанию системный временный каталог).
     """
 
     def __init__(
@@ -150,7 +150,7 @@ class ScriptRun:
         command: Sequence[str] = DEFAULT_COMMAND,
         env: Mapping[str, str] | None = None,
         after_exit: Iterable[AfterExit] = (),
-        insure: bool = True,
+        secrets_dir: str | Path | None = None,
     ):
         self.script = Path(script).resolve()
         self.run_id = run_id
@@ -169,11 +169,7 @@ class ScriptRun:
         self._command = list(command)
         self._extra_env = dict(env or {})
         self._after_exit = list(after_exit)
-        if insure:
-            # Страховка браузеров (5.6) идёт первой: остальные хуки видят её итог в events.jsonl.
-            from dawg_replay import insurance
-
-            self._after_exit.insert(0, insurance.hook(api_key, base_url))
+        self._secrets_base = Path(secrets_dir) if secrets_dir is not None else None
 
         self._proc: subprocess.Popen[bytes] | None = None
         self._secret_dir: Path | None = None
@@ -280,7 +276,14 @@ class ScriptRun:
         return env
 
     def _write_secret_params(self) -> Path:
-        self._secret_dir = Path(tempfile.mkdtemp(prefix=f"dawg-replay-{self.run_id}-"))  # 0700
+        if self._secrets_base is not None:
+            self._secrets_base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # mkdtemp создаёт каталог 0700. Имя начинается с run_id: по нему приложение
+        # находит и удаляет каталоги, оставшиеся после падения.
+        self._secret_dir = Path(
+            tempfile.mkdtemp(prefix=f"{self.run_id}-" if self._secrets_base else f"dawg-replay-{self.run_id}-",
+                             dir=self._secrets_base)
+        )
         path = self._secret_dir / "params.json"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:

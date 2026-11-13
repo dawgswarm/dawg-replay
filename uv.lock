@@ -373,7 +373,6 @@ requires-dist = [
 
 [[package]]
 name = "dawg-replay-kit"
-version = "0.1.0"
 source = { editable = "packages/dawg-replay-kit" }
 dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },

@@ -158,14 +158,23 @@ def insure(run_dir: Path, api: Callable[[], SessionsApi] | None, finished_at: st
 
     lines: list[tuple[str, str]] = []
     closed: list[tuple[str, str | None]] = []
-    if api is None:
+    client = None
+    no_key = api is None
+    if not no_key:
+        try:
+            client = api()
+        except MissingKey:
+            no_key = True
+        except Exception as e:
+            report.error = f"страховка не сработала: {e}"
+            report.failed = [{"session_id": sid, "error": str(e)} for sid in scan.unclosed]
+            lines.append(("error", report.error))
+    if no_key:
         report.error = "ключа DAWG нет, браузеры запуска не проверены"
         report.failed = [{"session_id": sid, "error": "нет ключа DAWG"} for sid in scan.unclosed]
         lines.append(("error", f"страховка: {report.error}; незакрытые сессии: {', '.join(scan.unclosed) or 'нет'}"))
-    else:
-        client = None
+    elif client is not None:
         try:
-            client = api()
             for sid in scan.unclosed:
                 try:
                     if client.release(sid):
@@ -228,18 +237,29 @@ def _append(path: Path, lines: list[tuple[str, str]], closed: list[tuple[str, st
             f.write(json.dumps({"t": "log", "ts": now_iso(), "level": level, "msg": msg, "source": SOURCE}, ensure_ascii=False) + "\n")
 
 
-def hook(api_key: str | None, base_url: str | None = None, sessions: Callable[[], SessionsApi] | None = None):
-    """Хук after_exit для ScriptRun."""
-    factory: Callable[[], SessionsApi] | None
-    if sessions is not None:
-        factory = sessions
-    elif api_key:
-        factory = lambda: Sessions(api_key, base_url or DEFAULT_BASE_URL)  # noqa: E731
-    else:
-        factory = None
+class MissingKey(Exception):
+    """Ключа DAWG нет: проверить браузеры нечем."""
+
+
+def hook(
+    api_key: str | Callable[[], str | None] | None,
+    base_url: str | Callable[[], str | None] | None = None,
+    sessions: Callable[[], SessionsApi] | None = None,
+):
+    """Хук after_exit. Ключ и base_url можно передать функциями: тогда они читаются
+    (keyring, config.toml) только если страховке есть что делать."""
+
+    def factory() -> SessionsApi:
+        if sessions is not None:
+            return sessions()
+        key = api_key() if callable(api_key) else api_key
+        if not key:
+            raise MissingKey()
+        url = base_url() if callable(base_url) else base_url
+        return Sessions(key, url or DEFAULT_BASE_URL)
 
     def insurance(outcome: Any) -> None:
-        insure(outcome.run_dir, factory, getattr(outcome, "finished_at", None))
+        insure(outcome.run_dir, factory if (sessions is not None or api_key) else None, getattr(outcome, "finished_at", None))
 
     return insurance
 

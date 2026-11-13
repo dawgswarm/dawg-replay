@@ -238,7 +238,7 @@ with kit.browser() as b:
 '''
 
 
-def start_run(tmp_path, fake, body=SCRIPT, **kw):
+def start_run(tmp_path, fake, body=SCRIPT, insure=True, **kw):
     path = tmp_path / "script.py"
     path.write_text(MANIFEST + textwrap.dedent(body), encoding="utf-8")
     run = ScriptRun(
@@ -248,6 +248,7 @@ def start_run(tmp_path, fake, body=SCRIPT, **kw):
         command=[sys.executable],
         api_key=KEY,
         base_url=fake.url,
+        after_exit=[insurance.hook(KEY, fake.url)] if insure else [],
         **kw,
     )
     run.start()
@@ -337,7 +338,7 @@ def test_normal_exit_closes(tmp_path, fake):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL")
-def test_runner_can_skip_insurance(tmp_path, fake):
+def test_without_hook_browser_leaks(tmp_path, fake):
     fake.ready_delay = 999
     run = start_run(tmp_path, fake, insure=False)
     assert wait_for(lambda: has(run, lambda e: e.get("action") == "open"))
@@ -345,3 +346,121 @@ def test_runner_can_skip_insurance(tmp_path, fake):
     run.wait(30)
     assert len(fake.sessions) == 1
     assert not (run.run_dir / "insurance.json").exists()
+
+
+# --- запуски без супервизора: lost и отмена (launch._close_lost) ---
+
+
+def lost_run(app, fake):
+    """Запись `running` без живого супервизора, в events.jsonl браузер с open без close."""
+    import httpx
+
+    from dawg_replay.runs import new_run_id
+
+    resp = httpx.post(f"{fake.url}/api/v1/browsers", headers={"X-API-Key": KEY}).json()["data"]
+    run_id = new_run_id()
+    app.runs.reserve(
+        run_id=run_id, script_name="x", script_version=1, script_path="/nope/script.py", draft=False,
+        preset=None, params={}, timeout_seconds=60, limit=100,
+    )
+    app.db.execute("UPDATE runs SET heartbeat_at = '2020-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+    write_events(
+        app.paths.run_dir(run_id),
+        [ev("provisioning"), ev("open", resp["sessionId"], bid=resp["browserId"])],
+    )
+    return run_id, resp["sessionId"]
+
+
+@pytest.fixture
+def app_with_key(app, fake):
+    app.secrets.set_api_key(KEY)
+    app.set_config("base_url", fake.url)
+    return app
+
+
+def test_lost_run_releases_browser(app_with_key, fake):
+    from dawg_replay import launch
+
+    run_id, sid = lost_run(app_with_key, fake)
+    assert sid in fake.sessions
+    lost = launch.recover_lost(app_with_key)
+    assert [r.label for r in lost] == ["failed (lost)"]
+    assert fake.sessions == {}
+    run_dir = app_with_key.paths.run_dir(run_id)
+    assert json.loads((run_dir / "insurance.json").read_text(encoding="utf-8"))["released"] == [sid]
+    assert any(e.get("action") == "close" and e.get("session_id") == sid for e in read_log(run_dir))
+    assert app_with_key.runs.get(run_id).error == "супервизор запуска пропал"  # хук отработал без ошибок
+
+
+def test_cancel_without_supervisor_releases_browser(app_with_key, fake):
+    from dawg_replay import launch
+
+    run_id, sid = lost_run(app_with_key, fake)
+    launch.cancel(app_with_key, run_id)
+    assert app_with_key.runs.get(run_id).label == "failed (cancelled)"
+    assert fake.sessions == {}
+
+
+def test_lost_run_without_key_reports(app, fake):
+    from dawg_replay import launch
+
+    run_id, sid = lost_run(app, fake)
+    launch.recover_lost(app)
+    assert sid in fake.sessions  # ключа нет: освобождать нечем, но причина записана
+    log = read_log(app.paths.run_dir(run_id))
+    assert "ключа DAWG нет" in log[0]["msg"]
+
+
+def test_lost_run_without_browsers_does_not_touch_keyring(app, monkeypatch):
+    from dawg_replay import launch
+    from dawg_replay.runs import new_run_id
+
+    def boom():
+        raise AssertionError("keyring не нужен")
+
+    monkeypatch.setattr(app.secrets, "get_api_key", boom)
+    run_id = new_run_id()
+    app.runs.reserve(
+        run_id=run_id, script_name="x", script_version=1, script_path="/nope/script.py", draft=False,
+        preset=None, params={}, timeout_seconds=60, limit=100,
+    )
+    app.db.execute("UPDATE runs SET heartbeat_at = '2020-01-01T00:00:00Z' WHERE id = ?", (run_id,))
+    write_events(app.paths.run_dir(run_id), [{"t": "log", "level": "info", "msg": "без браузеров"}])
+    assert [r.label for r in launch.recover_lost(app)] == ["failed (lost)"]
+    assert app.runs.get(run_id).error == "супервизор запуска пропал"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL")
+def test_supervised_run_kill9_released_by_supervisor(app_with_key, fake, tmp_path, monkeypatch, kr):
+    import threading
+
+    from dawg_replay import launch
+    from dawg_replay.app import App
+
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    src = tmp_path / "script.py"
+    src.write_text(MANIFEST + textwrap.dedent(SCRIPT), encoding="utf-8")
+    prepared = launch.prepare(app_with_key, str(src))
+    run_id = prepared.run.id
+    done = {}
+    def supervisor():
+        # Как настоящий супервизор: своё подключение к БД в своём потоке.
+        with App(app_with_key.paths.home, keyring_backend=kr) as own:
+            done["rec"] = launch.supervise(own, run_id, prepared.payload())
+
+    t = threading.Thread(target=supervisor)
+    t.start()
+    events_path = app_with_key.paths.run_dir(run_id) / "events.jsonl"
+
+    def working():
+        try:
+            return "работаю" in events_path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return False
+
+    assert wait_for(working)
+    assert len(fake.sessions) == 1
+    os.kill(app_with_key.runs.get(run_id).pid, signal.SIGKILL)
+    t.join(30)
+    assert done["rec"].status == "failed" and done["rec"].error is None
+    assert fake.sessions == {}

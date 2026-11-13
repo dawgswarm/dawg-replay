@@ -22,6 +22,8 @@ class Config:
     max_timeout_minutes: int = 24 * 60
     cancel_grace_seconds: int = 15
     rows_preview_limit: int = 500
+    # Только для разработки: путь к packages/dawg-replay-kit, см. dawg_replay.devkit.
+    dev_kit_source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
