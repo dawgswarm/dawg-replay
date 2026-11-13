@@ -1,0 +1,17 @@
+{
+  "name": "dawg-replay-builder",
+  "version": "0.1.0",
+  "description": "Скилл для агента: разведать сайт через браузер DAWG и собрать переиспользуемый скрипт сбора данных для приложения dawg-replay. Подключает MCP-сервер dawg-mcp.",
+  "author": { "name": "DAWG" },
+  "homepage": "https://dawgswarm.ru",
+  "keywords": ["dawg", "dawg-replay", "scraping", "runet", "mcp"],
+  "userConfig": {
+    "dawg_api_key": {
+      "type": "string",
+      "title": "Ключ DAWG",
+      "description": "API-ключ из личного кабинета DAWG. Нужен серверу dawg-mcp для разведки сайтов. Хранится в системном хранилище паролей.",
+      "sensitive": true,
+      "required": true
+    }
+  }
+}
