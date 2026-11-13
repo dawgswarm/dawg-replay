@@ -171,7 +171,7 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 
 
 def _cancel(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    # Сначала отмена: если супервизора нет, скрипт получит мягкий сигнал, а не kill от recover_lost.
+    # Сначала отмена: если супервизора нет, скрипт получит мягкий сигнал раньше, чем recover_lost убьёт его дерево.
     rec = launch.cancel(app, args.run_id, wait=not args.no_wait)
     launch.recover_lost(app)
     if rec.running:

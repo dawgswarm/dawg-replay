@@ -26,4 +26,4 @@
     eval "$(dawg-replay dev kit-env | head -1)"                      # для автономного запуска
     uv run --reinstall-package dawg-replay-kit examples/wb-search-cards/script.py --query "ноутбук"
 
-Ozon как эталон не подошёл: на браузерах DAWG он сразу показывает капчу-пазл.
+Пример для Ozon: `examples/ozon-search-cards`.

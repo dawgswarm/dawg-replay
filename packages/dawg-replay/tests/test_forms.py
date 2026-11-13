@@ -198,7 +198,7 @@ def test_blank_required(manifest, blank):
         ("sort", "random", "выберите значение из списка"),
         ("start", "ozon.ru", "нужен адрес http(s)://..., введено «ozon.ru»"),
         ("urls", "https://a.ru\nftp://b.ru", "элемент 1: нужен адрес http(s)://..., введено «ftp://b.ru»"),
-        ("urls", "https://a.ru\nhttps://b.ru\nhttps://c.ru\nhttps://d.ru", "не больше 3 строк, а введено больше"),
+        ("urls", "https://a.ru\nhttps://b.ru\nhttps://c.ru\nhttps://d.ru", "не больше 3 строк"),
         ("query", "две\nстроки", "одна строка, без переводов строки"),
     ],
 )

@@ -290,7 +290,7 @@ def _human(p: Param, problem: str) -> str:
     if p.type == "enum":
         return "выберите значение из списка"
     if p.type in LIST_TYPES and "max_items" in problem:
-        return f"не больше {p.max_items} строк, а введено больше"
+        return f"не больше {p.max_items} строк"
     if p.type in ("url", "url_list") and "http" in problem:
         # kit пишет значение в repr ('ozon.ru'), в форме нужны «ёлочки».
         text = problem.replace("ожидается адрес", "нужен адрес")

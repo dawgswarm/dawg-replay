@@ -312,7 +312,7 @@ def test_kill9_while_working(tmp_path, fake):
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL")
 def test_kill9_during_post_warns(tmp_path, fake, monkeypatch):
     fake.post_delay = 3  # сессия уже создана, ответ ещё не пришёл
-    # Ожидание окончания POST укорочено под фейк: POST тут длится 3 с, а не до 30.
+    # Ожидание окончания POST укорочено под фейк: POST тут длится 3 с.
     monkeypatch.setattr(insurance, "POST_TIMEOUT", timedelta(seconds=3))
     monkeypatch.setattr(insurance, "POST_MARGIN", timedelta(seconds=1))
     foreign = fake.add_foreign_session(iso(datetime.now(timezone.utc) - timedelta(hours=1)))
@@ -483,7 +483,7 @@ def test_supervised_run_kill9_released_by_supervisor(app_with_key, fake, tmp_pat
 
 
 class Clock:
-    """Подменные часы: ожидание не спит, а двигает время и даёт тесту что-то сделать «пока ждём»."""
+    """Подменные часы: ожидание двигает время без сна и даёт тесту что-то сделать «пока ждём»."""
 
     def __init__(self, now, during_wait=None, interrupt_after=None):
         self.now = now
