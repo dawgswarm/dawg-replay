@@ -60,6 +60,16 @@ MIGRATIONS: list[str] = [
     CREATE INDEX runs_by_script ON runs (script_name, created_at);
     CREATE INDEX runs_by_status ON runs (status);
     """,
+    # 2: запуск через супервизор (dawg_replay.launch)
+    """
+    ALTER TABLE runs ADD COLUMN reason TEXT;
+    ALTER TABLE runs ADD COLUMN killed INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE runs ADD COLUMN timeout_seconds INTEGER;
+    ALTER TABLE runs ADD COLUMN supervisor_pid INTEGER;
+    ALTER TABLE runs ADD COLUMN heartbeat_at TEXT;
+    ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;
+    ALTER TABLE runs ADD COLUMN follow INTEGER NOT NULL DEFAULT 0
+    """,
 ]
 
 

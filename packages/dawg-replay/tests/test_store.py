@@ -2,7 +2,7 @@ import pytest
 
 from dawg_replay.app import App
 from dawg_replay.config import load_config
-from dawg_replay.db import connect
+from dawg_replay.db import MIGRATIONS, connect
 from dawg_replay.errors import ReplayError
 from dawg_replay.values import parse_set_args
 
@@ -30,13 +30,13 @@ def test_layout_and_schema(app, home):
     assert (home / "scripts").is_dir() and (home / "runs").is_dir()
     tables = {r[0] for r in app.db.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
     assert {"scripts", "script_versions", "presets", "runs"} <= tables
-    assert app.db.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert app.db.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
 
 
 def test_migration_idempotent(home, kr):
     App(home, kr).close()
     conn = connect(home / "db.sqlite")
-    assert conn.execute("PRAGMA user_version").fetchone()[0] == 1
+    assert conn.execute("PRAGMA user_version").fetchone()[0] == len(MIGRATIONS)
     conn.close()
 
 
