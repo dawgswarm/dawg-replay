@@ -1,0 +1,344 @@
+"""Форма параметров скрипта по манифесту (ТЗ 5.2, 6.4 п.2). Без веба и шаблонов.
+
+    fields = forms.build_fields(app, "ozon-search-cards")          # первая отрисовка
+    sub = forms.submit(app, "ozon-search-cards", request.form)     # «Запустить»
+    if sub.ok:
+        prepared = launch.prepare(app, "ozon-search-cards", values=sub.values)
+    else:
+        render(sub.fields)                                          # ошибки у полей, введённое сохранено
+
+Типы и виджеты:
+
+| тип | виджет | значение в форме |
+|---|---|---|
+| string | input text | строка |
+| url | input url | строка |
+| int, float | input number (`step` 1 или `any`, `min`, `max`) | строка |
+| text | textarea | строка |
+| url_list, string_list | textarea, по строке на элемент | строки через перевод строки |
+| bool | checkbox | отмечен или нет; поля нет в отправке = false |
+| enum | select из `choices` | строка |
+| secret | input password | значение никогда не отдаётся, только «задан/не задан» |
+
+Правила разбора: пустое или из пробелов значение = не задано (`is_blank` из kit),
+тогда действует `default`; у списков пустые строки отбрасываются. Проверка значений —
+`check_value` из kit, итоговая — `resolve` из kit, как при запуске из CLI.
+
+Секреты: поле секрета показывает только, задан ли он. Введённое значение сразу
+сохраняется в keyring (`app.secrets`), даже если в других полях ошибки, — иначе
+его пришлось бы вводить заново: обратно в форму секрет не отдаётся. Пустое поле
+секрет не стирает.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
+from dawg_replay_kit.parameters import ParamsError, is_blank, resolve
+
+from dawg_replay.errors import ReplayError
+
+WIDGETS = {
+    "string": "text",
+    "url": "url",
+    "int": "number",
+    "float": "number",
+    "text": "textarea",
+    "url_list": "textarea",
+    "string_list": "textarea",
+    "bool": "checkbox",
+    "enum": "select",
+    "secret": "password",
+}
+CHECKED = ("on", "true", "1", "yes", "да")
+FORM_ERROR = "__form__"  # ошибка не конкретного поля
+
+
+@dataclass
+class Field:
+    """Описание поля для шаблона. `value` уже в виде для отрисовки (строка или bool)."""
+
+    name: str
+    type: str
+    widget: str
+    title: str
+    description: str | None
+    required: bool
+    value: str | bool
+    default: Any = None
+    min: int | float | None = None
+    max: int | float | None = None
+    step: str | None = None
+    max_items: int | None = None
+    choices: list[str] | None = None
+    secret_set: bool | None = None  # только для secret
+    error: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class Submission:
+    """Разобранная форма."""
+
+    values: dict[str, Any]  # типизированные значения без секретов, только заданные
+    errors: dict[str, str]  # имя поля (или FORM_ERROR) -> текст
+    raw: dict[str, str | bool]  # введённое, для повторной отрисовки (секреты пустые)
+    secrets_saved: list[str] = field(default_factory=list)
+    fields: list[Field] = field(default_factory=list)
+    # Введённые секреты: только для сохранения в keyring, не печатаются и не отдаются.
+    new_secrets: dict[str, str] = field(default_factory=dict, repr=False)
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors
+
+
+# --- поля ------------------------------------------------------------------------
+
+
+def display(param: Param, value: Any) -> str | bool:
+    """Значение в виде для поля формы."""
+    if param.type == "bool":
+        return bool(value)
+    if param.type == "secret" or value is None:
+        return ""
+    if param.type in LIST_TYPES:
+        return "\n".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value)
+    if isinstance(value, float) and value.is_integer() and param.type == "float":
+        return repr(value)
+    return str(value)
+
+
+def fields_for(
+    manifest: Manifest,
+    values: Mapping[str, Any] | None = None,
+    raw: Mapping[str, str | bool] | None = None,
+    errors: Mapping[str, str] | None = None,
+    secret_status: Mapping[str, bool] | None = None,
+) -> list[Field]:
+    """Поля формы. Значение поля: введённое (`raw`) > `values` > `default`."""
+    values = values or {}
+    raw = raw or {}
+    errors = errors or {}
+    secret_status = secret_status or {}
+    out = []
+    for p in manifest.params:
+        if p.name in raw:
+            value = raw[p.name] if p.type != "secret" else ""
+        elif p.name in values:
+            value = display(p, values[p.name])
+        else:
+            value = display(p, p.default)
+        out.append(
+            Field(
+                name=p.name,
+                type=p.type,
+                widget=WIDGETS.get(p.type, "text"),
+                title=p.title,
+                description=p.description,
+                required=p.required,
+                value=value,
+                default=None if p.type == "secret" else p.default,
+                min=p.min,
+                max=p.max,
+                step=("1" if p.type == "int" else "any") if p.type in ("int", "float") else None,
+                max_items=p.max_items,
+                choices=list(p.choices) if p.choices else None,
+                secret_set=bool(secret_status.get(p.name)) if p.type == "secret" else None,
+                error=errors.get(p.name),
+            )
+        )
+    return out
+
+
+def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, Any]:
+    """Поля для первой отрисовки. С `preset` поля заполнены значениями пресета;
+    `dropped` — ключи пресета, которые текущая версия скрипта не принимает."""
+    manifest = app.registry.manifest(script)
+    values: dict[str, Any] = {}
+    dropped: list[str] = []
+    if preset:
+        p = app.get_preset(script, preset)
+        values, dropped = dict(p.params), list(p.dropped)
+    return {
+        "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script)),
+        "preset": preset,
+        "dropped": dropped,
+    }
+
+
+# --- разбор отправленной формы ---------------------------------------------------
+
+
+def _getlist(form: Any, name: str) -> list[str]:
+    """Все значения поля из multidict любого вида (werkzeug, starlette, dict списков, dict строк)."""
+    for method in ("getlist", "getall"):
+        if hasattr(form, method):
+            try:
+                return [str(v) for v in getattr(form, method)(name)]
+            except KeyError:
+                return []
+    value = form.get(name) if hasattr(form, "get") else None
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return [str(value)]
+
+
+def parse(manifest: Manifest, form: Any, *, require: bool = True, secret_set: Mapping[str, bool] | None = None) -> Submission:
+    """Разбирает форму в типизированные значения и проверяет их через kit.
+
+    `require=False` (сохранение пресета): обязательность не проверяется.
+    `secret_set` — какие секреты уже есть в keyring (для проверки обязательных).
+    """
+    secret_set = secret_set or {}
+    values: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+    raw: dict[str, str | bool] = {}
+    new_secrets: dict[str, str] = {}
+
+    for p in manifest.params:
+        items = _getlist(form, p.name)
+        if p.type == "bool":
+            checked = any(v.strip().lower() in CHECKED for v in items)
+            raw[p.name] = checked
+            values[p.name] = checked
+            continue
+        text = items[-1] if items else ""
+        if p.type in ("text", *LIST_TYPES):
+            text = text.replace("\r\n", "\n").replace("\r", "\n")
+        if p.type == "secret":
+            raw[p.name] = ""
+            if not is_blank(p, text):
+                new_secrets[p.name] = text.strip()
+            continue
+        raw[p.name] = text
+        try:
+            value = _convert(p, text)
+        except ValueError as e:
+            errors[p.name] = str(e)
+            continue
+        if is_blank(p, value):
+            continue  # не задано: действует default
+        problem = check_value(p, value)
+        if problem:
+            errors[p.name] = _human(p, problem)
+            continue
+        values[p.name] = value
+
+    if require:
+        for p in manifest.params:
+            if p.name in errors or not p.required:
+                continue
+            if p.type == "secret":
+                if p.name not in new_secrets and not secret_set.get(p.name):
+                    errors[p.name] = "обязательный секрет не задан"
+            elif p.name not in values and is_blank(p, p.default):
+                errors[p.name] = "обязательное поле"
+        if not errors:
+            # Итоговая проверка тем же kit, что и при запуске. Секреты подставляются заглушкой:
+            # их значения форма не знает, обязательность уже проверена выше.
+            check = dict(values)
+            for p in manifest.params:
+                if p.type == "secret" and (p.name in new_secrets or secret_set.get(p.name)):
+                    check[p.name] = "***"
+            try:
+                resolve(manifest, check, "форма")
+            except ParamsError as e:
+                errors[FORM_ERROR] = str(e)
+
+    return Submission(values=values, errors=errors, raw=raw, new_secrets=new_secrets)
+
+
+def _convert(p: Param, text: str) -> Any:
+    t = p.type
+    if t in ("int", "float"):
+        s = text.strip().replace(" ", "").replace(" ", "")
+        if not s:
+            return None
+        if t == "int":
+            try:
+                return int(s)
+            except ValueError:
+                raise ValueError(f"нужно целое число, введено «{text.strip()}»") from None
+        try:
+            value = float(s.replace(",", "."))
+        except ValueError:
+            raise ValueError(f"нужно число, введено «{text.strip()}»") from None
+        if value != value or value in (float("inf"), float("-inf")):
+            raise ValueError(f"нужно обычное число, введено «{text.strip()}»")
+        return value
+    if t in LIST_TYPES:
+        return [line.strip() for line in text.split("\n") if line.strip()]
+    return text
+
+
+def _human(p: Param, problem: str) -> str:
+    """Текст ошибки kit, понятный в форме."""
+    if p.type in ("int", "float"):
+        if p.min is not None and "меньше min" in problem:
+            return f"не меньше {_num(p.min)}"
+        if p.max is not None and "больше max" in problem:
+            return f"не больше {_num(p.max)}"
+    if p.type == "enum":
+        return "выберите значение из списка"
+    if p.type in LIST_TYPES and "max_items" in problem:
+        return f"не больше {p.max_items} строк, а введено больше"
+    if p.type in ("url", "url_list") and "http" in problem:
+        return problem.replace("ожидается адрес", "нужен адрес")
+    if p.type == "string" and "переводить строку" in problem:
+        return "одна строка, без переводов строки"
+    return problem
+
+
+def _num(v: int | float) -> str:
+    return str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+
+
+# --- действия формы --------------------------------------------------------------
+
+
+def submit(app: Any, script: str, form: Any) -> Submission:
+    """«Запустить»: разбирает форму, сохраняет новые секреты, проверяет обязательные.
+
+    При `ok` значения `values` передаются в `launch.prepare(app, script, values=...)`;
+    секреты prepare берёт из keyring, как при запуске из CLI. При ошибках `fields`
+    готовы для повторной отрисовки с введёнными значениями.
+    """
+    manifest = app.registry.manifest(script)
+    status = app.secret_status(script)
+    sub = parse(manifest, form, require=False)
+    for name, value in sub.new_secrets.items():
+        try:
+            app.set_secret(script, name, value)
+            sub.secrets_saved.append(name)
+            status[name] = True
+        except ReplayError as e:
+            sub.errors[name] = e.message
+    full = parse(manifest, form, require=True, secret_set=status)
+    full.secrets_saved = sub.secrets_saved
+    full.new_secrets = {}
+    full.errors.update({k: v for k, v in sub.errors.items() if k not in full.errors})
+    full.fields = fields_for(manifest, raw=full.raw, errors=full.errors, secret_status=status)
+    return full
+
+
+def save_preset(app: Any, script: str, preset: str, form: Any) -> Submission:
+    """«Сохранить как пресет»: текущие значения без секретов. Обязательность не требуется,
+    невалидные значения не сохраняются (ошибки у полей)."""
+    manifest = app.registry.manifest(script)
+    sub = parse(manifest, form, require=False)
+    status = app.secret_status(script)
+    if sub.ok:
+        try:
+            app.save_preset(script, preset, sub.values)
+        except ReplayError as e:
+            sub.errors[FORM_ERROR] = e.message
+    sub.fields = fields_for(manifest, raw=sub.raw, errors=sub.errors, secret_status=status)
+    return sub
