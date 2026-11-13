@@ -19,8 +19,9 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 from dawg_replay import launch
 from dawg_replay.app import App
@@ -45,6 +46,7 @@ class UiRuns:
         *,
         preset: str | None = None,
         sets: Sequence[str] | None = None,
+        values: Mapping[str, Any] | None = None,
     ) -> Run:
         """Создаёт запуск и ведёт его в отдельном потоке. Ошибки подготовки (параметры,
         лимит параллельных запусков) бросаются сразу как ReplayError."""
@@ -53,7 +55,7 @@ class UiRuns:
 
             raise ReplayError("server_stopping", "сервер останавливается, новые запуски не принимаются")
         with self._app_factory() as app:
-            prepared = launch.prepare(app, target, preset=preset, sets=sets)
+            prepared = launch.prepare(app, target, preset=preset, sets=sets, values=values)
             run = prepared.run
         payload = prepared.payload()
         t = threading.Thread(target=self._supervise, args=(run.id, payload), name=f"dawg-ui-run-{run.id}", daemon=True)

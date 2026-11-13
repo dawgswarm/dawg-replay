@@ -1,0 +1,19 @@
+<div id="script-runs" hx-get="/scripts/{{ sname }}/_runs" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
+{% if runs %}
+  <ul class="runs">
+  {% for r in runs %}
+    {% set st = r.label | status %}
+    <li>
+      <a class="run-link" href="/runs/{{ r.id }}">
+        <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+        <span class="last-when">{{ r.created_at | when }}</span>
+        {% if r.draft %}<span class="hint-inline">черновой</span>{% endif %}
+      </a>
+      {% if r.summary %}<p class="last-summary">{{ r.summary }}</p>{% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+{% else %}
+  <p class="never">Скрипт ещё не запускался. Задайте параметры и нажмите «Запустить».</p>
+{% endif %}
+</div>
