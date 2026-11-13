@@ -6,7 +6,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from dawg_replay.config import Config, load_config, set_config_value
+from dawg_replay import account
+from dawg_replay.config import Config, coerce, load_config, save_config, set_config_value
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
 from dawg_replay.paths import Paths, default_home
@@ -52,7 +53,64 @@ class App:
             "api_key_set": self.secrets.get_api_key() is not None,
         }
 
+    def settings_view(self) -> dict[str, Any]:
+        """Настройки для экрана: ключ только подсказкой (последние 4 символа)."""
+        cfg = self.config
+        try:
+            key = self.secrets.get_api_key()
+            keyring_error = None
+        except ReplayError as e:
+            key, keyring_error = None, e.message
+        return {
+            "api_key_set": key is not None,
+            "api_key_hint": account.key_hint(key),
+            "keyring_error": keyring_error,
+            "max_parallel_runs": cfg.max_parallel_runs,
+            "max_timeout_minutes": cfg.max_timeout_minutes,
+            "base_url": cfg.base_url,
+        }
+
+    def set_api_key(self, value: str, check: bool = True) -> account.Usage | None:
+        """Сохраняет ключ. С check ключ сначала проверяется на платформе, неверный не сохраняется."""
+        value = value.strip()
+        if not value:
+            raise ReplayError("empty_secret", "ключ DAWG пустой")
+        usage = account.fetch_usage(value, self.config.base_url or None) if check else None
+        self.secrets.set_api_key(value)
+        return usage
+
+    def check_api_key(self) -> account.Usage:
+        key = self.secrets.get_api_key()
+        if not key:
+            raise ReplayError("no_api_key", "ключ DAWG не задан")
+        return account.fetch_usage(key, self.config.base_url or None)
+
+    def update_limits(self, max_parallel_runs: Any, max_timeout_minutes: Any) -> Config:
+        """Меняет оба лимита разом: при ошибке в любом ничего не сохраняется."""
+        cfg = self.config
+        cfg.max_parallel_runs = coerce("max_parallel_runs", max_parallel_runs)
+        cfg.max_timeout_minutes = coerce("max_timeout_minutes", max_timeout_minutes)
+        save_config(self.paths.config, cfg)
+        return cfg
+
     # --- скрипты ---
+
+    def runs_fingerprint(self) -> str:
+        """Меняется, когда меняется что-то в недавних запусках: для живого обновления экранов."""
+        rows = self.db.execute(
+            "SELECT id, status, reason, finished_at FROM runs ORDER BY created_at DESC, id DESC LIMIT 100"
+        ).fetchall()
+        import hashlib
+
+        return hashlib.sha1(repr([tuple(r) for r in rows]).encode()).hexdigest()[:16]
+
+    def scripts_overview(self) -> list[dict[str, Any]]:
+        """Список для экрана Скрипты: скрипт и его последний запуск."""
+        out = []
+        for s in self.registry.list():
+            last = self.runs.list(s.name, 1)
+            out.append({"script": s.to_dict(), "last_run": last[0].to_dict() if last else None})
+        return out
 
     def show(self, name: str) -> dict[str, Any]:
         script = self.registry.get(name)

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta name="htmx-config" content='{"includeIndicatorStyles": false, "allowEval": false, "selfRequestsOnly": true, "historyCacheSize": 0}'>
+  <title>{% block title %}dawg-replay{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+   <div class="top-inner">
+    <a class="brand" href="/scripts" aria-label="dawg-replay, к списку скриптов">
+      <svg class="brand-mark" viewBox="0 0 40 16" aria-hidden="true">
+        <path d="M2 12 C 10 12, 12 4, 20 4 S 30 12, 38 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" stroke-linecap="round"/>
+        <circle cx="38" cy="12" r="2.6" fill="currentColor"/>
+      </svg>
+      <span>dawg-replay</span>
+    </a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="/scripts" {% if active == 'scripts' %}aria-current="page"{% endif %}>Скрипты</a>
+      <a href="/settings" {% if active == 'settings' %}aria-current="page"{% endif %}>Настройки</a>
+    </nav>
+   </div>
+  </header>
+  <main class="page">
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
