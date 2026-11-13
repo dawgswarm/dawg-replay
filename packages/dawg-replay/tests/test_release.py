@@ -40,7 +40,8 @@ def setup(app, fake):
     )
     suspect = httpx.post(f"{fake.url}/api/v1/browsers", headers={"X-API-Key": KEY}).json()["data"]["sessionId"]
     app.runs.finish(run_id, status="failed", reason="exit_code", exit_code=-9)
-    report = insurance.insure(run_dir, lambda: _sessions(fake), iso(datetime.now(timezone.utc)))
+    # Ожидание окончания POST (dr-11) здесь не проверяется: считаем, что оно уже прошло.
+    report = insurance.insure(run_dir, lambda: _sessions(fake), iso(datetime.now(timezone.utc)), wait=lambda s: True)
     assert [s["session_id"] for s in report.suspects] == [suspect]
     return {"run_id": run_id, "suspect": suspect, "foreign": foreign, "run_dir": run_dir}
 

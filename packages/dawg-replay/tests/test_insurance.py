@@ -28,6 +28,16 @@ def iso(dt):
 NOW = datetime(2026, 11, 14, 12, 0, 0, tzinfo=timezone.utc)
 
 
+LATER = NOW + timedelta(hours=1)
+
+
+def insure(*args, **kw):
+    """Юнит-тесты живут в часах NOW: к LATER любой POST давно закончился, ожидания нет."""
+    kw.setdefault("now", lambda: LATER)
+    kw.setdefault("wait", lambda s: pytest.fail(f"неожиданное ожидание {s} с"))
+    return insurance.insure(*args, **kw)
+
+
 def write_events(run_dir, events):
     run_dir.mkdir(parents=True, exist_ok=True)
     with open(run_dir / "events.jsonl", "w", encoding="utf-8") as f:
@@ -103,7 +113,7 @@ def test_nothing_to_do_does_not_touch_api(tmp_path):
     def factory():
         raise AssertionError("API не нужен")
 
-    report = insurance.insure(tmp_path, factory)
+    report = insure(tmp_path, factory)
     assert report.clean and report.released == []
     assert not (tmp_path / "insurance.json").exists()
     assert read_log(tmp_path) == []
@@ -115,7 +125,7 @@ def test_nothing_to_do_does_not_touch_api(tmp_path):
 def test_releases_open_without_close(tmp_path):
     write_events(tmp_path, [ev("provisioning"), ev("open", "a"), ev("provisioning"), ev("open", "b"), ev("close", "b")])
     api = FakeApi()
-    report = insurance.insure(tmp_path, lambda: api)
+    report = insure(tmp_path, lambda: api)
     assert api.released == ["a"] and api.closed
     assert report.released == ["a"] and report.clean
     log = [e for e in read_log(tmp_path) if e["t"] == "log"]
@@ -126,20 +136,20 @@ def test_releases_open_without_close(tmp_path):
 
 def test_release_not_confirmed(tmp_path):
     write_events(tmp_path, [ev("open", "a")])
-    report = insurance.insure(tmp_path, lambda: FakeApi(release_ok=False))
+    report = insure(tmp_path, lambda: FakeApi(release_ok=False))
     assert report.failed == [{"session_id": "a", "error": "сессия осталась в списке ключа"}]
     assert read_log(tmp_path)[0]["level"] == "error"
 
 
 def test_release_error(tmp_path):
     write_events(tmp_path, [ev("open", "a")])
-    report = insurance.insure(tmp_path, lambda: FakeApi(fail="release"))
+    report = insure(tmp_path, lambda: FakeApi(fail="release"))
     assert report.failed[0]["error"] == "сеть" and not report.clean
 
 
 def test_no_api_key(tmp_path):
     write_events(tmp_path, [ev("open", "a")])
-    report = insurance.insure(tmp_path, None)
+    report = insure(tmp_path, None)
     assert report.error and report.failed[0]["session_id"] == "a"
     assert "ключа DAWG нет" in read_log(tmp_path)[0]["msg"]
 
@@ -150,7 +160,7 @@ def test_factory_error(tmp_path):
     def factory():
         raise RuntimeError("нет SDK")
 
-    report = insurance.insure(tmp_path, factory)
+    report = insure(tmp_path, factory)
     assert "нет SDK" in report.error and report.failed[0]["session_id"] == "a"
 
 
@@ -172,7 +182,7 @@ def test_pending_provisioning_lists_suspects(tmp_path):
             session("after", NOW + timedelta(seconds=300)),  # после конца процесса
         ]
     )
-    report = insurance.insure(tmp_path, lambda: api, finished_at=iso(NOW + timedelta(seconds=65)))
+    report = insure(tmp_path, lambda: api, finished_at=iso(NOW + timedelta(seconds=65)))
     assert [s["session_id"] for s in report.suspects] == ["in-window"]
     assert report.released == ["ours"]
     assert api.released == ["ours"]  # подозрительные сами не освобождаются
@@ -182,27 +192,27 @@ def test_pending_provisioning_lists_suspects(tmp_path):
 
 def test_pending_without_new_sessions(tmp_path):
     write_events(tmp_path, [ev("provisioning")])
-    report = insurance.insure(tmp_path, lambda: FakeApi())
+    report = insure(tmp_path, lambda: FakeApi())
     assert report.suspects == [] and report.clean
     assert "новых сессий ключа не найдено" in read_log(tmp_path)[0]["msg"]
 
 
 def test_pending_list_error(tmp_path):
     write_events(tmp_path, [ev("provisioning")])
-    report = insurance.insure(tmp_path, lambda: FakeApi(fail="list"))
+    report = insure(tmp_path, lambda: FakeApi(fail="list"))
     assert "список сессий" in report.error
 
 
 def test_second_pass_is_noop(tmp_path):
     write_events(tmp_path, [ev("open", "a", bid="b-a")])
-    insurance.insure(tmp_path, lambda: FakeApi())
+    insure(tmp_path, lambda: FakeApi())
     closes = [e for e in read_log(tmp_path) if e["t"] == "session"]
     assert closes == [{"t": "session", "ts": closes[0]["ts"], "action": "close", "session_id": "a", "browser_id": "b-a", "source": "dawg-replay"}]
 
     def factory():
         raise AssertionError("второй проход не должен звать API")
 
-    report = insurance.insure(tmp_path, factory)
+    report = insure(tmp_path, factory)
     assert report.released == [] and report.clean
     assert len(read_log(tmp_path)) == 2  # close и одна строка лога
 
@@ -300,8 +310,11 @@ def test_kill9_while_working(tmp_path, fake):
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL")
-def test_kill9_during_post_warns(tmp_path, fake):
+def test_kill9_during_post_warns(tmp_path, fake, monkeypatch):
     fake.post_delay = 3  # сессия уже создана, ответ ещё не пришёл
+    # Ожидание окончания POST укорочено под фейк: POST тут длится 3 с, а не до 30.
+    monkeypatch.setattr(insurance, "POST_TIMEOUT", timedelta(seconds=3))
+    monkeypatch.setattr(insurance, "POST_MARGIN", timedelta(seconds=1))
     foreign = fake.add_foreign_session(iso(datetime.now(timezone.utc) - timedelta(hours=1)))
     run = start_run(tmp_path, fake)
     assert wait_for(lambda: has(run, lambda e: e.get("action") == "provisioning"))
@@ -464,3 +477,185 @@ def test_supervised_run_kill9_released_by_supervisor(app_with_key, fake, tmp_pat
     t.join(30)
     assert done["rec"].status == "failed" and done["rec"].error is None
     assert fake.sessions == {}
+
+
+# --- ожидание окончания POST перед поиском suspects (provisioning без open) -------
+
+
+class Clock:
+    """Подменные часы: ожидание не спит, а двигает время и даёт тесту что-то сделать «пока ждём»."""
+
+    def __init__(self, now, during_wait=None, interrupt_after=None):
+        self.now = now
+        self.waits = []
+        self.during_wait = during_wait
+        self.interrupt_after = interrupt_after
+
+    def __call__(self):
+        return self.now
+
+    def wait(self, seconds):
+        self.waits.append(seconds)
+        if self.during_wait:
+            self.during_wait(self)
+        if self.interrupt_after is not None and self.interrupt_after < seconds:
+            self.now += timedelta(seconds=self.interrupt_after)
+            return False
+        self.now += timedelta(seconds=seconds)
+        return True
+
+
+def fake_api(fake):
+    return lambda: Sessions(KEY, fake.url)
+
+
+def test_post_wait_seconds():
+    t = NOW
+    assert insurance.post_wait_seconds([iso(t)], t) == 35
+    assert insurance.post_wait_seconds([iso(t)], t + timedelta(seconds=3)) == 32
+    assert insurance.post_wait_seconds([iso(t)], t + timedelta(seconds=40)) == 0
+    # Последний provisioning решает.
+    assert insurance.post_wait_seconds([iso(t), iso(t + timedelta(seconds=10))], t + timedelta(seconds=20)) == 25
+    # ts из будущего (часы скрипта убежали): не дольше 35 с от текущего момента.
+    assert insurance.post_wait_seconds([iso(t + timedelta(hours=1))], t) == 35
+    assert insurance.post_wait_seconds(["битое"], t) == 0
+
+
+def test_waits_for_post_and_finds_browser_finished_after_death(tmp_path, fake):
+    """Процесс умер через 3 с после provisioning; платформа доделала браузер позже."""
+    prov = NOW
+    write_events(tmp_path, [ev("provisioning", ts=prov)])
+    late = {}
+
+    def platform_finishes(clock):
+        # startedAt — момент приёма POST, а в списке ключа браузер появляется, когда платформа его доделала.
+        late["sid"] = fake.add_foreign_session(iso(prov + timedelta(seconds=1)))
+
+    clock = Clock(prov + timedelta(seconds=3), during_wait=platform_finishes)
+    report = insurance.insure(tmp_path, fake_api(fake), finished_at=iso(prov + timedelta(seconds=3)), now=clock, wait=clock.wait)
+    assert clock.waits == [32]  # до provisioning + 30 + 5
+    assert report.waited_s == 32 and not report.wait_interrupted
+    assert [s["session_id"] for s in report.suspects] == [late["sid"]]
+    assert late["sid"] in fake.sessions  # подозрительные сами не освобождаются
+
+
+def test_without_wait_late_browser_would_be_missed(tmp_path, fake):
+    """Контроль: если бы список брали сразу, доделанного платформой браузера в нём ещё не было бы."""
+    write_events(tmp_path, [ev("provisioning", ts=NOW)])
+    clock = Clock(NOW + timedelta(seconds=3))
+    report = insurance.insure(tmp_path, fake_api(fake), now=clock, wait=lambda s: True)
+    assert report.suspects == []
+
+
+def test_no_wait_when_post_long_over(tmp_path, fake):
+    write_events(tmp_path, [ev("provisioning", ts=NOW)])
+    clock = Clock(NOW + timedelta(minutes=5))
+    insurance.insure(tmp_path, fake_api(fake), now=clock, wait=clock.wait)
+    assert clock.waits == []
+
+
+def test_no_wait_without_pending_provisioning(tmp_path, fake):
+    # open без close: освобождаем сразу, ничего не ждём.
+    sid = fake.add_foreign_session(iso(NOW))
+    write_events(tmp_path, [ev("provisioning", ts=NOW), ev("open", sid, ts=NOW)])
+    clock = Clock(NOW + timedelta(seconds=1))
+    report = insurance.insure(tmp_path, fake_api(fake), now=clock, wait=clock.wait)
+    assert clock.waits == [] and report.released == [sid] and fake.sessions == {}
+    # failed закрывает provisioning: тоже без ожидания.
+    write_events(tmp_path / "f", [ev("provisioning", ts=NOW), ev("failed", ts=NOW)])
+    insurance.insure(tmp_path / "f", fake_api(fake), now=clock, wait=clock.wait)
+    assert clock.waits == []
+
+
+def test_unclosed_released_before_waiting(tmp_path, fake):
+    sid = fake.add_foreign_session(iso(NOW))
+    write_events(tmp_path, [ev("provisioning", ts=NOW), ev("open", sid, ts=NOW), ev("provisioning", ts=NOW + timedelta(seconds=2))])
+    seen = []
+    clock = Clock(NOW + timedelta(seconds=3), during_wait=lambda c: seen.append(dict(fake.sessions)))
+    report = insurance.insure(tmp_path, fake_api(fake), now=clock, wait=clock.wait)
+    assert seen == [{}]  # к началу ожидания браузер запуска уже освобождён
+    assert report.released == [sid] and clock.waits == [34]
+
+
+def test_interrupted_wait_keeps_report(tmp_path, fake):
+    write_events(tmp_path, [ev("provisioning", ts=NOW)])
+    early = fake.add_foreign_session(iso(NOW + timedelta(seconds=1)))
+    clock = Clock(NOW + timedelta(seconds=3), interrupt_after=2)
+    report = insurance.insure(tmp_path, fake_api(fake), now=clock, wait=clock.wait)
+    assert report.wait_interrupted and report.waited_s == 2
+    assert [s["session_id"] for s in report.suspects] == [early]  # итог всё равно посчитан
+    saved = json.loads((tmp_path / "insurance.json").read_text(encoding="utf-8"))
+    assert saved["wait_interrupted"] is True and saved["suspects"][0]["session_id"] == early
+    msgs = [e["msg"] for e in read_log(tmp_path)]
+    assert any("ожидание окончания создания браузера прервано" in m for m in msgs)
+    assert any("возможно, остался браузер" in m for m in msgs)
+
+
+def test_event_wait_interrupts_promptly():
+    import threading
+
+    stop = threading.Event()
+    wait = insurance.event_wait(stop)
+    threading.Timer(0.1, stop.set).start()
+    t0 = time.monotonic()
+    assert wait(30) is False
+    assert time.monotonic() - t0 < 2
+    assert insurance.event_wait(None)(0.01) is True
+
+
+def test_hook_passes_stop_to_wait(tmp_path, fake):
+    import threading
+    from types import SimpleNamespace
+
+    write_events(tmp_path, [ev("provisioning", ts=iso_now_minus(1))])  # POST идёт прямо сейчас
+    stop = threading.Event()
+    stop.set()  # приложение уже выходит: ждать нельзя
+    t0 = time.monotonic()
+    insurance.hook(KEY, fake.url, stop=stop)(SimpleNamespace(run_dir=tmp_path, finished_at=None))
+    assert time.monotonic() - t0 < 5
+    report = json.loads((tmp_path / "insurance.json").read_text(encoding="utf-8"))
+    assert report["wait_interrupted"] is True
+
+
+def iso_now_minus(seconds):
+    return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGKILL")
+def test_supervised_cancel_interrupts_post_wait(app_with_key, fake, tmp_path, monkeypatch, kr):
+    """kill -9 во время POST: страховка ждёт окончания POST; cancel из другого процесса
+    прерывает ожидание, итог запуска всё равно записан."""
+    import threading
+
+    from dawg_replay import launch
+    from dawg_replay.app import App
+
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    monkeypatch.setattr(insurance, "POST_TIMEOUT", timedelta(seconds=120))  # долгое ожидание
+    fake.post_delay = 3
+    src = tmp_path / "script.py"
+    src.write_text(MANIFEST + textwrap.dedent(SCRIPT), encoding="utf-8")
+    prepared = launch.prepare(app_with_key, str(src))
+    run_id = prepared.run.id
+    done = {}
+
+    def supervisor():
+        with App(app_with_key.paths.home, keyring_backend=kr) as own:
+            done["rec"] = launch.supervise(own, run_id, prepared.payload())
+
+    t = threading.Thread(target=supervisor)
+    t.start()
+    run_dir = app_with_key.paths.run_dir(run_id)
+    assert wait_for(lambda: '"provisioning"' in (run_dir / "events.jsonl").read_text(encoding="utf-8") if (run_dir / "events.jsonl").exists() else False)
+    assert wait_for(lambda: len(fake.sessions) == 1)  # POST принят, ответа ещё нет
+    os.kill(app_with_key.runs.get(run_id).pid, signal.SIGKILL)
+    time.sleep(1)
+    assert t.is_alive()  # страховка ждёт окончания POST
+    t0 = time.monotonic()
+    app_with_key.runs.request_cancel(run_id)
+    t.join(15)
+    assert not t.is_alive() and time.monotonic() - t0 < 5
+    assert done["rec"].status == "failed"
+    report = json.loads((run_dir / "insurance.json").read_text(encoding="utf-8"))
+    assert report["wait_interrupted"] is True
+    assert len(report["suspects"]) == 1  # браузер из прерванного POST всё равно найден
