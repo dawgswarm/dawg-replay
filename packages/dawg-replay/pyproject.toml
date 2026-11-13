@@ -3,7 +3,12 @@ name = "dawg-replay"
 version = "0.1.0"
 description = "Локальное приложение для запуска скриптов сбора данных через браузеры DAWG"
 requires-python = ">=3.10"
-dependencies = ["dawg-replay-kit"]
+dependencies = [
+    "dawg-replay-kit",
+    "keyring>=25",
+    "platformdirs>=4",
+    "tomli>=2; python_version < '3.11'",
+]
 
 [project.scripts]
 dawg-replay = "dawg_replay.cli:main"
