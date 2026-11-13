@@ -134,6 +134,7 @@ _LINK = re.compile(r"\[([^\]\n]+)\]\((https?://[^\s)]+)\)")
 _CODE = re.compile(r"`([^`\n]+)`")
 _BOLD = re.compile(r"\*\*([^*\n]+)\*\*")
 _ITALIC = re.compile(r"(?<![*\w])\*([^*\n]+)\*(?![*\w])")
+_LIST_MARK = re.compile(r"^\s*[-*]\s+")
 
 
 def _inline(text: str) -> str:
@@ -160,7 +161,7 @@ def markdown(text: str | None) -> str:
     for block in re.split(r"\n\s*\n", html.escape(text.strip(), quote=True)):
         lines = block.split("\n")
         if all(re.match(r"\s*[-*]\s+", ln) for ln in lines):
-            items = "".join(f"<li>{_inline(re.sub(r'^\s*[-*]\s+', '', ln))}</li>" for ln in lines)
+            items = "".join("<li>" + _inline(_LIST_MARK.sub("", ln)) + "</li>" for ln in lines)
             out.append(f"<ul>{items}</ul>")
         else:
             out.append("<p>" + "<br>".join(_inline(ln) for ln in lines) + "</p>")
