@@ -135,3 +135,31 @@ def test_kit_from_environment_errors(script_file, tmp_path):
         Kit.from_environment(script_path=script_file(), argv=[], environ={}, cwd=tmp_path)
     with pytest.raises(StartupError):
         Kit.from_environment(script_path=tmp_path / "nope.py", argv=[], environ={}, cwd=tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGTERM")
+def test_autonomous_sigterm_neutral_text(script_file, tmp_path):
+    import signal
+    import time
+
+    path = script_file('''
+import time
+import dawg_replay_kit as kit
+
+kit.log.info("старт")
+(kit.output_dir / "started").write_text("1")
+time.sleep(60)
+''')
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("DAWG_SCRIPT_", "DAWG_SECRET_"))}
+    p = subprocess.Popen(
+        [sys.executable, path, "--query", "q"], cwd=tmp_path, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+    )
+    end = time.monotonic() + 15
+    while not (tmp_path / "output" / "started").exists() and time.monotonic() < end:
+        time.sleep(0.02)
+    p.send_signal(signal.SIGTERM)
+    _, err = p.communicate(timeout=15)
+    assert p.returncode == 143
+    assert "запуск остановлен сигналом" in err
+    assert "приложением" not in err and "отмены" not in err
