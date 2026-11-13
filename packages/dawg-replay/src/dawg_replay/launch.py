@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import devkit, hooks, procinfo
+from dawg_replay import devkit, hooks, insurance, procinfo
 from dawg_replay.errors import ReplayError
 from dawg_replay.registry import invalid_manifest
 from dawg_replay.runner import (
@@ -273,7 +273,7 @@ def supervise(
         grace=cfg.cancel_grace_seconds,
         command=payload.get("command") or DEFAULT_COMMAND,
         env=payload.get("env") or None,
-        after_exit=hooks.after_exit_hooks(),
+        after_exit=[_insurance(app, payload.get("api_key")), *hooks.after_exit_hooks()],
         secrets_dir=app.paths.secrets_tmp,
     )
     try:
@@ -473,12 +473,33 @@ def _close_lost(app: App, rec: Run, reason: str, killed: bool) -> bool:
         finished_at=app.runs.get(rec.id).finished_at or "",
         killed=killed,
     )
-    for hook in hooks.after_exit_hooks():
+    # Супервизора нет, поэтому страховку браузеров (5.6) зовём здесь: lost и отмена без супервизора.
+    for hook in [_insurance(app), *hooks.after_exit_hooks()]:
         try:
             hook(outcome)
         except Exception as e:
             app.runs.add_error(rec.id, f"хук после выхода: {getattr(hook, '__name__', hook)!s}: {type(e).__name__}: {e}")
     return True
+
+
+def _insurance(app: App, api_key: str | None = None):
+    """Страховка браузеров. Ключ из payload запуска, иначе из keyring; читается, только если есть что освобождать."""
+
+    def key() -> str | None:
+        if api_key:
+            return api_key
+        try:
+            return app.secrets.get_api_key()
+        except ReplayError:
+            return None
+
+    def base_url() -> str | None:
+        try:
+            return app.config.base_url or None
+        except ReplayError:
+            return None
+
+    return insurance.hook(key, base_url)
 
 
 def _remove_secret_dirs(app: App, run_id: str) -> None:

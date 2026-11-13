@@ -5,6 +5,10 @@ description = "Библиотека для скриптов dawg-replay: пар�
 requires-python = ">=3.10"
 dependencies = ["tomli>=2; python_version < '3.11'"]
 
+[project.optional-dependencies]
+# Для kit.browser(). В скриптах эти пакеты и так перечислены в заголовке PEP 723.
+browser = ["dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2", "httpx>=0.27"]
+
 [tool.hatch.version]
 # Единственное место версии: __version__ в пакете. Мажор kit совпадает с мажором контракта.
 path = "src/dawg_replay_kit/__init__.py"

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import TextIO
 
 from dawg_replay_kit import cancel, parameters
+from dawg_replay_kit.browser import Browsers
+from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL
 from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink, Sink
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import Params, ParamsError
@@ -17,6 +19,8 @@ ENV_PARAMS = "DAWG_SCRIPT_PARAMS"
 ENV_EVENTS = "DAWG_SCRIPT_EVENTS"
 ENV_OUTPUT_DIR = "DAWG_SCRIPT_OUTPUT_DIR"
 ENV_RUN_ID = "DAWG_SCRIPT_RUN_ID"
+ENV_API_KEY = "DAWG_API_KEY"
+ENV_BASE_URL = "DAWG_BASE_URL"
 
 EXIT_BAD_PARAMS = 2
 
@@ -34,6 +38,7 @@ class Kit:
         output_dir: Path,
         run_id: str | None,
         autonomous: bool,
+        browsers: Browsers | None = None,
     ):
         self.manifest = manifest
         self.params = params
@@ -41,6 +46,7 @@ class Kit:
         self.output_dir = output_dir
         self.run_id = run_id
         self.autonomous = autonomous
+        self.browsers = browsers if browsers is not None else Browsers(events, None, DEFAULT_BASE_URL)
 
     @classmethod
     def from_environment(
@@ -84,10 +90,15 @@ class Kit:
                 sink.close()
             raise StartupError(str(e)) from None
 
-        events = Emitter(sink, secrets=params.secret_values(), output_dir=output_dir)
-        return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous)
+        api_key = environ.get(ENV_API_KEY) or None
+        secrets = params.secret_values() + ([api_key] if api_key else [])
+        events = Emitter(sink, secrets=secrets, output_dir=output_dir)
+        browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL)
+        return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous, browsers)
 
     def close(self) -> None:
+        # Браузеры, которые скрипт не закрыл сам (atexit, отмена), освобождаются до закрытия файла событий.
+        self.browsers.close()
         if cancel.received() is not None:
             # Пишется после finally скрипта: отложенные события уже ушли, это последняя строка.
             self.events.log("warn", "запуск прерван сигналом отмены")
