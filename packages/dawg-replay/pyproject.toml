@@ -5,6 +5,7 @@ description = "Локальное приложение для запуска с�
 requires-python = ">=3.10"
 dependencies = [
     "dawg-replay-kit",
+    "dawg-sdk-python>=0.4,<0.5",
     "keyring>=25",
     "platformdirs>=4",
     "tomli>=2; python_version < '3.11'",

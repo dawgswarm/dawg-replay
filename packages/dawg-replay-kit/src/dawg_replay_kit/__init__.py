@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit import cancel
+from dawg_replay_kit.browser import BrowserLimitReached, BrowserSession
+from dawg_replay_kit.dawg_api import BrowserError, BrowserLimitError
 from dawg_replay_kit.events import Log
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
@@ -34,16 +36,22 @@ __version__ = "0.1.0"
 
 __all__ = [
     "SUPPORTED_CONTRACTS",
+    "BrowserError",
+    "BrowserLimitError",
+    "BrowserLimitReached",
+    "BrowserSession",
     "Kit",
     "StartupError",
     "__version__",
     "artifact",
+    "browser",
     "init",
     "log",
     "metric",
     "progress",
     "result",
     "rows",
+    "set_browser_limit",
     "stage",
 ]
 
@@ -106,3 +114,22 @@ def artifact(path: str | Path, label: str, mime: str | None = None) -> None:
 
 def result(status: str, summary: str) -> None:
     _runtime().events.result(status, summary)
+
+
+def browser(
+    proxy: str | None = None,
+    geo: str | tuple[float, float] | None = None,
+    ready_timeout: float = 120.0,
+) -> BrowserSession:
+    """Браузер DAWG для `with` или `async with`.
+
+    proxy: `socks5://user:pass@host:port` и подобное; geo: slug города (`moskva`)
+    или координаты `"55.75,37.61"`. Внутри доступны `.page`, `.context`, `.browser`,
+    `.session_id`.
+    """
+    return BrowserSession(_runtime().browsers, proxy, geo, ready_timeout)
+
+
+def set_browser_limit(n: int) -> None:
+    """Сколько браузеров скрипт держит одновременно. По умолчанию 1."""
+    _runtime().browsers.set_limit(n)

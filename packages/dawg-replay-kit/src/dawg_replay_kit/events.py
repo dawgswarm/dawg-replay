@@ -17,7 +17,7 @@ from typing import Any, Protocol, TextIO
 
 LOG_LEVELS = ("debug", "info", "warn", "error")
 RESULT_STATUSES = ("ok", "partial", "failed")
-SESSION_ACTIONS = ("provisioning", "open", "close")
+SESSION_ACTIONS = ("provisioning", "open", "close", "failed")
 THROTTLE_SECONDS = 0.25  # не чаще 4 раз в секунду на id
 MASK = "***"
 
@@ -258,7 +258,7 @@ class Emitter:
     def session(self, action: str, session_id: str | None = None, browser_id: str | None = None) -> None:
         if action not in SESSION_ACTIONS:
             raise ValueError(f"действие {action!r}, допустимы: {', '.join(SESSION_ACTIONS)}")
-        if action != "provisioning" and not session_id:
+        if action in ("open", "close") and not session_id:
             raise ValueError(f"session {action}: нужен session_id")
         self.emit("session", action=action, session_id=session_id, browser_id=browser_id)
 

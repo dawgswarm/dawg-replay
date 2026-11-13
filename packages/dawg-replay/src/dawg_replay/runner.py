@@ -36,7 +36,8 @@
 оставшиеся в группе процессы тоже убиваются, сирот не остаётся.
 
 После того как процесс и его дерево завершились, вызываются хуки `after_exit`.
-Через них подключается страховка браузеров (5.6).
+Первым всегда идёт страховка браузеров (5.6, `insurance.py`): она освобождает
+сессии с `open` без `close`. Отключается только в тестах: `insure=False`.
 """
 
 from __future__ import annotations
@@ -149,6 +150,7 @@ class ScriptRun:
         command: Sequence[str] = DEFAULT_COMMAND,
         env: Mapping[str, str] | None = None,
         after_exit: Iterable[AfterExit] = (),
+        insure: bool = True,
     ):
         self.script = Path(script).resolve()
         self.run_id = run_id
@@ -167,6 +169,11 @@ class ScriptRun:
         self._command = list(command)
         self._extra_env = dict(env or {})
         self._after_exit = list(after_exit)
+        if insure:
+            # Страховка браузеров (5.6) идёт первой: остальные хуки видят её итог в events.jsonl.
+            from dawg_replay import insurance
+
+            self._after_exit.insert(0, insurance.hook(api_key, base_url))
 
         self._proc: subprocess.Popen[bytes] | None = None
         self._secret_dir: Path | None = None
