@@ -150,14 +150,17 @@ def merge_values(
     preset: str | None,
     params_file: str | None,
     sets: Sequence[str] | None,
+    form_values: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """default < пресет < --params < --set. Секреты сюда не принимаются."""
+    """default < пресет < --params < значения формы UI < --set. Секреты сюда не принимаются."""
     values: dict[str, Any] = {}
     if preset:
         p = app.presets.get(manifest.name, preset, manifest)
         values.update(p.params)
     if params_file:
         values.update(read_params_file(params_file))
+    if form_values:
+        values.update(form_values)
     if sets:
         values.update(parse_set_args(manifest, sets))
     secrets_given = [p.name for p in manifest.params if p.type == "secret" and p.name in values]
@@ -178,10 +181,12 @@ def prepare(
     preset: str | None = None,
     params_file: str | None = None,
     sets: Sequence[str] | None = None,
+    values: Mapping[str, Any] | None = None,
 ) -> Prepared:
+    """`values` — проверенные значения без секретов (форма UI, dawg_replay.forms)."""
     recover_lost(app)
     manifest, script_path, draft, version = _target(app, target)
-    values = merge_values(app, manifest, preset, params_file, sets)
+    values = merge_values(app, manifest, preset, params_file, sets, values)
 
     secret_names = [p.name for p in manifest.params if p.type == "secret"]
     missing: list[str] = []
