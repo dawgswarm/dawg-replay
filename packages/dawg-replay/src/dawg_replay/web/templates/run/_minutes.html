@@ -1,0 +1,4 @@
+{% set m = run.minutes %}
+{% if m and m.sessions %}
+<p class="result-minutes">Браузеры DAWG: {{ m.minutes | minutes }} за {{ m.sessions }} {{ m.sessions | plural("сессию", "сессии", "сессий") }}, примерно.{% if m.unclosed %} У {{ m.unclosed }} нет события закрытия, их время посчитано до конца запуска.{% endif %}</p>
+{% endif %}

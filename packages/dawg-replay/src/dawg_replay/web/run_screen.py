@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import diagnosis, insurance, launch
+from dawg_replay import diagnosis, insurance, launch, minutes
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -117,6 +117,8 @@ class Views:
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)
             info["diagnosis"] = dg  # упал, ничего не сообщив: хвост stderr и подсказка
+            # Примерные минуты браузеров DAWG: только для завершённого, у идущего число растёт само.
+            info["minutes"] = None if rec_.running else minutes.for_run(run_dir, rec_).to_dict()
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)

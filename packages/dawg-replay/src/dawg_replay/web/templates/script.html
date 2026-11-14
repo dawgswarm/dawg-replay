@@ -29,7 +29,7 @@
 </div>
 
 <section class="card" aria-labelledby="runs-title">
-  <div class="card-head"><h2 id="runs-title">Запуски</h2></div>
+  <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}</div>
   {% set sname = s.name %}{% set runs = v.runs %}
   {% include "_script_runs.html" %}
 </section>
