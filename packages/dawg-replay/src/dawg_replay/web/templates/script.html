@@ -62,8 +62,8 @@
 </details>
 
 <details class="card fold danger-zone">
-  <summary><span class="fold-title">Удалить скрипт</span><span class="hint-inline">версии, пресеты и секреты</span></summary>
-  <p class="hint">Удалятся все версии скрипта, его пресеты и сохранённые секреты. История запусков и их файлы останутся. Вернуть скрипт можно, только добавив файл заново.</p>
+  <summary><span class="fold-title">Удалить скрипт</span><span class="hint-inline">версии, пресеты, секреты и расписания</span></summary>
+  <p class="hint">Удалятся все версии скрипта, его пресеты и сохранённые секреты, регулярные запуски снимутся из планировщика. История запусков и их файлы останутся. Вернуть скрипт можно, только добавив файл заново.</p>
   <form class="delete-form" hx-post="/scripts/{{ s.name }}/delete" hx-target="#delete-error" hx-disabled-elt="find button">
     <label for="delete-confirm">Чтобы подтвердить, введите имя скрипта <code>{{ s.name }}</code></label>
     <div class="row">
