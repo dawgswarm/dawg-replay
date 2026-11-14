@@ -70,11 +70,11 @@ claude --plugin-dir ./skill
    ```toml
    [mcp_servers.dawg]
    command = "uvx"
-   args = ["dawg-mcp"]
+   args = ["--with", "mcp<2", "dawg-mcp"]
    env_vars = ["DAWG_API_KEY"]
    ```
 
-   `env_vars` передаёт серверу `DAWG_API_KEY` из окружения, в котором запущен Codex: перед запуском выполните `export DAWG_API_KEY=...` (или пропишите в профиль оболочки). Если dawg-mcp уже настроен (`codex mcp add dawg ...` или блок с `[mcp_servers.dawg.env]`), второй блок не добавляйте.
+   `env_vars` передаёт серверу `DAWG_API_KEY` из окружения, в котором запущен Codex: перед запуском выполните `export DAWG_API_KEY=...` (или пропишите в профиль оболочки). Если dawg-mcp уже настроен (`codex mcp add dawg ...` или блок с `[mcp_servers.dawg.env]`), второй блок не добавляйте. `--with mcp<2` нужен, пока dawg-mcp не работает с `mcp` 2.x: без него сервер не стартует; в уже настроенном блоке добавьте его в `args`.
 
 3. Перезапустите Codex. Проверка: `/skills` показывает `dawg-replay-builder`, `/mcp` показывает сервер `dawg`. Вызвать явно: `$dawg-replay-builder`.
 

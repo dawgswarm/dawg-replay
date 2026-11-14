@@ -77,6 +77,6 @@ def test_plugin_manifests_consistent():
     assert entry["name"] == plugin["name"] and entry["source"] == "./"
     assert market["owner"]["name"]
     server = mcp["mcpServers"]["dawg"]
-    assert server["command"] == "uvx" and server["args"] == ["dawg-mcp"]
+    assert server["command"] == "uvx" and server["args"] == ["--with", "mcp<2", "dawg-mcp"]
     keys = re.findall(r"\$\{user_config\.(\w+)\}", json.dumps(server))
     assert keys and all(plugin["userConfig"][k]["sensitive"] for k in keys)
