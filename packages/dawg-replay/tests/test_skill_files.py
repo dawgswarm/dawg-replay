@@ -46,7 +46,7 @@ def test_template_passes_validate(capsys):
     assert m.contract_minor == 1 and m.site and m.tags
 
 
-def test_retries_and_captcha(tpl):
+def test_retries_and_site_check(tpl):
     calls = []
 
     def flaky():
@@ -58,14 +58,23 @@ def test_retries_and_captcha(tpl):
     assert tpl.with_retries("первая страница", flaky, attempts=3, pause=0) == "ok"
     assert len(calls) == 3 and len(tpl.kit.log.lines) == 2
 
-    def captcha():
+    def stuck():
         calls.append(1)
-        raise tpl.Captcha("капча")
+        raise tpl.SiteCheckTimeout("сайт не пропустил браузер")
 
     calls.clear()
-    with pytest.raises(tpl.Captcha):
-        tpl.with_retries("x", captcha, attempts=3, pause=0)
-    assert len(calls) == 1  # капчу не повторяем
+    with pytest.raises(tpl.SiteCheckTimeout, match="не пропустил"):
+        tpl.with_retries("x", stuck, attempts=3, pause=0)
+    assert len(calls) == 3  # проверку повторяем, но не больше attempts
+
+    def check_then_ok():
+        calls.append(1)
+        if len(calls) == 1:
+            raise tpl.SiteCheckTimeout("сайт не пропустил браузер")
+        return "ok"
+
+    calls.clear()
+    assert tpl.with_retries("x", check_then_ok, attempts=3, pause=0) == "ok"
 
     with pytest.raises(RuntimeError, match="не получилось за 2 попытки"):
         tpl.with_retries("x", lambda: (_ for _ in ()).throw(ValueError("нет")), attempts=2, pause=0)
@@ -94,8 +103,12 @@ def test_wait_ready(tpl):
         ("Выдача", state),
     ])
     assert [i["id"] for i in tpl.wait_ready(page, timeout=5)] == [1, 2]
-    with pytest.raises(tpl.Captcha):
-        tpl.wait_ready(FakePage([("Antibot Captcha", None)]), timeout=5)
+    # проверка с капчей тоже ждётся: браузер проходит её сам, данные появляются
+    page = FakePage([("Antibot Captcha", None), ("Antibot Captcha", None), ("Выдача", state)])
+    assert len(tpl.wait_ready(page, timeout=5)) == 2 and page.waits == 2
+    for title in ("Antibot Captcha", "Antibot Challenge Page"):
+        with pytest.raises(tpl.SiteCheckTimeout, match="страница проверки не прошла за 0 с"):
+            tpl.wait_ready(FakePage([(title, None)]), timeout=0.01)
     with pytest.raises(TimeoutError):
         tpl.wait_ready(FakePage([("Выдача", None)]), timeout=0.01)
 
