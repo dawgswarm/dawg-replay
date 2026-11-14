@@ -178,6 +178,22 @@ def test_preset_rejects(app, write_script, values, fragment):
 def test_preset_bad_name(app, write_script):
     app.registry.add(write_script(version=1))
     assert err(app.save_preset, "ozon-cards", "a b", {}).code == "bad_preset_name"
+    # `$` в регулярном выражении пропускал перевод строки в конце имени.
+    assert err(app.save_preset, "ozon-cards", "night\n", {}).code == "bad_preset_name"
+
+
+def test_import_id_with_trailing_newline_is_not_a_file_name(app, tmp_path):
+    from dawg_replay.imports import Imports
+
+    imp = Imports(app)
+    imp.dir.mkdir(parents=True, exist_ok=True)
+    good = "A" * 22
+    (imp.dir / f"{good}\n.py").write_bytes(b"x")
+    with pytest.raises(ReplayError) as e:
+        imp.load(good + "\n")
+    assert e.value.code == "import_not_found"
+    imp.discard(good + "\n")
+    assert (imp.dir / f"{good}\n.py").exists()
 
 
 def test_preset_filtered_by_current_version(app, write_script):
