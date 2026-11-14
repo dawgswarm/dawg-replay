@@ -28,15 +28,16 @@
   {% endif %}
 </div>
 
+{# Регулярный запуск выше истории: история длинная, а расписание нужно видеть сразу. #}
+<section class="card" aria-labelledby="sched-title">
+  <div class="card-head"><h2 id="sched-title">Регулярный запуск</h2><span class="hint-inline">по пресету, через планировщик системы</span></div>
+  <div id="schedules" hx-get="/scripts/{{ s.name }}/_schedules" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Проверяю планировщик…</p></div>
+</section>
+
 <section class="card" aria-labelledby="runs-title">
   <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}</div>
   {% set sname = s.name %}{% set runs = v.runs %}
   {% include "_script_runs.html" %}
-</section>
-
-<section class="card" aria-labelledby="sched-title">
-  <div class="card-head"><h2 id="sched-title">Регулярный запуск</h2><span class="hint-inline">по пресету, через планировщик системы</span></div>
-  <div id="schedules" hx-get="/scripts/{{ s.name }}/_schedules" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Проверяю планировщик…</p></div>
 </section>
 
 <details class="card fold">
