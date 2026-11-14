@@ -931,3 +931,7 @@ button.danger:hover { background: color-mix(in srgb, var(--failed) 85%, black); 
   border: 1px solid var(--line); border-radius: var(--r-control); background: var(--surface-2); color: var(--ink); text-decoration: none;
 }
 .plan:hover { background: var(--action-soft); }
+
+/* Ждущие свободного слота на главной */
+.dash-sub { margin: 1rem 0 0.5rem; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft); }
+.dash-sub:first-of-type { margin-top: 0.2rem; }

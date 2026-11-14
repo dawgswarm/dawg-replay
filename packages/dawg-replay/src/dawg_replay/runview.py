@@ -376,7 +376,7 @@ class RunView:
     def finished(self) -> bool:
         """Запуск завершён (по БД). Без БД: есть событие result."""
         if self._run_info is not None:
-            return bool(self.run) and self.run.get("status") != "running"
+            return bool(self.run) and self.run.get("status") not in ("running", "waiting")
         return self.result is not None
 
     def follow(

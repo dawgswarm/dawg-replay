@@ -43,6 +43,8 @@ STATUS = {
     "failed (cancelled)": ("отменён", "muted"),
     "failed (timeout)": ("превышено время", "failed"),
     "failed (lost)": ("прерван", "muted"),
+    "waiting": ("ждёт слот", "muted"),
+    "failed (skipped)": ("пропущен", "failed"),
 }
 MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
 
