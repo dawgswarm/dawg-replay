@@ -73,6 +73,20 @@ MIGRATIONS: list[str] = [
     ALTER TABLE runs ADD COLUMN cancel_requested_at TEXT;
     ALTER TABLE runs ADD COLUMN follow INTEGER NOT NULL DEFAULT 0
     """,
+    # 3: регулярные запуски через системный планировщик (dawg_replay.schedules)
+    """
+    CREATE TABLE schedules (
+        id          TEXT PRIMARY KEY,
+        script_name TEXT NOT NULL,
+        preset      TEXT NOT NULL,
+        spec_json   TEXT NOT NULL,
+        created_at  TEXT NOT NULL
+    );
+    CREATE INDEX schedules_by_script ON schedules (script_name);
+    -- Кто начал запуск: NULL вручную (UI или CLI), schedule по расписанию schedule_id
+    ALTER TABLE runs ADD COLUMN triggered_by TEXT;
+    ALTER TABLE runs ADD COLUMN schedule_id TEXT
+    """,
 ]
 
 

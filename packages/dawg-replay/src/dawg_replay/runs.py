@@ -56,6 +56,8 @@ class Run:
     timeout_seconds: int | None
     heartbeat_at: str | None
     cancel_requested_at: str | None
+    trigger: str = "manual"  # manual или schedule
+    schedule_id: str | None = None
 
     @property
     def running(self) -> bool:
@@ -90,6 +92,8 @@ class Run:
             "killed": self.killed,
             "timeout_seconds": self.timeout_seconds,
             "cancel_requested": self.cancel_requested_at is not None,
+            "trigger": self.trigger,
+            "schedule_id": self.schedule_id,
         }
 
 
@@ -118,6 +122,8 @@ def _run(row: sqlite3.Row) -> Run:
         timeout_seconds=row["timeout_seconds"],
         heartbeat_at=row["heartbeat_at"],
         cancel_requested_at=row["cancel_requested_at"],
+        trigger=row["triggered_by"] or "manual",
+        schedule_id=row["schedule_id"],
     )
 
 
@@ -137,6 +143,7 @@ class RunStore:
         params: dict[str, Any],
         timeout_seconds: int,
         limit: int,
+        schedule_id: str | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
@@ -157,7 +164,8 @@ class RunStore:
                 )
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
-                " params_json, created_at, timeout_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " params_json, created_at, timeout_seconds, triggered_by, schedule_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -169,6 +177,8 @@ class RunStore:
                     json.dumps(params, ensure_ascii=False),
                     utcnow(),
                     timeout_seconds,
+                    "schedule" if schedule_id else None,
+                    schedule_id,
                 ),
             )
             self._db.execute("COMMIT")

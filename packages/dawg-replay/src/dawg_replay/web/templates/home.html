@@ -23,6 +23,16 @@
       <p class="hint">Здесь появятся пресеты недавних скриптов. Пресет сохраняется в форме запуска скрипта.</p>
       {% endif %}
     </section>
+    {% if d.upcoming %}
+    <section class="card" aria-labelledby="plan-title">
+      <div class="card-head"><h2 id="plan-title">По расписанию</h2></div>
+      <ul class="plan-list">
+        {% for u in d.upcoming %}
+        <li><a class="plan" href="/scripts/{{ u.script }}">{{ cover(u.cover, "s") }}<span class="quick-text"><span class="quick-name">{{ u.at | when_next }}</span><span class="quick-script">{{ u.title }}, «{{ u.preset }}»</span></span></a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endif %}
     <section class="card" aria-labelledby="usage-title">
       <div class="card-head"><h2 id="usage-title">Минуты и браузеры</h2><a class="small" href="/settings">Настройки</a></div>
       <div id="home-usage" hx-get="/home/usage" hx-trigger="load" hx-swap="innerHTML"><p class="hint">Спрашиваю у платформы DAWG…</p></div>

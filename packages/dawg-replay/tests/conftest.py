@@ -1,4 +1,6 @@
 import json
+import sys
+from pathlib import Path
 
 import keyring
 import pytest
@@ -63,6 +65,22 @@ def script_text(version=1, name="ozon-cards", extra_params="", title="Ozon: ка
 
 print("hi")
 """
+
+
+FAKES = Path(__file__).parent / "fakes"
+
+
+@pytest.fixture(autouse=True)
+def fake_scheduler(tmp_path, monkeypatch):
+    """Во всех тестах планировщик фейковый: настоящий crontab и Планировщик задач не трогаются."""
+    state = tmp_path / "scheduler"
+    state.mkdir()
+    monkeypatch.setenv("DAWG_REPLAY_SCHEDULER", "cron")
+    monkeypatch.setenv("DAWG_REPLAY_CRONTAB", json.dumps([sys.executable, str(FAKES / "fake_crontab.py")]))
+    monkeypatch.setenv("DAWG_REPLAY_SCHTASKS", json.dumps([sys.executable, str(FAKES / "fake_schtasks.py")]))
+    monkeypatch.setenv("FAKE_CRONTAB_FILE", str(state / "crontab"))
+    monkeypatch.setenv("FAKE_SCHTASKS_FILE", str(state / "schtasks.json"))
+    return state
 
 
 @pytest.fixture

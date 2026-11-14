@@ -34,6 +34,11 @@
   {% include "_script_runs.html" %}
 </section>
 
+<section class="card" aria-labelledby="sched-title">
+  <div class="card-head"><h2 id="sched-title">Регулярный запуск</h2><span class="hint-inline">по пресету, через планировщик системы</span></div>
+  <div id="schedules" hx-get="/scripts/{{ s.name }}/_schedules" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Проверяю планировщик…</p></div>
+</section>
+
 <details class="card fold">
   <summary><span class="fold-title">Версии</span><span class="hint-inline">текущая {{ s.current_version }}, всего {{ v.versions | length }}</span></summary>
   <p class="hint">Запускается текущая версия. Сделать текущей можно любую: старые версии не удаляются.</p>

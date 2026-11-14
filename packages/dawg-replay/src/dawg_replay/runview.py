@@ -409,6 +409,7 @@ class RunView:
 _RUN_FIELDS = (
     "id", "script", "version", "draft", "status", "reason", "label", "created_at",
     "started_at", "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested",
+    "trigger", "schedule_id",
 )
 
 _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {

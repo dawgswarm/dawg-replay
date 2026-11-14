@@ -51,6 +51,11 @@ class Paths:
         return self.home / "imports"
 
     @property
+    def schedules(self) -> Path:
+        """Логи регулярных запусков и обёртки задач Планировщика Windows."""
+        return self.home / "schedules"
+
+    @property
     def dev_kit(self) -> Path:
         """Сборки локального kit для режима разработки."""
         return self.home / "dev-kit"

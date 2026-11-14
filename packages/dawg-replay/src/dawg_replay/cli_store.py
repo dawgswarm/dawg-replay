@@ -151,11 +151,14 @@ def _remove(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         versions = [v.version for v in app.registry.versions(args.name)]
         raise ReplayError(
             "confirmation_required",
-            f"будут удалены скрипт `{args.name}`, версии {versions}, его пресеты и секреты. "
+            f"будут удалены скрипт `{args.name}`, версии {versions}, его пресеты, секреты и регулярные запуски. "
             "История запусков останется. Повторите с --yes",
         )
     r = app.remove(args.name)
-    return r, f"скрипт `{args.name}` удалён"
+    text = f"скрипт `{args.name}` удалён"
+    if r["schedules_removed"]:
+        text += f"; сняты регулярные запуски: {', '.join(r['schedules_removed'])}"
+    return r, text
 
 
 # --- пресеты ---
@@ -188,8 +191,11 @@ def _preset_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 
 
 def _preset_delete(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    app.delete_preset(args.script, args.preset)
-    return {"deleted": args.preset}, f"пресет `{args.preset}` удалён"
+    removed = app.delete_preset(args.script, args.preset)
+    text = f"пресет `{args.preset}` удалён"
+    if removed:
+        text += f"; сняты его регулярные запуски: {', '.join(removed)}"
+    return {"deleted": args.preset, "schedules_removed": removed}, text
 
 
 # --- секреты ---
@@ -232,7 +238,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add(sub, "rollback", _rollback, "сделать текущей другую версию")
     p.add_argument("name")
     p.add_argument("target_version", metavar="version", type=int)
-    p = add(sub, "remove", _remove, "удалить скрипт со всеми версиями, пресетами и секретами")
+    p = add(sub, "remove", _remove, "удалить скрипт со всеми версиями, пресетами, секретами и расписаниями")
     p.add_argument("name")
     p.add_argument("--yes", action="store_true", help="подтвердить удаление")
 
@@ -244,7 +250,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
     p = add(pre, "list", _preset_list, "пресеты скрипта")
     p.add_argument("script")
-    p = add(pre, "delete", _preset_delete, "удалить пресет")
+    p = add(pre, "delete", _preset_delete, "удалить пресет и его регулярные запуски")
     p.add_argument("script")
     p.add_argument("preset")
 
