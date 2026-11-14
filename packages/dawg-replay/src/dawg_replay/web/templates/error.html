@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="page-head">
-  <h1>Не найдено</h1>
+<section class="panel error-page" aria-labelledby="error-title">
+  <h1 id="error-title">Не найдено</h1>
   <p class="lead">{{ message }}</p>
-  <p><a href="/scripts">К списку скриптов</a></p>
-</div>
+  <p class="error-back"><a class="button" href="/scripts">К списку скриптов</a></p>
+</section>
 {% endblock %}
