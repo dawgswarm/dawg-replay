@@ -174,5 +174,5 @@ def test_minutes_in_ui(home, kr, write_script):
         assert "У 1 нет события закрытия" in h
         assert "Браузеры DAWG за 7 дней: ≈ 5,0 мин, примерно" in c.get("/scripts/ozon-cards").text
         h = c.get("/home/usage").text  # ключа нет: точного остатка нет, оценка есть
-        assert "Браузеры DAWG в запусках за 7 дней: ≈ 5,0 мин, примерно, больше всего у «ozon-cards»" in h
+        assert "Браузеры DAWG в запусках за 7 дней: ≈ 5,0 мин, примерно, больше всего у «Ozon: карточки»" in h
         assert "точный остаток выше" not in h and "Ключ DAWG не задан" in h

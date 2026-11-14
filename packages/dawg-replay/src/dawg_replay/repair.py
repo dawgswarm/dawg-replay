@@ -192,7 +192,7 @@ def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) 
     med = statistics.median(history)
     if med < MIN_BASELINE or value >= med * DROP_RATIO:
         return None
-    med_text = _num(med)
+    med_text = _num(round(med))
     return {
         "kind": "drop",
         "value": value,

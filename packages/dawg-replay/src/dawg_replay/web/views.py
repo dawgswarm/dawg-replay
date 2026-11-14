@@ -156,6 +156,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         """Минуты и браузеры DAWG отдельным запросом: сеть не задерживает и не ломает главную."""
         with _ui(request).open_app() as app:
             week = minutes.period(app, days=7).to_dict()  # оценка по запускам, рядом точный остаток
+            for s in week.get("scripts") or []:
+                try:
+                    s["title"] = app.registry.get(s["script"]).title
+                except ReplayError:
+                    s["title"] = s["script"]
             try:
                 return fragment(request, "home/_usage.html", usage=app.check_api_key(), week=week)
             except ReplayError as e:
