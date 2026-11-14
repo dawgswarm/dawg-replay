@@ -349,24 +349,27 @@ def add_live(home: Path) -> subprocess.Popen:
     now = datetime.now(timezone.utc)
     with App(home) as app:
         app.set_config("max_parallel_runs", "1")
-        v = app.registry.version("ozon-search-cards")
+        # Идёт футбол: так у Ozon в библиотеке последним остаётся запуск с тихой поломкой.
+        v = app.registry.version("sports-results")
         rid = run_id(now - timedelta(minutes=3), 0xfff001)
-        app.runs.reserve(run_id=rid, script_name="ozon-search-cards", script_version=v.version, script_path=str(v.path),
-                         draft=False, preset="смартфоны", params={"query": "смартфон", "max_pages": 2, "sort": "price"},
+        app.runs.reserve(run_id=rid, script_name="sports-results", script_version=v.version, script_path=str(v.path),
+                         draft=False, preset="рпл", params={"league": "РПЛ", "round": 16},
                          timeout_seconds=3600, limit=1)
         d = app.paths.run_dir(rid)
         d.mkdir(parents=True, exist_ok=True)
         t0 = now - timedelta(minutes=3)
-        rows = cards(rng, 40, 1)
+        rows = [{"home": h, "away": a, "score": sc} for h, a, sc in (
+            ("Зенит", "Спартак", "2:1"), ("ЦСКА", "Локомотив", "0:0"), ("Краснодар", "Динамо", "3:2"),
+            ("Ростов", "Рубин", "1:1"))]
         ev = [
             {"t": "stage", "name": "Открываю браузер", "ts": iso(t0 + timedelta(seconds=5))},
             {"t": "session", "action": "open", "session_id": "demo-live-0", "browser_id": "br-0",
              "ts": iso(t0 + timedelta(seconds=20))},
-            {"t": "stage", "name": "Обхожу выдачу", "ts": iso(t0 + timedelta(seconds=40))},
+            {"t": "stage", "name": "Собираю матчи тура", "ts": iso(t0 + timedelta(seconds=40))},
             {"t": "rows", "table": "cards", "columns": list(rows[0]), "rows": rows, "ts": iso(now - timedelta(seconds=30))},
-            {"t": "progress", "id": "pages", "label": "Страницы выдачи", "done": 1, "total": 2,
+            {"t": "progress", "id": "matches", "label": "Матчи", "done": 4, "total": 8,
              "ts": iso(now - timedelta(seconds=30))},
-            {"t": "metric", "key": "cards", "label": "Собрано карточек", "value": 40, "ts": iso(now - timedelta(seconds=30))},
+            {"t": "metric", "key": "matches", "label": "Собрано матчей", "value": 4, "ts": iso(now - timedelta(seconds=30))},
         ]
         (d / "events.jsonl").write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in ev), encoding="utf-8")
         app.runs.set_supervisor(rid, keeper.pid, started)

@@ -58,7 +58,8 @@ def run_status_view(run: dict[str, Any]) -> dict[str, str]:
     """Статус запуска для списков: тихая поломка (repair.annotate) вместо зелёного «готово»."""
     sus = run.get("suspicion")
     if sus:
-        return {"text": "похоже, сайт поменялся", "kind": "partial", "title": sus.get("text", "")}
+        # Коротко: в списках бейдж стоит в колонке статусов, длинный текст ломает выравнивание.
+        return {"text": "сайт поменялся?", "kind": "partial", "title": "Похоже, сайт поменялся. " + sus.get("text", "")}
     return {**status_view(run.get("label")), "title": ""}
 
 

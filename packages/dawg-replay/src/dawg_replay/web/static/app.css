@@ -948,6 +948,7 @@ a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem;
 /* Ждущие свободного слота на главной */
 .dash-sub { margin: 1rem 0 0.5rem; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft); }
 .dash-sub:first-of-type { margin-top: 0.2rem; }
+.dash-list + .dash-sub { margin-top: 1.1rem; } /* под списком идущих: отступ, а не прилипание к полоске */
 .schedule-add > summary {
   display: inline-flex; align-items: center; min-height: 2.4rem; padding: 0.3rem 0.9rem;
   border: 1px solid var(--line-strong); border-radius: var(--r-control); background: var(--surface);

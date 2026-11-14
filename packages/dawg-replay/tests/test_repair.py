@@ -351,9 +351,9 @@ def test_lists_show_silent_breakage(client, make_run, home, kr):
     for _ in range(3):
         make_run(events=_events(rows=100), preset="p", files=["c.csv"])
     bad = make_run(events=_events(rows=3), preset="p", files=["c.csv"])
-    badge = "похоже, сайт поменялся</span>"
+    badge = "сайт поменялся?</span>"
     lib = client.get("/scripts").text
-    assert badge in lib and "обычно около 100" in lib  # в подсказке title
+    assert badge in lib and "Похоже, сайт поменялся. Собрано 3 строки" in lib and "обычно около 100" in lib  # в подсказке title
     script = client.get("/scripts/ozon-cards").text
     runs = script.split('id="script-runs"', 1)[1]
     assert runs.count(badge) == 1 and f"/runs/{bad}" in runs
@@ -383,5 +383,5 @@ def test_skipped_run_is_not_repaired_but_shown_since_last_visit(client, make_run
         a.db.execute("UPDATE runs SET error = 'не дождался свободного слота за 60 мин' WHERE id = ?", (rid,))
         assert repair.needs_repair(a, a.runs.get(rid)) is None
     since = client.get("/").text.split("С прошлого визита", 1)[1].split("Идут сейчас", 1)[0]
-    assert f"/runs/{rid}" in since and "не дождался свободного слота" in since and "#repair" not in since
+    assert f"/runs/{rid}" in since and "Не дождался свободного слота" in since and "#repair" not in since
     assert "Починить с агентом" not in client.get(f"/runs/{rid}").text
