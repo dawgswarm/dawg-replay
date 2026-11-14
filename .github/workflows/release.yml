@@ -1,0 +1,133 @@
+name: Release
+
+# Тег vX.Y.Z: сборка, проверка и публикация на PyPI через Trusted Publishing.
+# Ручной запуск: то же самое на TestPyPI.
+# Версия в теге должна совпадать с версией dawg-replay. У kit своя версия; если
+# она не менялась, PyPI уже знает этот файл и шаг публикации kit его пропускает.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+
+      - name: Tag matches dawg-replay version
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('packages/dawg-replay/pyproject.toml','rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "тег $GITHUB_REF_NAME не совпадает с версией dawg-replay $version" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: |
+          uv build --package dawg-replay-kit -o dist/kit
+          uv build --package dawg-replay -o dist/app
+
+      - name: Check metadata
+        run: uvx twine check --strict dist/kit/* dist/app/*
+
+      - name: Smoke test of wheels
+        run: |
+          mkdir dist/all
+          cp dist/kit/* dist/app/* dist/all/
+          uv run --no-project python testing/smoke_dist.py dist/all
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/kit/
+            dist/app/
+
+  pypi-kit:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dawg-replay-kit/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/kit/
+          skip-existing: true
+
+  pypi-app:
+    if: github.event_name == 'push'
+    needs: pypi-kit
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/project/dawg-replay/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/app/
+
+  testpypi-kit:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/dawg-replay-kit/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/kit/
+          skip-existing: true
+
+  testpypi-app:
+    if: github.event_name == 'workflow_dispatch'
+    needs: testpypi-kit
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/dawg-replay/
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/app/
+          skip-existing: true

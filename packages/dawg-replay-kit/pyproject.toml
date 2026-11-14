@@ -4,7 +4,23 @@ dynamic = ["version"]
 description = "Библиотека для скриптов dawg-replay: параметры, события, браузеры DAWG"
 readme = "README.md"
 requires-python = ">=3.10"
+authors = [{ name = "dawgswarm" }]
+classifiers = [
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+]
 dependencies = ["tomli>=2; python_version < '3.11'"]
+
+[project.urls]
+Homepage = "https://dawgswarm.ru"
+Source = "https://github.com/dawgswarm/dawg-replay"
+Issues = "https://github.com/dawgswarm/dawg-replay/issues"
 
 [project.optional-dependencies]
 # Для kit.browser(). В скриптах эти пакеты и так перечислены в заголовке PEP 723.
