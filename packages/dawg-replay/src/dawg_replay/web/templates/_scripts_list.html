@@ -1,34 +1,51 @@
-<div id="scripts-list" hx-get="/scripts/_list" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
-{% if not items %}
+{% from "_icons.html" import icon %}
+<div id="scripts-list" hx-get="/scripts/_list?q={{ lib.query | urlencode }}&amp;site={{ lib.site | urlencode }}" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
+{% if not lib.total %}
   <div class="empty">
     <h2>Скриптов пока нет</h2>
     <p>Попросите агента собрать скрипт под вашу задачу. Готовый файл добавьте командой</p>
     <pre class="command">dawg-replay add script.py</pre>
     <p>и он появится здесь.</p>
   </div>
+{% elif not lib.cards %}
+  <div class="empty">
+    <h2>Ничего не нашлось</h2>
+    <p>{% if lib.query %}Нет скриптов, в названии или описании которых есть «{{ lib.query }}»{% if lib.site %} на сайте {{ lib.site }}{% endif %}.{% else %}Для сайта {{ lib.site }} скриптов нет.{% endif %} <a href="/scripts">Показать все скрипты</a></p>
+  </div>
 {% else %}
-  <ul class="scripts">
-  {% for item in items %}
-    {% set s = item.script %}{% set r = item.last_run %}
-    <li class="script">
-      <div class="script-main">
+  {% if lib.query %}<p class="hint lib-found">Найдено по «{{ lib.query }}»: {{ lib.cards | length }}. <a href="/scripts">Сбросить поиск</a></p>{% endif %}
+  <ul class="lib-grid">
+  {% for item in lib.cards %}
+    {% set s = item.script %}{% set r = item.last_run %}{% set c = item.cover %}
+    <li class="lib-card">
+      <div class="lib-cover hue-{{ c.hue }}">
+        <span class="cover-tile cover-xl" aria-hidden="true">{{ c.letter }}</span>
+        {% if c.site %}<span class="lib-cover-site">{{ c.site }}</span>{% endif %}
+        {% if item.tags %}<span class="lib-tags">{% for t in item.tags[:2] %}<span class="lib-tag">{{ t }}</span>{% endfor %}</span>{% endif %}
+      </div>
+      <div class="lib-card-body">
         <h2><a href="/scripts/{{ s.name }}">{{ s.title }}</a></h2>
-        {% if s.description %}<p class="script-desc">{{ s.description }}</p>{% endif %}
-        <p class="script-id">{{ s.name }}, версия {{ s.current_version }}</p>
+        {% if s.description %}<p class="lib-desc">{{ s.description }}</p>{% endif %}
+        <p class="lib-last">
+          {% if r %}{% set st = r.label | status %}
+          <a class="last-run" href="/runs/{{ r.id }}"><span class="status status-{{ st.kind }}">{{ st.text }}</span><span class="last-when">{{ r.created_at | when }}</span></a>
+          {% else %}<span class="never">Ещё не запускался</span>{% endif %}
+        </p>
       </div>
-      <div class="script-last">
-        {% if r %}
-          {% set st = r.label | status %}
-          <a class="last-run" href="/runs/{{ r.id }}">
-            <span class="status status-{{ st.kind }}">{{ st.text }}</span>
-            <span class="last-when">{{ r.created_at | when }}</span>
-          </a>
-          {% if r.summary %}<p class="last-summary">{{ r.summary | markdown | striptags }}</p>{% endif %}
-        {% else %}
-          <p class="never">Ещё не запускался</p>
+      <div class="lib-card-foot">
+        {% if item.presets %}
+        <ul class="chips lib-presets" aria-label="Запустить с пресетом">
+          {% for p in item.presets[:3] %}
+          <li><form hx-post="/scripts/{{ s.name }}/quick" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
+            <input type="hidden" name="_preset" value="{{ p }}">
+            <button class="chip chip-s" type="submit" title="Запустить с пресетом «{{ p }}»">{{ icon("play", "ico ico-s") }}{{ p }}</button>
+          </form></li>
+          {% endfor %}
+          {% if item.presets | length > 3 %}<li><a class="chip chip-s chip-more" href="/scripts/{{ s.name }}#launch">ещё {{ item.presets | length - 3 }}</a></li>{% endif %}
+        </ul>
         {% endif %}
+        <a class="button lib-run" href="/scripts/{{ s.name }}#launch">{{ icon("play", "ico ico-s") }}Запустить</a>
       </div>
-      <a class="button" href="/scripts/{{ s.name }}">Запустить</a>
     </li>
   {% endfor %}
   </ul>

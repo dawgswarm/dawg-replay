@@ -169,10 +169,12 @@ def test_scripts_list_with_last_run(logged, home, write_script):
         )
         app.runs.finish("r1", status="ok", reason=None, summary="собрано 40 карточек")
     html = logged.get("/scripts").text
-    assert "Ozon: карточки" in html and "ozon-cards, версия 2" in html
-    assert 'class="status status-ok">готово' in html and "собрано 40 карточек" in html
-    assert 'href="/runs/r1"' in html and 'href="/scripts/ozon-cards"' in html
+    assert "Ozon: карточки" in html and 'class="lib-card"' in html
+    assert 'class="status status-ok">готово' in html
+    assert 'href="/runs/r1"' in html and 'href="/scripts/ozon-cards"' in html and 'href="/scripts/ozon-cards#launch"' in html
     assert "Ещё не запускался" in html
+    home_html = logged.get("/").text
+    assert "Последние запуски" in home_html and "собрано 40 карточек" in home_html
     assert logged.get("/scripts/_list").status_code == 200
     assert logged.get("/scripts/ozon-cards").status_code == 200
     assert logged.get("/scripts/nope").status_code == 404
@@ -543,3 +545,117 @@ def test_server_stop_with_open_sse_is_clean(home, fake, sig):
     assert "Traceback" not in err and "ERROR" not in err, err
     assert closed.wait(5)
     assert took < 2  # SSE не держит остановку до timeout_graceful_shutdown
+
+
+# --- главная, библиотека, быстрый запуск ---
+
+
+def test_home_without_runs(logged):
+    h = logged.get("/").text
+    assert "Сейчас ничего не идёт" in h and "Запусков ещё не было" in h
+    assert 'hx-get="/home/usage"' in h and 'aria-current="page">Главная' in h
+    assert "Ключ DAWG не задан" in logged.get("/home/usage").text
+
+
+def test_home_usage_from_platform_and_errors(logged, kr, fake, with_fake_base, home):
+    kr.set_password("dawg-replay", "dawg-api-key", KEY)
+    u = logged.get("/home/usage").text
+    assert "587" in u and "из 600" in u and "0 из 5" in u
+    with App(home) as app:
+        app.set_config("base_url", "http://127.0.0.1:9")  # никто не слушает
+    u = logged.get("/home/usage")
+    assert u.status_code == 200 and "не ответила" in u.text
+
+
+def test_home_attention_and_quick_presets(logged, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(title="Ozon: карточки"))
+        app.registry.add(write_script(name="wb-prices", title="WB: цены"))
+        app.presets.save("ozon-cards", "ноутбуки", app.registry.manifest("ozon-cards"), {"query": "ноутбук"})
+        app.presets.save("wb-prices", "мои-артикулы", app.registry.manifest("wb-prices"), {"query": "1"})
+        for rid, script, status, preset in (("r1", "ozon-cards", "ok", "ноутбуки"), ("r2", "wb-prices", "partial", None)):
+            app.runs.reserve(run_id=rid, script_name=script, script_version=1, script_path="/x", draft=False,
+                             preset=preset, params={"query": "q"}, timeout_seconds=60, limit=10)
+            app.runs.finish(rid, status=status, reason=None, summary=f"итог {rid}")
+    h = logged.get("/").text
+    att = h.split("Требует внимания", 1)[1].split("Последние запуски", 1)[0]
+    assert "WB: цены" in att and 'hx-post="/runs/r2/again"' in att and "Ozon: карточки" not in att
+    quick = h.split("Быстрый запуск", 1)[1]
+    assert quick.index("ноутбуки") < quick.index("мои-артикулы")  # сначала пресет, который запускали
+    assert 'hx-post="/scripts/ozon-cards/quick"' in quick
+
+
+def test_library_search_filter_and_cover(logged, home, write_script):
+    from dawg_replay.web import home as home_data
+
+    with App(home) as app:
+        app.registry.add(write_script(title="Ozon: карточки"))
+        app.registry.add(write_script(name="wb-prices", title="WB: цены"))
+    h = logged.get("/scripts?q=цены").text
+    assert "WB: цены" in h and "Ozon: карточки" not in h and 'value="цены"' in h
+    assert "Ничего не нашлось" in logged.get("/scripts?q=авито").text
+    assert home_data.hue_for("Ozon") == home_data.hue_for("ozon") and home_data.letter_for("«Wb»") == "W"
+
+
+def test_library_reads_site_and_tags_when_manifest_has_them():
+    from types import SimpleNamespace
+
+    from dawg_replay.web import home as home_data
+
+    m = SimpleNamespace(site="Ozon", tags=("Цены",), params=[])
+    old = SimpleNamespace(params=[])  # манифест до появления site и tags
+    scripts = [{"script": {"name": n, "title": t, "description": None}, "last_run": None} for n, t in (("a", "Альфа"), ("b", "Бета"))]
+    app = SimpleNamespace(
+        scripts_overview=lambda: scripts,
+        list_presets=lambda name: [],
+        registry=SimpleNamespace(manifest=lambda name: m if name == "a" else old),
+    )
+    lib = home_data.library(app)
+    a, b = lib["cards"]
+    assert a["cover"] == {"letter": "O", "hue": home_data.hue_for("Ozon"), "site": "Ozon"} and a["tags"] == ["Цены"]
+    assert b["cover"]["letter"] == "Б" and b["cover"]["site"] == "" and b["tags"] == []
+    assert lib["sites"] == ["Ozon"]
+    assert [c["script"]["name"] for c in home_data.library(app, site="Ozon")["cards"]] == ["a"]
+
+
+def test_script_page_has_launch_sheet(logged, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(title="Ozon: карточки"))
+        app.presets.save("ozon-cards", "ноутбуки", app.registry.manifest("ozon-cards"), {"query": "ноутбук"})
+    h = logged.get("/scripts/ozon-cards").text
+    assert 'id="launch"' in h and 'href="#launch"' in h and 'id="params-form"' in h
+    assert 'hx-post="/scripts/ozon-cards/quick"' in h and "ноутбуки" in h
+
+
+def _wait_run(home, run_id):
+    end = time.monotonic() + 20
+    while time.monotonic() < end:
+        with App(home) as app:
+            rec = app.runs.get(run_id)
+        if not rec.running:
+            return rec
+        time.sleep(0.1)
+    raise AssertionError("запуск не завершился")
+
+
+def test_quick_run_by_preset_and_run_again(logged, secrets_, home, monkeypatch, tmp_path):
+    from dawg_replay import launch
+
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    f = tmp_path / "ui-run.py"
+    f.write_text(MANIFEST + textwrap.dedent(SCRIPT.replace("with kit.browser() as b:", "if True:")), encoding="utf-8")
+    with App(home) as app:
+        app.registry.add(f)
+        app.presets.save("ui-run", "быстро", app.registry.manifest("ui-run"), {"seconds": 0})
+    r = post(logged, "/scripts/ui-run/quick", {"_preset": "быстро"}, csrf=secrets_.csrf)
+    assert r.status_code == 204
+    rec = _wait_run(home, r.headers["hx-redirect"].rsplit("/", 1)[1])
+    assert rec.label == "ok" and rec.preset == "быстро" and rec.params["seconds"] == 0
+
+    r = post(logged, f"/runs/{rec.id}/again", csrf=secrets_.csrf)
+    assert r.status_code == 204
+    again = _wait_run(home, r.headers["hx-redirect"].rsplit("/", 1)[1])
+    assert again.id != rec.id and again.params == rec.params and again.preset == "быстро"
+
+    r = post(logged, "/scripts/ui-run/quick", {"_preset": "нет такого"}, csrf=secrets_.csrf)
+    assert r.status_code == 200 and "не начат" in r.text and 'href="/scripts/ui-run?preset=' in r.text

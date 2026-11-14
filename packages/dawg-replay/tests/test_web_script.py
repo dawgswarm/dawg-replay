@@ -293,11 +293,11 @@ def test_unknown_preset(c):
 def test_rollback(c, secrets_, home, script):
     script(version=2, notes=False)
     html = c.get("/scripts/all-types").text
-    assert "текущая версия 2" in html and 'name="notes"' not in html
+    assert "all-types, версия 2" in html and 'name="notes"' not in html
     r = post(c, secrets_, "/scripts/all-types/rollback", {"_version": "1"})
     assert r.status_code == 204 and r.headers["hx-redirect"] == "/scripts/all-types"
     html = c.get("/scripts/all-types").text
-    assert "текущая версия 1" in html and 'name="notes"' in html
+    assert "all-types, версия 1" in html and 'name="notes"' in html
     r = post(c, secrets_, "/scripts/all-types/rollback", {"_version": "9"})
     assert "нет версии 9" in r.text
     r = post(c, secrets_, "/scripts/all-types/rollback", {"_version": "x"})

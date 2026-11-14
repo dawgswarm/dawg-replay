@@ -1,22 +1,21 @@
-<section id="run-files" class="run-section" aria-labelledby="files-title">
-  <div class="run-section-head">
-    <h2 id="files-title">Результаты</h2>
-    <form hx-post="/runs/{{ run.id }}/open-folder" hx-target="#files-notice" hx-swap="innerHTML">
-      <button class="secondary">Открыть папку</button>
-    </form>
-  </div>
-  <div id="files-notice"></div>
-  {% if s.artifacts %}
-  <ul class="files">
-    {% for a in s.artifacts %}
-    <li class="file{% if not a.exists %} file-missing{% endif %}">
-      <span class="file-label">{{ a.label }}</span>
-      <span class="file-meta">{{ a.path }}{% if a.exists %}, {{ a.size | size }}{% else %}, файла нет на диске{% endif %}</span>
-      {% if a.exists %}<a class="button" href="/runs/{{ run.id }}/files/{{ a.path | urlencode }}" download>Скачать</a>{% endif %}
-    </li>
+{% from "_icons.html" import icon %}
+<div id="run-files" class="run-files">
+  {% set ready = s.artifacts | selectattr("exists") | list %}
+  {% if ready %}
+  <ul class="files" aria-label="Файлы результатов">
+    {% for a in ready %}
+    <li><a class="button{% if not loop.first %} button-secondary{% endif %}" href="/runs/{{ run.id }}/files/{{ a.path | urlencode }}" download>{{ icon("download", "ico ico-s") }}Скачать {{ a.path.split('/')[-1] }}</a>
+      <span class="file-meta">{{ a.label }}, {{ a.size | size }}</span></li>
     {% endfor %}
   </ul>
-  {% else %}
-  <p class="hint">{% if running %}Файлы появятся здесь, когда скрипт их сохранит.{% else %}Скрипт не сохранял файлов.{% endif %}</p>
   {% endif %}
-</section>
+  {% set missing = s.artifacts | rejectattr("exists") | list %}
+  {% for a in missing %}<p class="hint file-missing">{{ a.label }} ({{ a.path }}): файла нет на диске.</p>{% endfor %}
+  <div class="run-files-actions">
+    <form hx-post="/runs/{{ run.id }}/open-folder" hx-target="#files-notice" hx-swap="innerHTML">
+      <button class="secondary">{{ icon("folder", "ico ico-s") }}Открыть папку</button>
+    </form>
+    {% if not s.artifacts %}<span class="hint-inline">{% if running %}Файлы появятся здесь, когда скрипт их сохранит.{% else %}Скрипт не сохранял файлов.{% endif %}</span>{% endif %}
+  </div>
+  <div id="files-notice"></div>
+</div>

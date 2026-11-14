@@ -1,0 +1,82 @@
+{% from "_icons.html" import icon, cover %}
+<div id="home-live" class="home-main" hx-get="/home/_live" hx-trigger="runs-changed from:body{% if d.running %}, every 4s{% endif %}" hx-swap="outerHTML" data-live-runs>
+  {% if d.suspects %}
+  <section class="warning" aria-labelledby="suspects-title">
+    <h2 id="suspects-title">Возможно, остался браузер</h2>
+    <p>Запуск остановился, когда платформа DAWG создавала для него браузер. В это время на вашем ключе появились браузеры из списка. Если вы не открывали их сами (например, из агента), освободите их: открытый браузер тратит минуты.</p>
+    <ul class="suspects">
+      {% for g in d.suspects %}{% for x in g.suspects %}
+      <li>
+        <span><span class="mono">{{ x.session_id }}</span>, создан {{ x.started_at | when }}, запуск <a href="/runs/{{ g.run.id }}">{{ g.title }}</a></span>
+        <form hx-post="/runs/{{ g.run.id }}/release" hx-target="#home-notice" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <input type="hidden" name="session_id" value="{{ x.session_id }}"><input type="hidden" name="_from" value="home">
+          <button class="secondary">Освободить</button>
+        </form>
+      </li>
+      {% endfor %}{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="card" aria-labelledby="now-title">
+    <div class="card-head"><h2 id="now-title">Идут сейчас</h2>{% if d.running %}<span class="hint-inline">{{ d.running | length }}</span>{% endif %}</div>
+    {% if d.running %}
+    <ul class="dash-list">
+      {% for r in d.running %}
+      <li class="dash-run">
+        {{ cover(r.cover) }}
+        <div class="dash-text">
+          <a class="dash-title" href="/runs/{{ r.run.id }}">{{ r.title }}</a>
+          <span class="hint-inline">{% if r.step %}{{ r.step }}, {% endif %}{% if r.progress %}{{ r.progress.done | value }} из {{ r.progress.total | value }}, {% endif %}начат {{ r.run.created_at | when }}</span>
+          {% if r.progress %}<progress class="meter" value="{{ r.progress.done if r.progress.done <= r.progress.total else r.progress.total }}" max="{{ r.progress.total }}" aria-label="{{ r.progress.label }}"></progress>{% endif %}
+        </div>
+        {% if r.cancelling %}
+        <button class="secondary small" disabled>Останавливаем…</button>
+        {% else %}
+        <button class="secondary danger small" hx-post="/runs/{{ r.run.id }}/cancel" hx-swap="none" hx-disabled-elt="this"
+                hx-confirm="Остановить запуск «{{ r.title }}»? Скрипт сохранит собранное и закроет браузеры.">Остановить</button>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hint">Сейчас ничего не идёт. Запустите скрипт из <a href="/scripts">библиотеки</a> или пресетом справа.</p>
+    {% endif %}
+  </section>
+
+  {% if d.attention %}
+  <section class="card" aria-labelledby="att-title">
+    <div class="card-head"><h2 id="att-title">Требует внимания</h2><span class="hint-inline">последний запуск упал или собрал не всё</span></div>
+    <ul class="dash-list">
+      {% for a in d.attention %}{% set st = a.run.label | status %}
+      <li class="dash-att">
+        {{ cover(a.cover, "s") }}
+        <div class="dash-text">
+          <span class="dash-att-top"><span class="status status-{{ st.kind }}">{{ st.text }}</span><a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
+          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% endif %}</span>
+        </div>
+        <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="card" aria-labelledby="recent-title">
+    <div class="card-head"><h2 id="recent-title">Последние запуски</h2></div>
+    {% if d.recent %}
+    <ul class="dash-list">
+      {% for r in d.recent %}{% set st = r.run.label | status %}
+      <li><a class="dash-rec" href="/runs/{{ r.run.id }}">
+        <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+        <span class="dash-rec-text"><span class="dash-rec-title">{{ r.title }}{% if r.run.draft %} <span class="hint-inline">черновой</span>{% endif %}</span>
+          {% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>
+        <span class="hint-inline dash-rec-when">{{ r.run.created_at | when }}</span>
+      </a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hint">Запусков ещё не было. Откройте <a href="/scripts">Скрипты</a>, выберите скрипт и нажмите «Запустить».</p>
+    {% endif %}
+  </section>
+</div>

@@ -1,60 +1,79 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon, cover %}
 {% block title %}{{ v.script.title }}, dawg-replay{% endblock %}
 {% block content %}
 {% set s = v.script %}
-<div class="page-head">
-  <p class="crumbs"><a href="/scripts">Скрипты</a></p>
-  <h1>{{ s.title }}</h1>
-  {% if s.description %}<p class="lead">{{ s.description }}</p>{% endif %}
-  <p class="script-id">{{ s.name }}, текущая версия {{ s.current_version }}</p>
+<p class="crumbs"><a href="/scripts">Скрипты</a></p>
+<div class="script-head">
+  {{ cover(v.cover, "l") }}
+  <div>
+    <h1>{{ s.title }}</h1>
+    {% if s.description %}<p class="lead">{{ s.description }}</p>{% endif %}
+    <p class="script-id">{% if v.cover.site %}{{ v.cover.site }}, {% endif %}{{ s.name }}, версия {{ s.current_version }}{% for t in v.tags %}<span class="lib-tag">{{ t }}</span>{% endfor %}</p>
+  </div>
 </div>
 
-<div class="script-layout">
-  <section class="panel run-panel" aria-labelledby="form-title">
-    <h2 id="form-title">Параметры запуска</h2>
-    {% include "_script_form.html" %}
-  </section>
-
-  <aside class="script-side">
-    <section class="panel" aria-labelledby="runs-title">
-      <h2 id="runs-title">Запуски</h2>
-      {% set sname = s.name %}{% set runs = v.runs %}
-      {% include "_script_runs.html" %}
-    </section>
-
-    <section class="panel" aria-labelledby="versions-title">
-      <h2 id="versions-title">Версии</h2>
-      <p class="hint">Запускается текущая версия. Сделать текущей можно любую: старые версии не удаляются.</p>
-      <ul class="versions">
-      {% for ver in v.versions %}
-        <li class="version{% if ver.current %} version-current{% endif %}">
-          <div>
-            <span class="version-num">Версия {{ ver.version }}</span>
-            <span class="version-when">добавлена {{ ver.added_at | when }}</span>
-            {% if ver.title != s.title %}<span class="version-title">{{ ver.title }}</span>{% endif %}
-          </div>
-          {% if ver.current %}
-            <span class="status status-ok">текущая</span>
-          {% else %}
-            <button class="secondary small" hx-post="/scripts/{{ s.name }}/rollback" hx-vals='{"_version": "{{ ver.version }}"}' hx-target="#version-error" hx-confirm="Сделать версию {{ ver.version }} текущей? Новые запуски пойдут на ней.">Сделать текущей</button>
-          {% endif %}
-        </li>
-      {% endfor %}
-      </ul>
-      <div id="version-error"></div>
-    </section>
-  </aside>
+<div class="launch-row">
+  <a class="button run-button" href="#launch">Запустить</a>
+  {% if v.presets %}
+  <span class="hint-inline">или сразу с пресетом:</span>
+  <ul class="chips" aria-label="Запустить с пресетом">
+    {% for p in v.presets %}
+    <li><form hx-post="/scripts/{{ s.name }}/quick" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="_preset" value="{{ p }}">
+      <button class="chip" type="submit">{{ icon("play", "ico ico-s") }}{{ p }}</button>
+    </form></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
 </div>
 
-<section class="panel code-panel" aria-labelledby="code-title">
-  <details>
-    <summary><h2 id="code-title">Код скрипта, версия {{ s.current_version }}</h2></summary>
-    <p class="hint">Только для просмотра. Скрипт меняет агент; новая версия появляется после dawg-replay add.</p>
-    {% if v.code is not none %}
-      <pre class="code"><code>{{ v.code }}</code></pre>
-    {% else %}
-      <p class="notice notice-error">{{ v.code_error }}</p>
-    {% endif %}
-  </details>
+<section class="card" aria-labelledby="runs-title">
+  <div class="card-head"><h2 id="runs-title">Запуски</h2></div>
+  {% set sname = s.name %}{% set runs = v.runs %}
+  {% include "_script_runs.html" %}
 </section>
+
+<details class="card fold">
+  <summary><span class="fold-title">Версии</span><span class="hint-inline">текущая {{ s.current_version }}, всего {{ v.versions | length }}</span></summary>
+  <p class="hint">Запускается текущая версия. Сделать текущей можно любую: старые версии не удаляются.</p>
+  <ul class="versions">
+  {% for ver in v.versions %}
+    <li class="version{% if ver.current %} version-current{% endif %}">
+      <div>
+        <span class="version-num">Версия {{ ver.version }}</span>
+        <span class="version-when">добавлена {{ ver.added_at | when }}</span>
+        {% if ver.title != s.title %}<span class="version-title">{{ ver.title }}</span>{% endif %}
+      </div>
+      {% if ver.current %}
+        <span class="status status-ok">текущая</span>
+      {% else %}
+        <button class="secondary small" hx-post="/scripts/{{ s.name }}/rollback" hx-vals='{"_version": "{{ ver.version }}"}' hx-target="#version-error" hx-confirm="Сделать версию {{ ver.version }} текущей? Новые запуски пойдут на ней.">Сделать текущей</button>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ul>
+  <div id="version-error"></div>
+</details>
+
+<details class="card fold code-panel">
+  <summary><span class="fold-title">Код скрипта</span><span class="hint-inline">версия {{ s.current_version }}, только просмотр</span></summary>
+  <p class="hint">Скрипт меняет агент; новая версия появляется после dawg-replay add.</p>
+  {% if v.code is not none %}
+    <pre class="code"><code>{{ v.code }}</code></pre>
+  {% else %}
+    <p class="notice notice-error">{{ v.code_error }}</p>
+  {% endif %}
+</details>
+
+<aside id="launch" class="sheet" aria-labelledby="sheet-title" tabindex="-1">
+  <div class="sheet-head">
+    <div><h2 id="sheet-title">Запуск</h2><p class="hint-inline">{{ s.title }}</p></div>
+    <a class="icon-button" href="#" aria-label="Закрыть панель запуска">{{ icon("close") }}</a>
+  </div>
+  <div class="sheet-body">
+    {% include "_script_form.html" %}
+  </div>
+</aside>
+<a class="sheet-backdrop" href="#" tabindex="-1" aria-hidden="true"></a>
 {% endblock %}

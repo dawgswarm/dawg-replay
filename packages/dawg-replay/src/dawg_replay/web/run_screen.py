@@ -47,7 +47,7 @@ DONE_AFTER = 2.0  # после завершения запуска ещё сто
 
 # Какие панели перерисовать на изменение данного вида.
 PANELS_BY_KIND = {
-    "stage": ("trail",),
+    "stage": ("trail", "result"),
     "progress": ("progress",),
     "metric": ("metrics",),
     "rows": ("tables",),
@@ -409,11 +409,14 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     return notice(request, e.message, ok=False)
         view = get_view(request)
         snap = view.snapshot()
-        return Response(render_panels(templates, snap, {"head"})["head"], media_type="text/html; charset=utf-8")
+        # Главная перерисует «Идут сейчас» по событию runs-changed.
+        return Response(render_panels(templates, snap, {"head"})["head"], media_type="text/html; charset=utf-8",
+                        headers={"HX-Trigger": "runs-changed"})
 
     async def release(request: Request) -> Response:
         form = await request.form()
         session_id = form.get("session_id") or None
+        from_home = form.get("_from") == "home"
         run_id = request.path_params["run_id"]
 
         def work() -> tuple[list[str], bool]:
@@ -443,6 +446,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             lines, ok = await run_in_threadpool(work)
         except ReplayError as e:
             lines, ok = [e.message], False
+        if from_home:
+            body = templates.get_template("run/_notice.html").render(text=" ".join(lines), ok=ok)
+            return Response(body, media_type="text/html; charset=utf-8", headers={"HX-Trigger": "runs-changed"})
         view = await run_in_threadpool(get_view, request)
         snap = await run_in_threadpool(view.snapshot)
         ctx = {**context(snap), "release_lines": lines, "release_ok": ok}

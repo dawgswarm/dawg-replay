@@ -172,6 +172,28 @@ def test_suspects_warning_and_release(client, make_run, secrets_, kr, monkeypatc
     assert "Браузер sus-2 освобождён." in r.text and "Возможно, остался браузер" not in r.text
 
 
+def test_suspects_on_home_and_release_from_there(client, make_run, secrets_, kr, monkeypatch):
+    run_id, run_dir = make_run([ev("session", action="provisioning")], finish={"status": "failed", "reason": "exit_code", "exit_code": -9})
+    (run_dir / "insurance.json").write_text(json.dumps({"suspects": [
+        {"session_id": "sus-9", "started_at": "2026-11-14T12:00:01Z"},
+    ]}), encoding="utf-8")
+    h = client.get("/").text
+    assert "Возможно, остался браузер" in h and "sus-9" in h and f'hx-post="/runs/{run_id}/release"' in h
+    kr.set_password("dawg-replay", "dawg-api-key", "KEY")
+    monkeypatch.setattr(insurance, "release_session", lambda key, sid, base: True)
+    r = post(client, secrets_, f"/runs/{run_id}/release", {"session_id": "sus-9", "_from": "home"})
+    assert r.status_code == 200 and r.headers["hx-trigger"] == "runs-changed"
+    assert "Браузер sus-9 освобождён." in r.text and "run-suspects" not in r.text
+    assert "sus-9" not in client.get("/home/_live").text
+
+
+def test_running_run_on_home(client, make_run):
+    run_id, _ = make_run([ev("stage", name="Собираем карточки"), ev("progress", id="p", label="Страницы", done=2, total=5)])
+    h = client.get("/").text
+    assert "Идут сейчас" in h and "Собираем карточки, 2 из 5" in h and f'hx-post="/runs/{run_id}/cancel"' in h
+    assert 'every 4s' in h  # пока идёт запуск, блок обновляется сам
+
+
 def test_release_refused_while_running(client, make_run, secrets_):
     run_id, _ = make_run([])
     r = post(client, secrets_, f"/runs/{run_id}/release")
@@ -186,6 +208,7 @@ def test_cancel(client, make_run, secrets_, home):
     assert client.post(f"/runs/{run_id}/cancel", headers={"Origin": BASE}).status_code == 403  # без CSRF
     r = post(client, secrets_, f"/runs/{run_id}/cancel")
     assert r.status_code == 200 and "Останавливаем" in r.text and 'id="run-head"' in r.text
+    assert r.headers["hx-trigger"] == "runs-changed"  # главная перерисует «Идут сейчас»
     with App(home) as app:
         assert app.runs.cancel_requested(run_id)
 

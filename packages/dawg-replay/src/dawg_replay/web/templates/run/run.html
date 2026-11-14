@@ -4,33 +4,41 @@
 {% block content %}
 <div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" {% if running or not run.finished_at %}data-live{% endif %}>
   {{ panels.head | safe }}
-  {{ panels.result | safe }}
-  {{ panels.suspects | safe }}
-  {{ panels.trail | safe }}
-  <div class="run-now">
-    {{ panels.progress | safe }}
+  <section class="run-hero" aria-label="Итог запуска">
+    <div class="run-hero-main">
+      {{ panels.result | safe }}
+      {{ panels.progress | safe }}
+      {{ panels.files | safe }}
+    </div>
     {{ panels.metrics | safe }}
-  </div>
-  {{ panels.files | safe }}
+  </section>
+  {{ panels.suspects | safe }}
   {{ panels.tables | safe }}
 
-  <section class="run-section run-log-section" aria-labelledby="log-title">
-    <div class="run-section-head">
-      <h2 id="log-title">Журнал</h2>
-      <label class="log-filter">Показывать
-        <select id="log-level" aria-controls="run-log">
-          <option value="debug">всё, включая отладку</option>
-          <option value="info" selected>обычные сообщения и важнее</option>
-          <option value="warn">предупреждения и ошибки</option>
-          <option value="error">только ошибки</option>
-        </select>
-      </label>
-    </div>
-    {% if s.log_total > s.log|length %}<p class="hint">Показаны последние {{ s.log|length }} сообщений из {{ s.log_total }}.</p>{% endif %}
-    <ol id="run-log" class="log" data-min="info" aria-live="polite">
-      {% for item in log_html %}{{ item | safe }}{% endfor %}
-    </ol>
-    <p class="log-empty hint">{% if running %}Сообщений пока нет.{% else %}Скрипт не писал сообщений в журнал.{% endif %}</p>
-  </section>
+  <div class="run-folds">
+    <details class="card fold"{% if running or not s.log %} open{% endif %}>
+      <summary><span class="fold-title">Шаги</span></summary>
+      {{ panels.trail | safe }}
+    </details>
+
+    <details class="card fold run-log-section" open>
+      <summary><span class="fold-title" id="log-title">Журнал</span><span class="hint-inline">{{ s.log_total }} {{ s.log_total | plural("сообщение", "сообщения", "сообщений") }}</span></summary>
+      <div class="run-section-head">
+        <label class="log-filter">Показывать
+          <select id="log-level" aria-controls="run-log">
+            <option value="debug">всё, включая отладку</option>
+            <option value="info" selected>обычные сообщения и важнее</option>
+            <option value="warn">предупреждения и ошибки</option>
+            <option value="error">только ошибки</option>
+          </select>
+        </label>
+      </div>
+      {% if s.log_total > s.log|length %}<p class="hint">Показаны последние {{ s.log|length }} сообщений из {{ s.log_total }}.</p>{% endif %}
+      <ol id="run-log" class="log" data-min="info" aria-live="polite" aria-labelledby="log-title">
+        {% for item in log_html %}{{ item | safe }}{% endfor %}
+      </ol>
+      <p class="log-empty hint">{% if running %}Сообщений пока нет.{% else %}Скрипт не писал сообщений в журнал.{% endif %}</p>
+    </details>
+  </div>
 </div>
 {% endblock %}

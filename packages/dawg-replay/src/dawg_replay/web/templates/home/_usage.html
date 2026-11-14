@@ -1,0 +1,17 @@
+{% if usage %}
+  {% set inc = usage.included_minutes or 0 %}{% set rem = usage.remaining_minutes %}
+  {% if rem is not none %}
+  <p class="usage-main"><span class="usage-num">{{ rem | number }}</span> мин осталось{% if inc %} из {{ inc | number }}{% endif %}</p>
+  {% if inc %}<progress class="meter" max="{{ inc }}" value="{{ [[rem, 0] | max, inc] | min }}" aria-label="Осталось минут"></progress>{% endif %}
+  {% endif %}
+  <dl class="dash-usage">
+    {% if usage.max_browsers %}<div><dt>Браузеров открыто</dt><dd>{{ usage.active_browsers or 0 }} из {{ usage.max_browsers }}</dd></div>{% endif %}
+    {% if usage.used_minutes is not none %}<div><dt>Потрачено минут</dt><dd>{{ usage.used_minutes | number }}</dd></div>{% endif %}
+    {% if usage.plan %}<div><dt>Тариф</dt><dd>{{ usage.plan }}</dd></div>{% endif %}
+  </dl>
+  <p class="hint">Браузеры других программ на этом ключе тоже считаются.</p>
+{% elif code == "no_api_key" %}
+  <p class="hint">Ключ DAWG не задан. <a href="/settings">Добавьте его в настройках</a>, чтобы скрипты могли открывать браузеры.</p>
+{% else %}
+  <p class="hint">Платформа DAWG сейчас не ответила: {{ error }}</p>
+{% endif %}

@@ -1,8 +1,9 @@
 {% set st = run.label | status %}
-<div id="run-head" class="page-head run-head">
+<div id="run-head" class="run-head">
   <p class="crumbs"><a href="/scripts">Скрипты</a>{% if run.script and not run.draft %} / <a href="/scripts/{{ run.script }}">{{ run.title or run.script }}</a>{% endif %}</p>
   <div class="run-title">
     <h1>{{ run.title or run.script }}</h1>
+    <div class="run-actions">
     {% if running %}
       {% if run.cancel_requested %}
         <button class="secondary" disabled>Останавливаем…</button>
@@ -10,7 +11,10 @@
         <button class="secondary danger" hx-post="/runs/{{ run.id }}/cancel" hx-target="#run-head" hx-swap="outerHTML"
                 hx-confirm="Остановить запуск? Скрипт сохранит собранное и закроет браузеры.">Остановить</button>
       {% endif %}
+    {% elif not run.draft %}
+      <button class="secondary" hx-post="/runs/{{ run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
     {% endif %}
+    </div>
   </div>
   <p class="run-meta">
     <span class="status status-{{ st.kind }}">{{ st.text }}</span>

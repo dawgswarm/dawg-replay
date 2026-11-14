@@ -1,6 +1,6 @@
-<section id="run-metrics" class="run-section{% if not s.metrics %} is-empty{% endif %}" aria-labelledby="metrics-title">
+<div id="run-metrics" class="run-metrics{% if not s.metrics %} is-empty{% endif %}">
   {% if s.metrics %}
-  <h2 id="metrics-title">Показатели</h2>
+  <h2 class="sr">Показатели</h2>
   <dl class="metrics">
     {% for m in s.metrics.values() %}
     <div class="metric">
@@ -10,4 +10,4 @@
     {% endfor %}
   </dl>
   {% endif %}
-</section>
+</div>
