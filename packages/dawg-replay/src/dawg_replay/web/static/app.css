@@ -829,7 +829,8 @@ a.button.button-secondary:hover { background: var(--sunken); }
 @media (max-width: 640px) {
   .top-inner { flex-wrap: wrap; }
   .brand { margin-right: auto; }
-  .top-search { order: 5; flex-basis: 100%; }
+  .top-search { order: 5; flex: 1 1 calc(100% - 3rem); min-width: 0; }
+  [data-theme-toggle] { order: 6; }
   .top-search label { max-width: none; }
   .lib-head { align-items: flex-start; }
   .lib-filters { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; padding-bottom: 0.15rem; }
