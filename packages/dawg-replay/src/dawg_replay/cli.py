@@ -7,7 +7,7 @@ import json
 import sys
 from typing import Any
 
-from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS, ManifestError, load_manifest
+from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS, ManifestError, contract_versions, load_manifest
 
 from dawg_replay import __version__, cli_dev, cli_release, cli_run, cli_store, cli_ui
 
@@ -21,10 +21,10 @@ def _print_json(data: Any) -> None:
 
 def _cmd_version(args: argparse.Namespace) -> int:
     if args.json:
-        _print_json({"version": __version__, "contracts": list(SUPPORTED_CONTRACTS)})
+        _print_json({"version": __version__, "contracts": list(SUPPORTED_CONTRACTS), "contract_versions": contract_versions()})
     else:
         print(f"dawg-replay {__version__}")
-        print(f"контракт скриптов: {', '.join(str(v) for v in SUPPORTED_CONTRACTS)}")
+        print(f"контракт скриптов: {', '.join(contract_versions())}")
     return EXIT_OK
 
 

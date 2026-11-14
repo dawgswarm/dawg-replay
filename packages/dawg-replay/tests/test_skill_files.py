@@ -42,7 +42,8 @@ def test_template_passes_validate(capsys):
     assert main(["validate", str(TEMPLATE)]) == 0
     m = load_manifest(TEMPLATE)
     assert {p.type for p in m.params} >= {"string", "int", "enum", "bool"}
-    assert "dawg-replay-kit>=1,<2" in m.dependencies
+    assert "dawg-replay-kit>=1.1,<2" in m.dependencies
+    assert m.contract_minor == 1 and m.site and m.tags
 
 
 def test_retries_and_captcha(tpl):

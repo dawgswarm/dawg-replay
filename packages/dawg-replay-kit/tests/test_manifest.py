@@ -355,3 +355,87 @@ def test_bom_in_file(tmp_path):
     f = tmp_path / "script.py"
     f.write_bytes(SPEC_EXAMPLE.encode("utf-8-sig"))
     assert load_manifest(f).name == "ozon-search-cards"
+
+
+# --- контракт 1.1: site и tags ---------------------------------------------
+
+HEAD_11 = HEAD.replace("contract = 1", 'contract = "1.1"')
+
+
+def test_site_and_tags():
+    m = parse_manifest(make(HEAD_11 + 'site = "Яндекс Маркет"\ntags = ["Цены", "Отзывы"]'))
+    assert (m.contract, m.contract_minor) == (1, 1)
+    assert m.site == "Яндекс Маркет" and m.tags == ("Цены", "Отзывы")
+    d = m.to_dict()
+    assert d["site"] == "Яндекс Маркет" and d["tags"] == ["Цены", "Отзывы"]
+
+
+def test_site_and_tags_optional():
+    for head in (HEAD, HEAD_11):
+        m = parse_manifest(make(head))
+        assert m.site is None and m.tags == ()
+        assert "site" not in m.to_dict() and "tags" not in m.to_dict()
+
+
+@pytest.mark.parametrize("field", ['site = "Ozon"', 'tags = ["Цены"]'])
+def test_new_fields_need_contract_11(field):
+    issues = errors(make(HEAD + field))
+    assert [i.code for i in issues] == ["field_needs_minor"]
+    assert 'contract = "1.1"' in issues[0].message
+
+
+def test_new_fields_with_newer_minor():
+    m = parse_manifest(make(HEAD.replace("contract = 1", 'contract = "1.3"') + 'site = "Ozon"'))
+    assert m.site == "Ozon"
+
+
+def test_unknown_field_from_newer_minor_hints_upgrade():
+    issues = errors(make(HEAD.replace("contract = 1", 'contract = "1.7"') + 'region = "x"'))
+    assert [i.code for i in issues] == ["unknown_field"]
+    assert "1.7" in issues[0].message and "обновите dawg-replay" in issues[0].message
+    issues = errors(make(HEAD_11 + 'region = "x"'))
+    assert "обновите" not in issues[0].message
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['""', '"  "', '"a\\nb"', '"' + "x" * 41 + '"', "1", '["Ozon"]'],
+)
+def test_bad_site(value):
+    issues = errors(make(HEAD_11 + f"site = {value}"))
+    assert [(i.code, i.path) for i in issues] == [("bad_value", "site")]
+
+
+def test_site_at_limit():
+    assert parse_manifest(make(HEAD_11 + 'site = "' + "я" * 40 + '"')).site == "я" * 40
+
+
+@pytest.mark.parametrize(
+    "value, fragment",
+    [
+        ('"Цены"', "списком строк"),
+        ('["a", "b", "c", "d", "e", "f"]', "не больше 5"),
+        ('[""]', "tags[0]"),
+        ('["ok", " "]', "tags[1]"),
+        ('["' + "x" * 25 + '"]', "до 24 символов"),
+        ('["a\\nb"]', "в одну строку"),
+        ("[1]", "tags[0]"),
+        ('["Цены", "Цены"]', "повторяется"),
+    ],
+)
+def test_bad_tags(value, fragment):
+    issues = errors(make(HEAD_11 + f"tags = {value}"))
+    assert [(i.code, i.path) for i in issues] == [("bad_value", "tags")]
+    assert fragment in issues[0].message
+
+
+def test_tags_at_limits():
+    tags = ", ".join(f'"{c * 24}"' for c in "abcde")
+    assert len(parse_manifest(make(HEAD_11 + f"tags = [{tags}]")).tags) == 5
+    assert parse_manifest(make(HEAD_11 + "tags = []")).tags == ()
+
+
+def test_contract_versions():
+    from dawg_replay_kit.manifest import contract_versions
+
+    assert contract_versions() == ["1.1"]

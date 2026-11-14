@@ -140,3 +140,36 @@ def test_human_output(home, kr, write_script, capsys):
     assert "sheet_token: secret, Токен (не задан)" in out
     assert main(["show", "nope"]) == 1
     assert "ошибка: скрипт `nope` не зарегистрирован" in capsys.readouterr().err
+
+
+def test_site_and_tags_in_list_and_show(cli, write_script, home, capsys):
+    cli("add", str(write_script(version=1)))  # контракт 1, без site и tags
+    v2 = write_script(version=2).read_text(encoding="utf-8")
+    v2 = v2.replace("# contract = 1\n", '# contract = "1.1"\n').replace(
+        "# version = 2\n", '# site = "Ozon"\n# tags = ["Цены", "Карточки"]\n# version = 2\n'
+    )
+    code, data = cli("add", str(write_script(text=v2)))
+    assert code == 0 and data["script"]["site"] == "Ozon" and data["version"]["tags"] == ["Цены", "Карточки"]
+
+    script = cli("list")[1]["scripts"][0]
+    assert script["site"] == "Ozon" and script["tags"] == ["Цены", "Карточки"]
+    versions = cli("versions", "ozon-cards")[1]["versions"]
+    assert [(v["site"], v["tags"]) for v in versions] == [(None, []), ("Ozon", ["Цены", "Карточки"])]
+    shown = cli("show", "ozon-cards")[1]
+    assert shown["manifest"]["site"] == "Ozon" and shown["script"]["tags"] == ["Цены", "Карточки"]
+
+    assert main(["show", "ozon-cards"]) == 0
+    out = capsys.readouterr().out
+    assert "сайт: Ozon" in out and "метки: Цены, Карточки" in out
+    assert main(["list"]) == 0
+    assert "(Ozon)" in capsys.readouterr().out
+
+    cli("rollback", "ozon-cards", "1")
+    script = cli("list")[1]["scripts"][0]
+    assert script["site"] is None and script["tags"] == []
+
+
+def test_new_fields_need_contract_11(cli, write_script):
+    text = write_script(version=1).read_text(encoding="utf-8").replace("# version = 1\n", '# site = "Ozon"\n# version = 1\n')
+    code, data = cli("add", str(write_script(text=text)))
+    assert code == 1 and data["error"]["details"][0]["code"] == "field_needs_minor"

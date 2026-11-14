@@ -21,6 +21,15 @@ else:
 SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
 """Мажорные версии контракта, которые понимает эта версия kit."""
 
+CONTRACT_MINORS: dict[int, int] = {1: 1}
+"""Последняя минорная версия каждого мажора, которую знает эта версия kit."""
+
+
+def contract_versions() -> list[str]:
+    """Полные версии для `dawg-replay --version`: ["1.1"]."""
+    return [f"{major}.{CONTRACT_MINORS[major]}" for major in SUPPORTED_CONTRACTS]
+
+
 MANIFEST_BLOCK = "dawg-script"
 SCRIPT_BLOCK = "script"
 
@@ -56,7 +65,13 @@ _BLOCK_RE = re.compile(
 _BLOCK_OPEN_RE = re.compile(r"^# /// (?P<type>[a-zA-Z0-9-]+)\s*$")
 _TOML_LINE_RE = re.compile(r"line (\d+)")
 
-_TOP_KEYS = ("contract", "name", "title", "description", "version", "timeout_minutes", "params")
+_TOP_KEYS = ("contract", "name", "title", "description", "site", "tags", "version", "timeout_minutes", "params")
+# Поля, появившиеся в минорных версиях: поле -> (мажор, минор).
+_FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
+
+SITE_MAX = 40
+TAGS_MAX = 5
+TAG_MAX = 24
 _PARAM_KEYS = ("name", "type", "title", "description", "required", "default", "min", "max", "max_items", "choices")
 
 
@@ -129,6 +144,8 @@ class Manifest:
     params: tuple[Param, ...] = ()
     requires_python: str | None = None
     dependencies: tuple[str, ...] = field(default_factory=tuple)
+    site: str | None = None  # контракт 1.1: название сайта для людей
+    tags: tuple[str, ...] = ()  # контракт 1.1: метки для библиотеки скриптов
 
     def param(self, name: str) -> Param:
         for p in self.params:
@@ -150,6 +167,10 @@ class Manifest:
         }
         if self.description is not None:
             d["description"] = self.description
+        if self.site is not None:
+            d["site"] = self.site
+        if self.tags:
+            d["tags"] = list(self.tags)
         return d
 
 
@@ -397,9 +418,7 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
 def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]:
     out: dict[str, Any] = {}
 
-    for key in data:
-        if key not in _TOP_KEYS:
-            issues.append(Issue("unknown_field", key, f"неизвестное поле `{key}`; допустимы: {', '.join(_TOP_KEYS)}"))
+    unknown = [key for key in data if key not in _TOP_KEYS]
 
     contract = data.get("contract")
     if contract is None:
@@ -426,6 +445,26 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
         else:
             out["contract"], out["contract_minor"] = major, minor
 
+    for key in unknown:
+        msg = f"неизвестное поле `{key}`; допустимы: {', '.join(_TOP_KEYS)}"
+        known = CONTRACT_MINORS.get(out.get("contract", -1))
+        if known is not None and out["contract_minor"] > known:
+            msg += f". Скрипт написан под контракт {out['contract']}.{out['contract_minor']}, эта версия знает до {out['contract']}.{known}: обновите dawg-replay"
+        issues.append(Issue("unknown_field", key, msg))
+
+    if "contract" in out:
+        declared = (out["contract"], out["contract_minor"])
+        for key, since in _FIELD_SINCE.items():
+            if key in data and declared < since:
+                v = f"{since[0]}.{since[1]}"
+                issues.append(
+                    Issue(
+                        "field_needs_minor",
+                        key,
+                        f"поле `{key}` есть в контракте с версии {v}: укажите contract = \"{v}\"",
+                    )
+                )
+
     name = data.get("name")
     if name is None:
         issues.append(Issue("missing_field", "name", "нет обязательного поля `name`"))
@@ -450,6 +489,21 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
             out["description"] = desc
         else:
             issues.append(Issue("bad_value", "description", "`description` должен быть строкой"))
+
+    site = data.get("site")
+    if site is not None:
+        if not isinstance(site, str) or not site.strip() or "\n" in site or "\r" in site or len(site) > SITE_MAX:
+            issues.append(Issue("bad_value", "site", f"`site` должен быть непустой строкой в одну строку, до {SITE_MAX} символов"))
+        else:
+            out["site"] = site
+
+    tags = data.get("tags")
+    if tags is not None:
+        problem = _tags_problem(tags)
+        if problem:
+            issues.append(Issue("bad_value", "tags", problem))
+        else:
+            out["tags"] = tuple(tags)
 
     version = data.get("version")
     if version is None:
@@ -477,6 +531,21 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
                 params.append(p)
     out["params"] = tuple(params)
     return out
+
+
+def _tags_problem(tags: Any) -> str | None:
+    if not isinstance(tags, list):
+        return "`tags` задаётся списком строк, например [\"Цены\"]"
+    if len(tags) > TAGS_MAX:
+        return f"в `tags` не больше {TAGS_MAX} меток, получено {len(tags)}"
+    seen: set[str] = set()
+    for i, tag in enumerate(tags):
+        if not isinstance(tag, str) or not tag.strip() or "\n" in tag or "\r" in tag or len(tag) > TAG_MAX:
+            return f"`tags[{i}]` должна быть непустой строкой в одну строку, до {TAG_MAX} символов"
+        if tag in seen:
+            return f"метка {tag!r} в `tags` повторяется"
+        seen.add(tag)
+    return None
 
 
 def _check_script_block(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]:

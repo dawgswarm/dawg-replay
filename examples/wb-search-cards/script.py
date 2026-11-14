@@ -1,14 +1,16 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = 1
+# contract = "1.1"
 # name = "wb-search-cards"
 # title = "Wildberries: карточки по поисковому запросу"
 # description = "Обходит выдачу Wildberries по запросу и собирает название, бренд, цену, рейтинг, число оценок и продавца."
-# version = 4
+# site = "Wildberries"
+# tags = ["Цены", "Карточки"]
+# version = 5
 # timeout_minutes = 30
 #
 # [[params]]
