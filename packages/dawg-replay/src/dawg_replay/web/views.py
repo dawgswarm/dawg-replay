@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms, imports, minutes, schedules, uistate
+from dawg_replay import forms, imports, minutes, repair, schedules, uistate
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
@@ -52,6 +52,14 @@ MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", 
 def status_view(label: str | None) -> dict[str, str]:
     text, kind = STATUS.get(label or "", (label or "", "muted"))
     return {"text": text, "kind": kind}
+
+
+def run_status_view(run: dict[str, Any]) -> dict[str, str]:
+    """Статус запуска для списков: тихая поломка (repair.annotate) вместо зелёного «готово»."""
+    sus = run.get("suspicion")
+    if sus:
+        return {"text": "похоже, сайт поменялся", "kind": "partial", "title": sus.get("text", "")}
+    return {**status_view(run.get("label")), "title": ""}
 
 
 def when(value: str | None, now: datetime | None = None) -> str:
@@ -123,6 +131,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["when"] = when
     env.filters["when_next"] = when_next
     env.filters["status"] = status_view
+    env.filters["run_status"] = run_status_view
     env.filters["number"] = number
     env.filters["plural"] = plural
     env.filters["minutes"] = minutes.fmt
@@ -230,6 +239,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 ctx = _script_ctx(app, name, preset)
                 meta = home_data.manifest_meta(app, name)
                 view["minutes"] = minutes.period(app, days=7, script=name).to_dict()
+                repair.annotate(app, view["runs"])  # тихая поломка в истории скрипта
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
@@ -250,7 +260,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def script_runs(request: Request) -> Response:
         name = request.path_params["name"]
         with _ui(request).open_app() as app:
-            runs = [r.to_dict() for r in app.runs.list(name, 20)]
+            runs = repair.annotate(app, [r.to_dict() for r in app.runs.list(name, 20)])
         return fragment(request, "_script_runs.html", sname=name, runs=runs)
 
     async def script_run(request: Request) -> Response:

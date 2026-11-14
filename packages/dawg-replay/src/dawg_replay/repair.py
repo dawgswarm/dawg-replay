@@ -32,6 +32,7 @@
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import threading
 from dataclasses import dataclass, field
@@ -52,6 +53,7 @@ PROMPT_ERRORS = 5
 ERROR_CHARS = 500
 
 SKILL = "dawg-replay-builder"
+NOT_SCRIPT_FAULT = ("cancelled", "skipped")
 
 REASONS = {
     "cancelled": "запуск отменили",
@@ -80,34 +82,98 @@ class Scan:
         return None
 
 
-_cache: dict[str, tuple[int, int, Scan]] = {}
+CACHE_FILE = "repair.json"
+CACHE_VERSION = 1
+_cache: dict[str, tuple[int, int, _Raw]] = {}
 _cache_lock = threading.Lock()
 CACHE_SIZE = 1024
 
 
 def scan(run_dir: Path) -> Scan:
-    """Разбор событий запуска. Кешируется по размеру и времени изменения файла:
-    у завершённых запусков файл не меняется, главная не перечитывает их каждый раз."""
+    """Разбор событий запуска. Кешируется по размеру и времени изменения файла: в памяти
+    процесса и в `repair.json` в каталоге запуска (как `minutes.json`). Списки запусков
+    (библиотека, история, главная) не перечитывают большие events.jsonl при каждом показе.
+    Наличие файлов результата проверяется при каждом вызове: их могли удалить."""
     path = run_dir / "events.jsonl"
     try:
         st = path.stat()
     except OSError:
-        return _scan_file(path, run_dir)
+        return _with_files(_parse(path), run_dir)
+    stamp = [st.st_size, st.st_mtime_ns]
     key = str(path)
     with _cache_lock:
         hit = _cache.get(key)
-        if hit and hit[0] == st.st_size and hit[1] == st.st_mtime_ns:
-            return hit[2]
-    result = _scan_file(path, run_dir)
+    if hit and [hit[0], hit[1]] == stamp:
+        return _with_files(hit[2], run_dir)
+    raw = _load_cache(run_dir, stamp)
+    if raw is None:
+        raw = _parse(path)
+        _save_cache(run_dir, stamp, raw)
     with _cache_lock:
         if len(_cache) >= CACHE_SIZE:
             _cache.clear()
-        _cache[key] = (st.st_size, st.st_mtime_ns, result)
-    return result
+        _cache[key] = (stamp[0], stamp[1], raw)
+    return _with_files(raw, run_dir)
 
 
-def _scan_file(path: Path, run_dir: Path) -> Scan:
-    s = Scan()
+def _load_cache(run_dir: Path, stamp: list[int]) -> _Raw | None:
+    try:
+        data = json.loads((run_dir / CACHE_FILE).read_text(encoding="utf-8"))
+        if data.get("v") != CACHE_VERSION or data.get("stamp") != stamp:
+            return None
+        return _Raw(
+            rows={str(k): int(v) for k, v in data["rows"].items()},
+            progress={str(k): float(v) for k, v in data["progress"].items()},
+            artifacts=[str(x) for x in data["artifacts"]],
+            errors=[str(x) for x in data["errors"]],
+        )
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def _save_cache(run_dir: Path, stamp: list[int], raw: _Raw) -> None:
+    if not run_dir.is_dir():
+        return
+    cache = run_dir / CACHE_FILE
+    tmp = cache.with_name(f"{CACHE_FILE}.{os.getpid()}.tmp")
+    try:
+        tmp.write_text(json.dumps({"v": CACHE_VERSION, "stamp": stamp, "rows": raw.rows, "progress": raw.progress,
+                                   "artifacts": raw.artifacts, "errors": raw.errors}, ensure_ascii=False),
+                       encoding="utf-8")
+        os.replace(tmp, cache)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+@dataclass
+class _Raw:
+    """То, что зависит только от файла событий."""
+
+    rows: dict[str, int] = field(default_factory=dict)
+    progress: dict[str, float] = field(default_factory=dict)
+    artifacts: list[str] = field(default_factory=list)  # пути из событий artifact, без повторов
+    errors: list[str] = field(default_factory=list)
+
+
+def _with_files(raw: _Raw, run_dir: Path) -> Scan:
+    s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors))
+    out = (run_dir / "output").resolve()
+    for rel in raw.artifacts:
+        try:
+            full = (out / rel).resolve()
+            full.relative_to(out)
+        except (OSError, ValueError, RuntimeError):
+            continue
+        if full.is_file():
+            s.files.append(full.relative_to(out).as_posix())
+    return s
+
+
+def _parse(path: Path) -> _Raw:
+    s = _Raw()
     try:
         f = open(path, "rb")
     except OSError:
@@ -137,15 +203,7 @@ def _scan_file(path: Path, run_dir: Path) -> Scan:
                     del s.errors[:-PROMPT_ERRORS]
             except (KeyError, TypeError):
                 continue
-    out = (run_dir / "output").resolve()
-    for rel in dict.fromkeys(artifacts):
-        try:
-            full = (out / rel).resolve()
-            full.relative_to(out)
-        except (OSError, ValueError, RuntimeError):
-            continue
-        if full.is_file():
-            s.files.append(full.relative_to(out).as_posix())
+    s.artifacts = list(dict.fromkeys(artifacts))
     return s
 
 
@@ -158,10 +216,12 @@ def _same_group(a: Any, b: Any) -> bool:
     return a.params == b.params
 
 
-def baseline(app: Any, rec: Any, source: str) -> list[int]:
-    """Счётчики прошлых успешных запусков того же скрипта и пресета, новые первыми."""
+def baseline(app: Any, rec: Any, source: str, history: list[Any] | None = None) -> list[int]:
+    """Счётчики прошлых успешных запусков того же скрипта и пресета, новые первыми.
+    `history`: уже прочитанные запуски скрипта (новые первыми), чтобы список не читал БД на каждую строку."""
     out: list[int] = []
-    for r in app.runs.list(rec.script_name, HISTORY_SCAN):
+    recs = history if history is not None else app.runs.list(rec.script_name, HISTORY_SCAN)
+    for r in recs:
         if len(out) >= HISTORY:
             break
         if r.id == rec.id or r.draft or r.status != "ok" or (r.created_at, r.id) >= (rec.created_at, rec.id):
@@ -205,14 +265,39 @@ def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) 
     }
 
 
-def suspicion(app: Any, rec: Any) -> dict[str, Any] | None:
+def suspicion(app: Any, rec: Any, history: list[Any] | None = None) -> dict[str, Any] | None:
     """Похоже, сайт поменялся: None или {"kind", "text", "value", "median"}."""
     if rec.running or rec.draft or rec.status not in ("ok", "partial"):
         return None
     s = scan(app.paths.run_dir(rec.id))
     counter = s.counter()
-    history = baseline(app, rec, counter[0]) if counter else []
-    return judge(counter, bool(s.files), history)
+    hist = baseline(app, rec, counter[0], history) if counter else []
+    return judge(counter, bool(s.files), hist)
+
+
+def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Добавляет `suspicion` в словари запусков (Run.to_dict) для списков. История каждого
+    скрипта читается из БД один раз на вызов, разбор событий берётся из кэша."""
+    by_script: dict[str, list[Any]] = {}
+    for d in runs:
+        d["suspicion"] = None
+        if d.get("status") not in ("ok", "partial") or d.get("draft"):
+            continue
+        name = d["script"]
+        if name not in by_script:
+            by_script[name] = app.runs.list(name, HISTORY_SCAN)
+        recs = by_script[name]
+        rec = next((r for r in recs if r.id == d["id"]), None)
+        if rec is None:
+            try:
+                rec = app.runs.get(d["id"])
+            except ReplayError:
+                continue
+        try:
+            d["suspicion"] = suspicion(app, rec, recs)
+        except OSError:
+            d["suspicion"] = None
+    return runs
 
 
 def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
@@ -221,7 +306,8 @@ def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
     if rec.running:
         return None
     if rec.status == "failed":
-        return None if rec.reason == "cancelled" else {"suspicion": None}
+        # Отменили сами или не дождался слота (dr-52): скрипт не виноват, чинить нечего.
+        return None if rec.reason in NOT_SCRIPT_FAULT else {"suspicion": None}
     s = suspicion(app, rec)
     return {"suspicion": s} if s else None
 

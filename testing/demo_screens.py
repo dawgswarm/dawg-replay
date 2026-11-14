@@ -48,6 +48,7 @@ def main() -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     home = Path(tempfile.mkdtemp(prefix="dawg-replay-demo-")) / "home"
     ids = demo_home.seed(home)
+    keeper = demo_home.add_live(home)
     proc, url = demo_home.start_ui(home)
     base = url.split("/?", 1)[0]
     os.environ["NO_PROXY"] = os.environ["no_proxy"] = "*"
@@ -79,6 +80,7 @@ def main() -> int:
     finally:
         proc.terminate()
         proc.wait(timeout=20)
+        keeper.terminate()
     return 0
 
 

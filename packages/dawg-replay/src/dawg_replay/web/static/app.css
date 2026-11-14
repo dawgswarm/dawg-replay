@@ -772,6 +772,10 @@ a.button.button-secondary:hover { background: var(--sunken); }
 .dash-rec-text { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .dash-rec-title { font-weight: 560; }
 .dash-rec-when { flex: none; }
+/* Вторая строка: тег «по расписанию» всегда в её начале, итог после него. */
+.dash-rec-meta { display: flex; align-items: baseline; gap: 0.45rem; min-width: 0; margin-top: 0.1rem; }
+.dash-rec-meta .tag-plan { flex: none; }
+.dash-rec-meta .clamp1 { min-width: 0; }
 .quick-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.45rem; }
 .quick-list form { margin: 0; }
 .quick {

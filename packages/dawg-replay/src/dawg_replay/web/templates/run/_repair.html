@@ -4,7 +4,7 @@
 {% if run.repair %}
   <section class="{% if sus %}warning{% else %}card{% endif %} repair" aria-labelledby="repair-title">
     {% if sus %}
-    <h2 id="repair-title">Похоже, сайт поменялся</h2>
+    <h2 id="repair-title">Почему похоже на поломку</h2>
     <p>{{ sus.text }} Скорее всего, скрипт перестал находить данные на странице. Попросите агента его починить.</p>
     {% else %}
     <div class="card-head"><h2 id="repair-title">Починить скрипт</h2></div>

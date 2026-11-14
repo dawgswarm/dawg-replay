@@ -85,11 +85,11 @@
     <div class="card-head"><h2 id="recent-title">Последние запуски</h2></div>
     {% if d.recent %}
     <ul class="dash-list">
-      {% for r in d.recent %}{% set st = r.run.label | status %}
+      {% for r in d.recent %}{% set st = r.run | run_status %}
       <li><a class="dash-rec" href="/runs/{{ r.run.id }}">
-        <span class="status status-{{ st.kind }}">{{ st.text }}</span>
-        <span class="dash-rec-text"><span class="dash-rec-title">{{ r.title }}{% if r.run.draft %} <span class="hint-inline">черновой</span>{% endif %}{% if r.run.trigger == "schedule" %} <span class="tag-plan">по расписанию</span>{% endif %}</span>
-          {% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>
+        <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
+        <span class="dash-rec-text"><span class="dash-rec-title">{{ r.title }}{% if r.run.draft %} <span class="hint-inline">черновой</span>{% endif %}</span>
+          {% if r.run.trigger == "schedule" or r.run.summary %}<span class="dash-rec-meta">{% if r.run.trigger == "schedule" %}<span class="tag-plan">по расписанию</span>{% endif %}{% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>{% endif %}</span>
         <span class="hint-inline dash-rec-when">{{ r.run.created_at | when }}</span>
       </a></li>
       {% endfor %}
