@@ -28,7 +28,7 @@ metadata:
 Если 1 или 2 не выполнены, объясни клиенту, что поставить, и дальше не иди:
 
 - `dawg-replay`: `uv tool install dawg-replay`, нужен `uv` (https://docs.astral.sh/uv/) и Python 3.10+.
-- `dawg-mcp` в Claude Code: плагин `dawg-replay-builder` подключает его сам; вручную `claude mcp add dawg --scope user --env DAWG_API_KEY=<ключ> -- uvx dawg-mcp`. В Codex: блок `[mcp_servers.dawg]` в `~/.codex/config.toml` (см. README плагина). После подключения перезапусти сессию.
+- `dawg-mcp` в Claude Code: плагин `dawg-replay-builder` подключает его сам; вручную `claude mcp add dawg --scope user --env DAWG_API_KEY=<ключ> -- uvx --with 'mcp<2' dawg-mcp`. В Codex: блок `[mcp_servers.dawg]` в `~/.codex/config.toml` (см. README плагина). После подключения перезапусти сессию.
 
 ## Черновики: каждый скрипт в своей папке
 
