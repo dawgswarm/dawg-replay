@@ -49,7 +49,7 @@ def make_run(home):
                              draft=draft, preset=None, params={}, timeout_seconds=60, limit=100)
             run_dir = app.paths.run_dir(run_id)
             (run_dir / "output").mkdir(parents=True, exist_ok=True)
-            with open(run_dir / "events.jsonl", "a", encoding="utf-8") as f:
+            with open(run_dir / "events.jsonl", "a", encoding="utf-8", newline="") as f:
                 for e in events:
                     f.write(json.dumps(e, ensure_ascii=False) + "\n")
                 for line in raw_lines:
@@ -83,7 +83,7 @@ ALL_EVENTS = [
 
 def test_page_renders_all_event_types(client, make_run):
     run_id, run_dir = make_run(ALL_EVENTS, raw_lines=["не json"])
-    (run_dir / "output" / "cards.csv").write_text("sku\n1\n", encoding="utf-8")
+    (run_dir / "output" / "cards.csv").write_text("sku\n1\n", encoding="utf-8", newline="")
     r = client.get(f"/runs/{run_id}")
     assert r.status_code == 200
     h = r.text
@@ -240,7 +240,7 @@ def test_download(client, make_run, home, tmp_path):
         ev("artifact", path="gone.csv", label="удалён"),
     ])
     out = run_dir / "output"
-    (out / "cards.csv").write_text("sku\n1\n", encoding="utf-8")
+    (out / "cards.csv").write_text("sku\n1\n", encoding="utf-8", newline="")
     (out / "sub").mkdir()
     (out / "sub" / "data.json").write_text("{}", encoding="utf-8")
     (out / "unlisted.txt").write_text("x", encoding="utf-8")

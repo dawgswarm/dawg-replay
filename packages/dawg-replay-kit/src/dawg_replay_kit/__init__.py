@@ -15,9 +15,10 @@
 При импорте kit переводит stdout и stderr в UTF-8: на Windows вывод в файл
 иначе идёт в кодировке локали, и кириллица в print ломает скрипт.
 
-При инициализации kit ставит обработчик SIGTERM (на Windows CTRL_BREAK): отмена
-запуска из приложения превращается в SystemExit(143), поэтому `finally`
-и `atexit` срабатывают, а отложенные события дописываются в файл.
+При инициализации kit ставит обработчик SIGTERM (на Windows ещё CTRL_BREAK)
+и следит за файлом остановки из `DAWG_SCRIPT_STOP_FILE`: отмена запуска из
+приложения превращается в SystemExit(143), поэтому `finally` и `atexit`
+срабатывают, а отложенные события дописываются в файл.
 """
 
 from __future__ import annotations
@@ -79,7 +80,7 @@ def init(**kwargs: Any) -> Kit:
                 print(f"dawg-replay-kit: {e}", file=sys.stderr, flush=True)
                 raise SystemExit(EXIT_BAD_PARAMS) from None
             atexit.register(_kit.close)
-            # SIGTERM и CTRL_BREAK превращаются в SystemExit: finally и atexit успевают отработать.
+            # Сигнал отмены и файл остановки превращаются в SystemExit: finally и atexit успевают отработать.
             cancel.install()
         return _kit
 

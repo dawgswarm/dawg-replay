@@ -33,7 +33,7 @@ def write(run_dir, *items, mode="a"):
 
 
 def test_all_event_types(run_dir):
-    (run_dir / "output" / "cards.csv").write_text("a\n1\n", encoding="utf-8")
+    (run_dir / "output" / "cards.csv").write_text("a\n1\n", encoding="utf-8", newline="")
     write(
         run_dir,
         ev("stage", name="Открываем"),
@@ -227,7 +227,7 @@ def test_incremental_read_of_big_file(run_dir):
     builtins.open = counting_open
     try:
         write_line = json.dumps(ev("stage", name="Хвост")) + "\n"
-        with real_open(run_dir / "events.jsonl", "a", encoding="utf-8") as f:
+        with real_open(run_dir / "events.jsonl", "a", encoding="utf-8", newline="") as f:
             f.write(write_line)
         t0 = time.perf_counter()
         changes = v.poll()

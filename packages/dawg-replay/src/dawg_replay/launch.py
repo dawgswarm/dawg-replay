@@ -16,7 +16,8 @@
 она ставит в БД отметку `cancel_requested_at`, супервизор её видит
 и выполняет процедуру 5.7. Так отмена одинаково работает на всех ОС,
 включая Windows, где CTRL_BREAK доходит только до процессов с общей
-консолью. Если супервизора уже нет, отмена бьёт по группе процесса сама.
+консолью. Если супервизора уже нет, отмена сама создаёт файл остановки
+и шлёт сигнал группе процесса, а через grace убивает дерево.
 
 Потерянные запуски: статус `running`, heartbeat давно не обновлялся
 и процесса-супервизора нет, либо система перезагружалась после создания
@@ -50,6 +51,7 @@ from dawg_replay.registry import invalid_manifest
 from dawg_replay.runner import (
     DEFAULT_COMMAND,
     RunnerError,
+    STOP_FILE,
     RunOutcome,
     ScriptRun,
     kill_tree,
@@ -420,17 +422,13 @@ def _cancel_orphan(app: App, rec: Run, grace: float) -> None:
     """Супервизора нет: отменяем по группе процесса сами и закрываем запуск."""
     killed = False
     if _own_group(rec):
-        if _IS_WINDOWS:
-            kill_tree(rec.pid)  # CTRL_BREAK без общей консоли не дойдёт
+        soft_stop(rec.pid, app.paths.run_dir(rec.id) / STOP_FILE)
+        end = time.monotonic() + grace
+        while time.monotonic() < end and _own_group(rec):
+            time.sleep(POLL_SECONDS)
+        if _own_group(rec):
+            kill_tree(rec.pid)
             killed = True
-        else:
-            soft_stop(rec.pid)
-            end = time.monotonic() + grace
-            while time.monotonic() < end and _own_group(rec):
-                time.sleep(POLL_SECONDS)
-            if _own_group(rec):
-                kill_tree(rec.pid)
-                killed = True
     _close_lost(app, rec, reason="cancelled", killed=killed)
 
 
