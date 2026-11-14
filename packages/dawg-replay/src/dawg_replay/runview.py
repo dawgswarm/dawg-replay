@@ -89,7 +89,7 @@ class RunView:
     @classmethod
     def for_run(cls, app: Any, run_id: str, **kw: Any) -> RunView:
         """Вид запуска из каталога данных приложения: итог из БД, лимит строк из config."""
-        from dawg_replay import insurance
+        from dawg_replay import diagnosis, insurance
 
         run_dir = app.paths.run_dir(run_id)
         app.runs.get(run_id)  # понятная ошибка для неизвестного id
@@ -99,6 +99,8 @@ class RunView:
             return {
                 **{k: v for k, v in rec.to_dict().items() if k in _RUN_FIELDS},
                 "suspects": insurance.pending_suspects(run_dir),
+                # упал, ничего не сообщив: хвост stderr и подсказка (dawg_replay.diagnosis)
+                "diagnosis": diagnosis.diagnose(app, rec),
             }
 
         kw.setdefault("rows_limit", app.config.rows_preview_limit)
