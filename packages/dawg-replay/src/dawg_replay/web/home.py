@@ -67,6 +67,7 @@ def library(app: Any, query: str = "", site: str = "") -> dict[str, Any]:
             "tags": list(meta["tags"]),
             "cover": cover(s["title"], meta["site"]),
         })
+    repair.annotate(app, [i["last_run"] for i in items if i["last_run"]])
     sites = sorted({i["cover"]["site"] for i in items if i["cover"]["site"]}, key=str.casefold)
     q = query.strip().casefold()
     shown = [
@@ -127,6 +128,7 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
             continue
         title, cov = _title(app, rec, titles)
         recent.append({"run": rec.to_dict(), "title": title, "cover": cov})
+    repair.annotate(app, [r["run"] for r in recent])
 
     # Требует внимания: последний запуск скрипта упал или собрал не всё.
     attention, seen = [], set()
@@ -185,7 +187,7 @@ def _why(app: Any, rec: Any) -> str | None:
 
 
 def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, dict[str, str]]]) -> dict[str, Any] | None:
-    """Упавшие (не по отмене) и подозрительные запуски, закончившиеся после прошлого визита.
+    """Упавшие (не по отмене), пропущенные из-за очереди и подозрительные запуски после прошлого визита.
     None, если прошлого визита не было."""
     if since is None:
         return None
@@ -195,13 +197,14 @@ def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, d
         if rec.running or rec.draft or not rec.finished_at or rec.finished_at <= since:
             continue
         need = repair.needs_repair(app, rec)
-        if need is None:
+        skipped = rec.status == "failed" and rec.reason == "skipped"  # не дождался слота: показать, но без починки
+        if need is None and not skipped:
             continue
         total += 1
         if len(items) < SINCE_SHOWN:
             title, cov = _title(app, rec, titles)
             items.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
-                          "suspicion": need["suspicion"]})
+                          "suspicion": need["suspicion"] if need else None, "repair": need is not None})
     return {"since": since, "items": items, "total": total}
 
 

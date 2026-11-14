@@ -16,6 +16,9 @@
 - тихая поломка: последний плановый запуск Ozon собрал 6 строк при обычных ~120;
 - упавший запуск WB с traceback, в котором есть токен в адресе (он скрыт);
 - отменённый и ручные запуски;
+- очередь (dr-52): лимит 1, один запуск идёт, плановый WB ждёт свободного слота,
+  ночной плановый WB пропущен (не дождался слота). Идущий и ждущий держит
+  процесс-заглушка, поэтому их нет в режиме --seed-only;
 - прошлый визит в UI вчера вечером, поэтому на главной виден блок «С прошлого визита».
 """
 
@@ -31,6 +34,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -266,6 +270,20 @@ def seed(home: Path, now: datetime | None = None) -> dict:
         for i, t in enumerate(slots):
             rid = run_id(t, next(n))
             last = i == len(slots) - 1
+            if i == len(slots) - 3:
+                # Ночью все места были заняты: плановый запуск не дождался слота (dr-52).
+                app.runs.reserve(run_id=rid, script_name="wb-search-cards",
+                                 script_version=app.registry.version("wb-search-cards").version,
+                                 script_path=str(app.registry.version("wb-search-cards").path), draft=False,
+                                 preset="кроссовки", params={"query": "кроссовки беговые", "max_pages": 2},
+                                 timeout_seconds=3600, limit=1000, schedule_id=hours.id)
+                app.db.execute(
+                    "UPDATE runs SET status = 'failed', reason = 'skipped', error = ?, created_at = ?, finished_at = ?"
+                    " WHERE id = ?",
+                    ("не дождался свободного слота за 60 мин (лимит 1, шёл другой запуск)", iso(t),
+                     iso(t + timedelta(minutes=60)), rid))
+                ids["skipped"] = rid
+                continue
             if last:
                 stderr = (
                     "Traceback (most recent call last):\n"
@@ -307,6 +325,69 @@ def seed(home: Path, now: datetime | None = None) -> dict:
     return ids
 
 
+def add_live(home: Path) -> subprocess.Popen:
+    """Живая очередь (dr-52): один запуск идёт, один плановый ждёт свободного слота при лимите 1.
+
+    Оба держит процесс-заглушка: приложение считает их живыми, пока он работает, и не
+    закрывает как lost. Остановить заглушку обязан вызывающий (`keeper.terminate()`).
+    Кнопки «Остановить» и «Убрать из очереди» в демо закрывают эти записи по-настоящему.
+    """
+    os.environ.update(env_for(home))
+    from dawg_replay import procinfo
+    from dawg_replay.app import App
+    from dawg_replay.schedules import Schedules
+
+    keeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(7 * 24 * 3600)"],
+                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    started = None
+    for _ in range(50):
+        started = procinfo.start_time(keeper.pid)
+        if started is not None:
+            break
+        time.sleep(0.1)
+    rng = random.Random(7)
+    now = datetime.now(timezone.utc)
+    with App(home) as app:
+        app.set_config("max_parallel_runs", "1")
+        # Идёт футбол: так у Ozon в библиотеке последним остаётся запуск с тихой поломкой.
+        v = app.registry.version("sports-results")
+        rid = run_id(now - timedelta(minutes=3), 0xfff001)
+        app.runs.reserve(run_id=rid, script_name="sports-results", script_version=v.version, script_path=str(v.path),
+                         draft=False, preset="рпл", params={"league": "РПЛ", "round": 16},
+                         timeout_seconds=3600, limit=1)
+        d = app.paths.run_dir(rid)
+        d.mkdir(parents=True, exist_ok=True)
+        t0 = now - timedelta(minutes=3)
+        rows = [{"home": h, "away": a, "score": sc} for h, a, sc in (
+            ("Зенит", "Спартак", "2:1"), ("ЦСКА", "Локомотив", "0:0"), ("Краснодар", "Динамо", "3:2"),
+            ("Ростов", "Рубин", "1:1"))]
+        ev = [
+            {"t": "stage", "name": "Открываю браузер", "ts": iso(t0 + timedelta(seconds=5))},
+            {"t": "session", "action": "open", "session_id": "demo-live-0", "browser_id": "br-0",
+             "ts": iso(t0 + timedelta(seconds=20))},
+            {"t": "stage", "name": "Собираю матчи тура", "ts": iso(t0 + timedelta(seconds=40))},
+            {"t": "rows", "table": "cards", "columns": list(rows[0]), "rows": rows, "ts": iso(now - timedelta(seconds=30))},
+            {"t": "progress", "id": "matches", "label": "Матчи", "done": 4, "total": 8,
+             "ts": iso(now - timedelta(seconds=30))},
+            {"t": "metric", "key": "matches", "label": "Собрано матчей", "value": 4, "ts": iso(now - timedelta(seconds=30))},
+        ]
+        (d / "events.jsonl").write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in ev), encoding="utf-8")
+        app.runs.set_supervisor(rid, keeper.pid, started)
+        app.db.execute("UPDATE runs SET created_at = ?, started_at = ? WHERE id = ?", (iso(t0), iso(t0), rid))
+
+        sched = Schedules(app).all("wb-search-cards")[0]
+        v = app.registry.version("wb-search-cards")
+        wid = run_id(now - timedelta(minutes=1), 0xfff002)
+        app.runs.reserve(run_id=wid, script_name="wb-search-cards", script_version=v.version, script_path=str(v.path),
+                         draft=False, preset="кроссовки", params={"query": "кроссовки беговые", "max_pages": 2},
+                         timeout_seconds=3600, limit=1000, schedule_id=sched.id)
+        app.db.execute(
+            "UPDATE runs SET status = 'waiting', created_at = ?, started_at = NULL, supervisor_pid = ?,"
+            " supervisor_started = ?, heartbeat_at = ? WHERE id = ?",
+            (iso(now - timedelta(minutes=1)), keeper.pid, started, iso(now), wid))
+    return keeper
+
+
 def start_ui(home: Path, port: int | None = None) -> tuple[subprocess.Popen, str]:
     """Запускает `dawg-replay ui --no-open` с окружением демо. Возвращает процесс и ссылку с токеном."""
     argv = [sys.executable, "-m", "dawg_replay", "ui", "--no-open"]
@@ -331,6 +412,7 @@ def main() -> int:
     if home.exists() and any(home.iterdir()):
         raise SystemExit(f"{home} не пуст: демо заполняет только новый каталог")
     seed(home)
+    keeper = None if args.seed_only else add_live(home)
     print(f"демо-каталог: {home}", flush=True)
     if args.seed_only:
         keys = ("DAWG_REPLAY_HOME", "DAWG_REPLAY_SCHEDULER", "DAWG_REPLAY_CRONTAB", "DEMO_CRONTAB_FILE",
@@ -347,6 +429,9 @@ def main() -> int:
     except KeyboardInterrupt:
         proc.send_signal(signal.SIGINT)
         proc.wait(timeout=20)
+    finally:
+        if keeper is not None:
+            keeper.terminate()
     return 0
 
 

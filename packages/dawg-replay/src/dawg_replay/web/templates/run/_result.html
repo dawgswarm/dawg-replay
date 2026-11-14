@@ -1,4 +1,7 @@
 {% set st = run.label | status %}
+{# Тихая поломка (dawg_replay.repair): итог мягкий жёлтый, а не крупное зелёное «Готово». #}
+{% set quiet = run.suspicion and not running and run.status in ('ok', 'partial') %}
+{% if quiet %}{% set st = {"kind": "partial", "text": st.text} %}{% endif %}
 <div id="run-result" class="result result-{{ st.kind }}">
   <h2 id="result-title"><span class="result-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
     {%- if st.kind == 'ok' %}<path d="M4.5 10.5l3.5 3.5 7.5-8"/>
@@ -6,7 +9,7 @@
     {%- elif st.kind == 'failed' %}<path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/>
     {%- elif st.kind == 'running' %}<circle cx="10" cy="10" r="3.5" fill="currentColor" stroke="none"/>
     {%- else %}<rect x="5.5" y="5.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/>{% endif -%}
-  </svg></span><span>{% if running %}Идёт{% elif run.status == 'ok' %}Готово{% elif run.status == 'partial' %}Собрано не всё{% elif run.reason == 'cancelled' %}Запуск остановлен{% else %}Запуск не удался{% endif %}</span></h2>
+  </svg></span><span>{% if running %}Идёт{% elif quiet and run.status == 'ok' %}Готово, но похоже, сайт поменялся{% elif quiet %}Собрано не всё, и похоже, сайт поменялся{% elif run.status == 'ok' %}Готово{% elif run.status == 'partial' %}Собрано не всё{% elif run.reason == 'cancelled' %}Запуск остановлен{% else %}Запуск не удался{% endif %}</span></h2>
   {% if running %}
     <p class="result-reason">{% if s.timeline %}Сейчас: {{ s.timeline[-1].name }}.{% else %}Скрипт готовится к работе: ставит зависимости и открывает браузер.{% endif %} Страница обновляется сама.</p>
   {% else %}

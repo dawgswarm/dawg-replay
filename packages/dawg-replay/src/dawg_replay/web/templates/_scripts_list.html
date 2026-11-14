@@ -27,8 +27,8 @@
         <h2><a href="/scripts/{{ s.name }}">{{ s.title }}</a></h2>
         {% if s.description %}<p class="lib-desc">{{ s.description }}</p>{% endif %}
         <p class="lib-last">
-          {% if r %}{% set st = r.label | status %}
-          <a class="last-run" href="/runs/{{ r.id }}"><span class="status status-{{ st.kind }}">{{ st.text }}</span><span class="last-when">{{ r.created_at | when }}</span></a>
+          {% if r %}{% set st = r | run_status %}
+          <a class="last-run" href="/runs/{{ r.id }}"><span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span><span class="last-when">{{ r.created_at | when }}</span></a>
           {% else %}<span class="never">Ещё не запускался</span>{% endif %}
         </p>
       </div>

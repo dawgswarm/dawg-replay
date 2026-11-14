@@ -1,4 +1,4 @@
-{% set st = run.label | status %}
+{% set st = run | run_status %}{# тихая поломка: не зелёное «готово» (dawg_replay.repair) #}
 <div id="run-head" class="run-head">
   <p class="crumbs"><a href="/scripts">Скрипты</a>{% if run.script and not run.draft %} / <a href="/scripts/{{ run.script }}">{{ run.title or run.script }}</a>{% endif %}</p>
   {# Порядок для телефона: название и статус, потом действия. На широком экране действия справа. #}
@@ -6,7 +6,7 @@
     <div class="run-title-main">
     <h1>{{ run.title or run.script }}</h1>
     <p class="run-meta">
-      <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+      <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
       <span>начат {{ run.created_at | when }}{% if run.finished_at %}, закончен {{ run.finished_at | when }}{% endif %}</span>
       {% if s.browsers.open or running %}
         <span class="browsers{% if s.browsers.open %} browsers-on{% endif %}">

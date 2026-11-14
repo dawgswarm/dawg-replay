@@ -264,7 +264,7 @@ def test_run_screen_repair_panel(client, make_run, home, kr):
     failed = make_run(status="failed", reason="exit_code", exit_code=1, stderr=f"key {API_KEY}\n<b>x</b>\n")
     h = client.get(f"/runs/{failed}").text
     assert 'id="run-repair"' in h and "Починить с агентом" in h and 'data-copy="repair-text"' in h
-    assert "Похоже, сайт поменялся" not in h and API_KEY not in h and "&lt;b&gt;x&lt;/b&gt;" in h
+    assert "Почему похоже на поломку" not in h and API_KEY not in h and "&lt;b&gt;x&lt;/b&gt;" in h
     assert f"dawg-replay fix-prompt {failed}" in h
 
     cancelled = make_run(status="failed", reason="cancelled")
@@ -272,7 +272,10 @@ def test_run_screen_repair_panel(client, make_run, home, kr):
 
     empty = make_run(events=_events(rows=0))
     h = client.get(f"/runs/{empty}").text
-    assert "Похоже, сайт поменялся" in h and "Починить с агентом" in h
+    assert "Почему похоже на поломку" in h and "Починить с агентом" in h
+    # Итог мягкий жёлтый, а не крупное зелёное «Готово».
+    result = h.split('id="run-result"', 1)[0].rsplit("<div", 1)[1] + h.split('id="run-result"', 1)[1].split("</h2>", 1)[0]
+    assert "result-partial" in result and "Готово, но похоже, сайт поменялся" in result
 
 
 def test_home_attention_and_since_last_visit(client, make_run, home, kr):
@@ -302,3 +305,83 @@ def test_home_first_visit_has_no_since_block(client, make_run):
     assert "С прошлого визита" not in h
     att = h.split("Требует внимания", 1)[1].split("Последние запуски", 1)[0]
     assert f"/runs/{empty}#repair" in att and "ничего не собрал" in att  # последний запуск скрипта: тихая поломка
+
+
+# --- тихая поломка в списках (dr-55) -------------------------------------------------------
+
+
+def test_scan_disk_cache(make_run, home, kr, monkeypatch):
+    rid = make_run(events=_events(rows=5, artifact="c.csv"), files=["c.csv"])
+    with App(home, keyring_backend=kr) as a:
+        d = a.paths.run_dir(rid)
+    repair._cache.clear()
+    assert repair.scan(d).counter() == ("rows", 5)
+    cached = json.loads((d / "repair.json").read_text(encoding="utf-8"))
+    assert cached["rows"] == {"cards": 5} and cached["artifacts"] == ["c.csv"]
+    # Второй процесс (пустой кэш в памяти) берёт разбор из repair.json, файл событий не читает.
+    repair._cache.clear()
+    monkeypatch.setattr(repair, "_parse", lambda path: pytest.fail("events.jsonl перечитан"))
+    s = repair.scan(d)
+    assert s.counter() == ("rows", 5) and s.files == ["c.csv"]
+    (d / "output" / "c.csv").unlink()  # файл удалили: наличие проверяется каждый раз
+    assert repair.scan(d).files == []
+    monkeypatch.undo()
+    with open(d / "events.jsonl", "a", encoding="utf-8") as f:  # файл событий изменился: кэш не годится
+        f.write(json.dumps({"t": "rows", "table": "cards", "rows": [{"i": 1}, {"i": 2}]}) + "\n")
+    repair._cache.clear()
+    assert repair.scan(d).counter() == ("rows", 7)
+
+
+def test_annotate_reads_history_once(make_run, home, kr):
+    for _ in range(3):
+        make_run(events=_events(rows=100), preset="p", files=["c.csv"])
+    bad = make_run(events=_events(rows=3), preset="p", files=["c.csv"])
+    failed = make_run(status="failed", reason="exit_code", exit_code=1)
+    with App(home, keyring_backend=kr) as a:
+        calls = []
+        orig = a.runs.list
+        a.runs.list = lambda *args, **kw: calls.append(args) or orig(*args, **kw)
+        runs = repair.annotate(a, [r.to_dict() for r in orig("ozon-cards", 20)])
+    by_id = {r["id"]: r for r in runs}
+    assert by_id[bad]["suspicion"]["kind"] == "drop" and by_id[failed]["suspicion"] is None
+    assert sum(1 for r in runs if r["suspicion"]) == 1 and len(calls) == 1
+
+
+def test_lists_show_silent_breakage(client, make_run, home, kr):
+    for _ in range(3):
+        make_run(events=_events(rows=100), preset="p", files=["c.csv"])
+    bad = make_run(events=_events(rows=3), preset="p", files=["c.csv"])
+    badge = "сайт поменялся?</span>"
+    lib = client.get("/scripts").text
+    assert badge in lib and "Похоже, сайт поменялся. Собрано 3 строки" in lib and "обычно около 100" in lib  # в подсказке title
+    script = client.get("/scripts/ozon-cards").text
+    runs = script.split('id="script-runs"', 1)[1]
+    assert runs.count(badge) == 1 and f"/runs/{bad}" in runs
+    assert client.get("/scripts/ozon-cards/_runs").text.count(badge) == 1
+    home_page = client.get("/").text
+    recent = home_page.split("Последние запуски", 1)[1]
+    assert recent.count(badge) == 1
+
+
+def test_recent_schedule_tag_in_meta_line(client, make_run, home, kr):
+    rid = make_run(events=_events(rows=10), files=["c.csv"], summary="итог")
+    with App(home, keyring_backend=kr) as a:
+        a.db.execute("UPDATE runs SET triggered_by = 'schedule' WHERE id = ?", (rid,))
+    recent = client.get("/").text.split("Последние запуски", 1)[1]
+    meta = recent.split('class="dash-rec-meta"', 1)[1].split("</span></span>", 1)[0]
+    assert meta.index("по расписанию") < meta.index("итог")  # тег всегда в начале второй строки
+    title = recent.split('class="dash-rec-title"', 1)[1].split("</span>", 1)[0]
+    assert "по расписанию" not in title
+
+
+def test_skipped_run_is_not_repaired_but_shown_since_last_visit(client, make_run, home, kr):
+    with App(home, keyring_backend=kr) as a:
+        state = a.paths.home / "ui-state.json"
+    state.write_text(json.dumps({"last_seen": "2000-01-01T00:00:00Z"}), encoding="utf-8")
+    rid = make_run(status="failed", reason="skipped", exit_code=None)
+    with App(home, keyring_backend=kr) as a:
+        a.db.execute("UPDATE runs SET error = 'не дождался свободного слота за 60 мин' WHERE id = ?", (rid,))
+        assert repair.needs_repair(a, a.runs.get(rid)) is None
+    since = client.get("/").text.split("С прошлого визита", 1)[1].split("Идут сейчас", 1)[0]
+    assert f"/runs/{rid}" in since and "Не дождался свободного слота" in since and "#repair" not in since
+    assert "Починить с агентом" not in client.get(f"/runs/{rid}").text
