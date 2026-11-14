@@ -270,6 +270,35 @@ def test_async_cancel_during_wait(fake):
     assert fake.sessions == {}
 
 
+def test_async_cancel_during_wait_is_never_lost(fake):
+    """Отмена во время запроса готовности не теряется (на 3.10 anyio внутри httpx мог её проглотить)."""
+    from dawg_replay_kit.dawg_api import AsyncRestProvisioner
+
+    fake.ready_delay = 999
+
+    async def one(delay):
+        prov = AsyncRestProvisioner(KEY, fake.url, poll_interval=0.0)
+        try:
+            created = await prov.create(build_payload(None, None))
+            task = asyncio.create_task(prov.wait_ready(created, timeout=2))
+            await asyncio.sleep(delay)
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                return "cancelled"
+            except BrowserError:
+                return "lost"
+            return "returned"
+        finally:
+            await prov.close()
+
+    async def main():
+        return [await one((i % 20) * 0.0007) for i in range(100)]
+
+    assert set(asyncio.run(main())) == {"cancelled"}
+
+
 @pytest.mark.parametrize(
     "proxy, geo, expected",
     [

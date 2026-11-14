@@ -198,6 +198,25 @@ class RestProvisioner:
             self._sleep(self._poll)
 
 
+async def _cancel_safe(coro: Awaitable[Any]) -> Any:
+    """Запрос отдельной задачей, отмена приходит сюда, а не внутрь httpx.
+
+    На Python 3.10 anyio внутри httpx может проглотить внешнюю отмену задачи и
+    превратить её в обычную ошибку запроса: цикл ожидания готовности её ловит и
+    продолжает ждать до таймаута. Через shield отмена всегда поднимается на этом
+    `await`, а сам запрос отменяется отдельно.
+    """
+    task = asyncio.ensure_future(coro)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.cancel()
+        await asyncio.wait({task}, timeout=1.0)  # без висящей задачи при закрытии цикла
+        if task.done() and not task.cancelled():
+            task.exception()  # результат не нужен; ошибку забираем, чтобы asyncio о ней не писал
+        raise
+
+
 class AsyncRestProvisioner:
     """То же для asyncio."""
 
@@ -227,7 +246,7 @@ class AsyncRestProvisioner:
         attempt = 0
         while True:
             try:
-                resp = await self._client.post(f"{self.base_url}/api/v1/browsers", json=payload)
+                resp = await _cancel_safe(self._client.post(f"{self.base_url}/api/v1/browsers", json=payload))
             except self._httpx.ConnectError as e:
                 raise BrowserError(f"нет связи с платформой DAWG: {e}", created=False) from None
             except self._httpx.HTTPError as e:
@@ -251,7 +270,7 @@ class AsyncRestProvisioner:
         url = _ready_url(self.base_url, created)
         while True:
             try:
-                resp = await self._client.get(url)
+                resp = await _cancel_safe(self._client.get(url))
                 if resp.status_code == 200:
                     dbg = resp.json().get("webSocketDebuggerUrl", "")
                     if "/devtools/" in dbg:
