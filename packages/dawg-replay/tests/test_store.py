@@ -294,3 +294,15 @@ def test_home_can_be_moved(home, kr, write_script, tmp_path):
     home.rename(moved)
     with App(moved, kr) as a:
         assert a.registry.manifest("ozon-cards").version == 1
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "", "a/b", "a\\b", "../db", "x..y", "ozon\n", "/etc", "C:x", "a\x00"])
+def test_paths_take_one_safe_component(tmp_path, bad):
+    from dawg_replay.paths import Paths
+
+    p = Paths(tmp_path)
+    for f in (p.script_dir, p.run_dir, lambda n: p.script_file(n, 1)):
+        with pytest.raises(ValueError):
+            f(bad)
+    assert p.script_dir("ozon-cards") == tmp_path / "scripts" / "ozon-cards"
+    assert p.run_dir("20261115-010000-aaaaaa") == tmp_path / "runs" / "20261115-010000-aaaaaa"
