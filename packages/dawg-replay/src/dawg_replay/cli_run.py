@@ -7,6 +7,7 @@ import json
 import signal
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,7 @@ from dawg_replay_kit.events import ConsoleSink
 from dawg_replay import diagnosis, launch, repair
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
+from dawg_replay.errors import ReplayError
 from dawg_replay.runs import Run
 
 EXIT_RUN_FAILED = 3  # run --follow: запуск закончился статусом failed
@@ -66,10 +68,45 @@ def format_event_line(line: str, sink: ConsoleSink) -> str:
 # --- команды -----------------------------------------------------------------
 
 
+def _wait_printer(args: argparse.Namespace):
+    """Строки об ожидании слота: в терминал или, у планового запуска, в лог расписания."""
+    out = sys.stderr if args.json else sys.stdout
+
+    def on_wait(info: dict[str, Any]) -> None:
+        clock = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if info["state"] == "started":
+            if info["waited_seconds"] >= 1:
+                print(f"[{clock}] слот освободился, ждали {_minutes(info['waited_seconds'])}", file=out, flush=True)
+            return
+        ahead = f", впереди в очереди {info['ahead']}" if info["ahead"] else ""
+        print(
+            f"[{clock}] лимит занят: идут {info['running']} из {info['limit']}{ahead}. "
+            f"Ждём слот, не дольше {_minutes(info['left_seconds'], up=True)}",
+            file=out,
+            flush=True,
+        )
+
+    return on_wait
+
+
+def _minutes(seconds: float, up: bool = False) -> str:
+    m = int(-(-seconds // 60)) if up else int(seconds // 60)
+    return f"{m} мин" if m else f"{int(seconds)} с"
+
+
 def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    prepared = launch.prepare(
-        app, args.target, preset=args.preset, params_file=args.params, sets=args.set, schedule_id=args.schedule
-    )
+    try:
+        prepared = launch.prepare(
+            app, args.target, preset=args.preset, params_file=args.params, sets=args.set,
+            schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args),
+        )
+    except ReplayError as e:
+        if e.code != "run_skipped":
+            raise
+        # Не дождались слота: запуск записан в историю как пропущенный.
+        args._exit_code = EXIT_RUN_FAILED
+        rec = app.runs.get(e.details["run"])
+        return {"run": rec.to_dict(), "skipped": True}, f"запуск {rec.id} {e.message}"
     run_id = prepared.run.id
     run_dir = app.paths.run_dir(run_id)
     for w in prepared.warnings:
@@ -235,7 +272,9 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
     p.add_argument("--preset", help="пресет скрипта")
     p.add_argument("--follow", action="store_true", help="показывать события и ждать конца; Ctrl+C отменяет")
-    p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика)")
+    p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика); ждёт слота, как --wait")
+    p.add_argument("--wait", action="store_true",
+                   help="если лимит параллельных запусков занят, ждать слота (до wait_slot_minutes, по умолчанию 30 мин)")
 
     p = add("runs", _runs, "история запусков")
     p.add_argument("name", nargs="?", help="только запуски этого скрипта")

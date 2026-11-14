@@ -63,6 +63,8 @@ REASONS = {
     "timeout": "Запуск шёл дольше разрешённого и был остановлен.",
     "lost": "Запуск прервался: программа, которая его вела, закрылась или компьютер выключился.",
     "start_error": "Скрипт не удалось запустить.",
+    "skipped": "Запуск не начался: все места для одновременных запусков были заняты, а время ожидания вышло. "
+    "Данные за этот раз не собраны. Лимит меняется в настройках.",
 }
 
 LEVEL_WORDS = {"debug": "отладка", "info": "инфо", "warn": "внимание", "error": "ошибка", "raw": "сырая строка"}
@@ -242,7 +244,8 @@ def setup(templates: Jinja2Templates) -> None:
 
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
     run = snapshot.get("run") or {}
-    return {"s": snapshot, "run": run, "running": run.get("status") == "running"}
+    # Ждущий слота запуск тоже «идёт»: его можно остановить (он уйдёт из очереди).
+    return {"s": snapshot, "run": run, "running": run.get("status") in ("running", "waiting")}
 
 
 def render_panels(templates: Jinja2Templates, snapshot: dict[str, Any], names: tuple[str, ...] | set[str]) -> dict[str, str]:

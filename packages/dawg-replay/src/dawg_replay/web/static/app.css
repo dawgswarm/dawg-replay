@@ -939,3 +939,7 @@ a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem;
 @media (max-width: 640px) {
   .dash-att > a.button { margin-left: 2.9rem; }
 }
+
+/* Ждущие свободного слота на главной */
+.dash-sub { margin: 1rem 0 0.5rem; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft); }
+.dash-sub:first-of-type { margin-top: 0.2rem; }

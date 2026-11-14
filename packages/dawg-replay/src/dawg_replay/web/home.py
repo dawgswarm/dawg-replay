@@ -14,7 +14,7 @@ from dawg_replay import diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
-ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)")
+ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)", "failed (skipped)")
 RECENT_RUNS = 8
 QUICK_PRESETS = 6
 SUSPECT_SCAN = 30  # сколько последних завершённых запусков смотреть на остаточные браузеры
@@ -101,6 +101,11 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
     `since`: граница блока «С прошлого визита» (dawg_replay.uistate)."""
     titles: dict[str, tuple[str, dict[str, str]]] = {}
 
+    waiting = []
+    for rec in app.runs.waiting():
+        title, cov = _title(app, rec, titles)
+        waiting.append({"run": rec.to_dict(), "title": title, "cover": cov})
+
     running = []
     for rec in app.runs.running():
         title, cov = _title(app, rec, titles)
@@ -146,7 +151,7 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
 
     return {"running": running, "attention": attention[:5], "recent": recent, "suspects": suspects,
             "quick": quick_presets(app, recent_recs, titles), "upcoming": upcoming(app, titles),
-            "since": since_last_visit(app, since, titles)}
+            "since": since_last_visit(app, since, titles), "waiting": waiting}
 
 
 UPCOMING = 5

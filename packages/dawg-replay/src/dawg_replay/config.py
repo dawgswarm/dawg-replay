@@ -21,6 +21,8 @@ class Config:
     max_parallel_runs: int = 3
     max_timeout_minutes: int = 24 * 60
     cancel_grace_seconds: int = 15
+    # Сколько плановый запуск (и run --wait) ждёт свободного слота, потом пропускается.
+    wait_slot_minutes: int = 30
     rows_preview_limit: int = 500
     # Только для разработки: путь к packages/dawg-replay-kit, см. dawg_replay.devkit.
     dev_kit_source: str = ""

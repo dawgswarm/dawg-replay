@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon, cover %}
-<div id="home-live" class="home-main" hx-get="/home/_live" hx-trigger="runs-changed from:body{% if d.running %}, every 4s{% endif %}" hx-swap="outerHTML" data-live-runs>
+<div id="home-live" class="home-main" hx-get="/home/_live" hx-trigger="runs-changed from:body{% if d.running or d.waiting %}, every 4s{% endif %}" hx-swap="outerHTML" data-live-runs>
   {% if d.suspects %}
   <section class="warning" aria-labelledby="suspects-title">
     <h2 id="suspects-title">Возможно, остался браузер</h2>
@@ -41,8 +41,24 @@
       </li>
       {% endfor %}
     </ul>
-    {% else %}
+    {% elif not d.waiting %}
     <p class="hint">Сейчас ничего не идёт. Запустите скрипт из <a href="/scripts">библиотеки</a> или пресетом из блока «Быстрый запуск».</p>
+    {% endif %}
+    {% if d.waiting %}
+    <h3 class="dash-sub">Ждут свободного слота</h3>
+    <ul class="dash-list">
+      {% for w in d.waiting %}
+      <li class="dash-run">
+        {{ cover(w.cover) }}
+        <div class="dash-text">
+          <a class="dash-title" href="/runs/{{ w.run.id }}">{{ w.title }}</a>
+          <span class="hint-inline">{% if w.run.trigger == "schedule" %}по расписанию, {% endif %}в очереди с {{ w.run.created_at | when }}. Начнётся, когда закончится один из идущих запусков.</span>
+        </div>
+        <button class="secondary small" hx-post="/runs/{{ w.run.id }}/cancel" hx-swap="none" hx-disabled-elt="this"
+                hx-confirm="Убрать «{{ w.title }}» из очереди? Этот запуск не начнётся.">Убрать из очереди</button>
+      </li>
+      {% endfor %}
+    </ul>
     {% endif %}
   </section>
 
