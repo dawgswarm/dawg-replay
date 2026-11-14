@@ -9,7 +9,7 @@ from typing import Any
 
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS, ManifestError, contract_versions, load_manifest
 
-from dawg_replay import __version__, cli_dev, cli_release, cli_run, cli_store, cli_ui
+from dawg_replay import __version__, cli_dev, cli_release, cli_run, cli_store, cli_ui, cli_usage
 
 EXIT_OK = 0
 EXIT_INVALID = 1
@@ -84,6 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     cli_release.register(sub, common)
     cli_ui.register(sub, common)
     cli_dev.register(sub, common)
+    cli_usage.register(sub, common)
     return parser
 
 

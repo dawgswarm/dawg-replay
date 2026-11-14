@@ -192,6 +192,14 @@ class RunStore:
             )
         return [_run(r) for r in rows]
 
+    def created_since(self, since: str, script: str | None = None) -> list[Run]:
+        """Запуски, созданные не раньше `since` (ISO UTC с Z), от новых к старым."""
+        sql, args = "SELECT * FROM runs WHERE created_at >= ?", [since]
+        if script is not None:
+            sql, args = sql + " AND script_name = ?", [*args, script]
+        rows = self._db.execute(sql + " ORDER BY created_at DESC, id DESC", args)
+        return [_run(r) for r in rows]
+
     def running(self) -> list[Run]:
         rows = self._db.execute("SELECT * FROM runs WHERE status = ? ORDER BY created_at", (STATUS_RUNNING,))
         return [_run(r) for r in rows]
