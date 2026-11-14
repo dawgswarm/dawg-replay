@@ -359,6 +359,8 @@ def spawn_supervisor(app: App, prepared: Prepared) -> int:
                 stderr=log,
                 cwd=run_dir,
                 close_fds=True,
+                # supervisor.log читается как UTF-8; на Windows без этого вывод шёл бы в cp1252.
+                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 **kwargs,
             )
     except OSError as e:
