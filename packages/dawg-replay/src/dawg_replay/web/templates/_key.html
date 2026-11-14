@@ -2,6 +2,8 @@
   <p class="key-state">
     {% if s.keyring_error %}
       <span class="status status-failed">хранилище паролей недоступно</span> {{ s.keyring_error }}
+    {% elif s.api_key_corrupt %}
+      <span class="status status-failed">ключ повреждён</span> В сохранённом ключе невидимые символы, платформа его не примет. Вставьте ключ заново.
     {% elif s.api_key_set %}
       Ключ сохранён: <span class="key-hint">{{ s.api_key_hint }}</span>
     {% else %}
@@ -20,7 +22,7 @@
       <button type="submit">Проверить и сохранить</button>
     </div>
   </form>
-  {% if s.api_key_set %}
+  {% if s.api_key_set and not s.api_key_corrupt %}
   <button class="secondary" hx-post="/settings/key/check" hx-target="#key-panel" hx-swap="outerHTML" hx-disabled-elt="this">Проверить сохранённый ключ</button>
   {% endif %}
 </div>

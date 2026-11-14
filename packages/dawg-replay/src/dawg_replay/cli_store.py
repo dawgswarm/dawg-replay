@@ -15,6 +15,7 @@ from dawg_replay.values import parse_set_args, read_params_file
 
 EXIT_OK = 0
 EXIT_ERROR = 1
+EXIT_BAD_INPUT = 2  # значение секрета с управляющими символами: не сохранено
 
 # Обработчик получает App и аргументы, возвращает (данные для --json, текст для человека).
 Handler = Callable[[App, argparse.Namespace], "tuple[dict[str, Any], str]"]
@@ -33,7 +34,7 @@ def run_handler(handler: Handler, args: argparse.Namespace) -> int:
             _out_json({"ok": False, "error": e.to_dict()})
         else:
             print(f"ошибка: {e.message}", file=sys.stderr)
-        return EXIT_ERROR
+        return EXIT_BAD_INPUT if e.code == "bad_secret" else EXIT_ERROR
     if args.json:
         _out_json({"ok": True, **data})
     elif text:
@@ -41,9 +42,15 @@ def run_handler(handler: Handler, args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _read_secret(prompt: str) -> str:
-    """С терминала спрашивает без эха, иначе читает первую строку stdin (для агента и пайпов)."""
+def _read_secret(prompt: str, command: str) -> str:
+    """С терминала спрашивает без эха, иначе читает первую строку stdin (для агента и пайпов).
+    Очистка и проверка значения в secrets.clean_secret."""
     if sys.stdin is not None and sys.stdin.isatty():
+        print(
+            f"Вставьте значение и нажмите Enter, на экране оно не появится. Если вставка не проходит: "
+            f"pbpaste | {command} (macOS) или {command} < файл",
+            file=sys.stderr,
+        )
         return getpass.getpass(prompt)
     line = sys.stdin.readline() if sys.stdin is not None else ""
     return line.rstrip("\r\n")
@@ -53,15 +60,21 @@ def _read_secret(prompt: str) -> str:
 
 
 def _config_set_key(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    app.secrets.set_api_key(_read_secret("Ключ DAWG: "))
+    app.secrets.set_api_key(_read_secret("Ключ DAWG: ", "dawg-replay config set-key"))
     return {"api_key_set": True}, "ключ DAWG сохранён в системном хранилище паролей"
 
 
 def _config_show(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     info = app.config_info()
-    lines = [f"каталог данных: {info['home']}", f"ключ DAWG: {'задан' if info['api_key_set'] else 'не задан'}"]
+    lines = [f"каталог данных: {info['home']}", f"ключ DAWG: {_key_state(info)}"]
     lines += [f"{k} = {v!r}" for k, v in info["config"].items()]
     return info, "\n".join(lines)
+
+
+def _key_state(info: dict[str, Any]) -> str:
+    if info["api_key_corrupt"]:
+        return "задан, но повреждён (задайте заново: dawg-replay config set-key)"
+    return "задан" if info["api_key_set"] else "не задан"
 
 
 def _config_set(app: App, args: argparse.Namespace) -> tuple[dict, str]:
@@ -180,7 +193,7 @@ def _preset_delete(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 
 def _secret_set(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     app.registry.manifest(args.script)  # понятная ошибка до ввода значения
-    app.set_secret(args.script, args.param, _read_secret(f"{args.script}.{args.param}: "))
+    app.set_secret(args.script, args.param, _read_secret(f"{args.script}.{args.param}: ", f"dawg-replay secret set {args.script} {args.param}"))
     return {"script": args.script, "param": args.param}, f"секрет `{args.param}` скрипта `{args.script}` сохранён"
 
 
@@ -199,7 +212,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
         return g
 
     cfg = group("config", "настройки приложения")
-    add(cfg, "set-key", _config_set_key, "сохранить ключ DAWG в системное хранилище паролей (ввод с терминала или из stdin)")
+    add(cfg, "set-key", _config_set_key, "сохранить ключ DAWG в системное хранилище паролей (ввод с терминала или из stdin: pbpaste | dawg-replay config set-key)")
     add(cfg, "show", _config_show, "показать настройки и каталог данных")
     p = add(cfg, "set", _config_set, "изменить настройку в config.toml")
     p.add_argument("key")

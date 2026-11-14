@@ -83,6 +83,54 @@ def test_config_commands(cli, kr):
     assert code == 1 and data["error"]["code"] == "empty_secret"
 
 
+PASTED = "\x1b[200~key-PASTED-77\x1b[201~"
+
+
+def test_set_key_strips_bracketed_paste(cli, kr):
+    code, data = cli("config", "set-key", stdin=f"  {PASTED} \n")
+    assert code == 0 and kr.store[("dawg-replay", "dawg-api-key")] == "key-PASTED-77"
+
+
+def test_set_key_rejects_control_chars(cli, kr):
+    code, data = cli("config", "set-key", stdin="key\x01SECRET\n")
+    assert code == 2 and data["error"]["code"] == "bad_secret"
+    assert "управляющие символы" in data["error"]["message"] and "pbpaste |" in data["error"]["message"]
+    assert "SECRET" not in json.dumps(data)
+    assert ("dawg-replay", "dawg-api-key") not in kr.store
+    code, data = cli("config", "set-key", stdin="\x1b[200~\x1b[201~\n")
+    assert code == 1 and data["error"]["code"] == "empty_secret"
+
+
+def test_secret_set_cleans_and_rejects(cli, write_script, kr):
+    cli("add", str(write_script(version=1)))
+    code, _ = cli("secret", "set", "ozon-cards", "sheet_token", stdin=PASTED + "\n")
+    assert code == 0 and kr.store[("dawg-replay", "secret:ozon-cards:sheet_token")] == "key-PASTED-77"
+    code, data = cli("secret", "set", "ozon-cards", "sheet_token", stdin="tok\x7fSECRET\n")
+    assert code == 2 and "dawg-replay secret set ozon-cards sheet_token" in data["error"]["message"]
+    assert "SECRET" not in json.dumps(data)
+    assert kr.store[("dawg-replay", "secret:ozon-cards:sheet_token")] == "key-PASTED-77"
+
+
+def test_config_show_corrupt_key(home, kr, capsys):
+    kr.set_password("dawg-replay", "dawg-api-key", "\x1b[2~SECRET")
+    assert main(["--json", "config", "show"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["api_key_set"] is True and data["api_key_corrupt"] is True
+    assert main(["config", "show"]) == 0
+    out = capsys.readouterr().out
+    assert "ключ DAWG: задан, но повреждён" in out and "SECRET" not in out
+
+
+def test_human_bad_secret(home, kr, capsys, monkeypatch):
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("a\x01SECRET\n"))
+    assert main(["config", "set-key"]) == 2
+    captured = capsys.readouterr()
+    assert "ошибка: ключ DAWG содержит невидимые" in captured.err
+    assert "SECRET" not in captured.err + captured.out
+
+
 def test_human_output(home, kr, write_script, capsys):
     assert main(["add", str(write_script(version=1))]) == 0
     assert "зарегистрирован ozon-cards v1" in capsys.readouterr().out

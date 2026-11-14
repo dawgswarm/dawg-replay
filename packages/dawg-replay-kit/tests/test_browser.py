@@ -188,6 +188,21 @@ def test_http_errors(fake, status, fragment):
     assert [a for a, _ in sessions_events(sink)] == ["provisioning", "failed"]
 
 
+def test_http_400_empty_body_hints_at_key(fake):
+    """Заголовок с управляющим символом платформа отбрасывает кодом 400 без тела."""
+    fake.post_status, fake.post_empty_body = 400, True
+    m, sink, _ = make(fake)
+    with pytest.raises(BrowserError, match="HTTP 400: запрос отклонён до проверки ключа") as e:
+        with BrowserSession(m):
+            pass
+    assert "невидимых символов в ключе" in str(e.value)
+    fake.post_empty_body = False
+    with pytest.raises(BrowserError) as e:
+        with BrowserSession(m):
+            pass
+    assert "невидимых" not in str(e.value)
+
+
 def test_no_key(fake):
     m, sink, _ = make(fake, key=None)
     m._provisioner = lambda: RestProvisioner(m._key(), fake.url)

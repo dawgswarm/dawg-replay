@@ -107,7 +107,14 @@ def _http_error(resp: Any) -> BrowserError:
         text = resp.text[:200]
     except Exception:
         pass
-    return BrowserError(f"платформа не создала браузер: HTTP {resp.status_code} {text}".rstrip(), created=False)
+    msg = f"платформа не создала браузер: HTTP {resp.status_code} {text}".rstrip()
+    if resp.status_code == 400 and not text.strip():
+        # Так отвечает HTTP-парсер платформы на заголовок с управляющим символом, до проверки ключа.
+        msg += (
+            ": запрос отклонён до проверки ключа, чаще всего из-за невидимых символов в ключе DAWG;"
+            " задайте ключ заново: dawg-replay config set-key"
+        )
+    return BrowserError(msg, created=False)
 
 
 def _ws_url(base_url: str, created: Created, debugger_url: str, api_key: str) -> str:

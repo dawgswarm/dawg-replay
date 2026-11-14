@@ -22,6 +22,7 @@ class FakeDawg:
         self.limit_429 = 0  # сколько POST подряд получат 429
         self.retry_after = 1
         self.post_status: int | None = None  # принудительный код ответа на POST
+        self.post_empty_body = False  # с post_status: ответ без тела, как у HTTP-парсера платформы
         self.delete_fails = False
         self.requests: list[tuple[str, str, object]] = []
         self.created_at: dict[str, float] = {}
@@ -33,8 +34,8 @@ class FakeDawg:
             def log_message(self, *a):
                 pass
 
-            def _send(self, code, body=None):
-                data = json.dumps(body if body is not None else {}).encode()
+            def _send(self, code, body=None, raw: bytes | None = None):
+                data = raw if raw is not None else json.dumps(body if body is not None else {}).encode()
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
@@ -63,6 +64,8 @@ class FakeDawg:
                 if self.path != "/api/v1/browsers":
                     return self._send(404)
                 if fake.post_status:
+                    if fake.post_empty_body:
+                        return self._send(fake.post_status, raw=b"")
                     return self._send(fake.post_status, {"error": "forced"})
                 with fake._lock:
                     if fake.limit_429 > 0:

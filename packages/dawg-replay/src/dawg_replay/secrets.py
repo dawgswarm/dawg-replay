@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from dawg_replay.errors import ReplayError
@@ -66,13 +67,28 @@ class SecretStore:
         self._b = backend if backend is not None else _KeyringModule()
 
     def set_api_key(self, value: str) -> None:
-        self._b.set_password(SERVICE, API_KEY_USER, _non_empty(value, "ключ DAWG"))
+        self._b.set_password(SERVICE, API_KEY_USER, clean_secret(value, "ключ DAWG"))
 
     def get_api_key(self) -> str | None:
+        """Сохранённый ключ. С управляющими символами (старая порча при вставке) `corrupt_api_key`:
+        платформа отбрасывает такой заголовок кодом 400 без объяснений."""
+        key = self.api_key_raw()
+        if key is not None and has_control_chars(key):
+            raise ReplayError("corrupt_api_key", CORRUPT_API_KEY)
+        return key
+
+    def api_key_state(self) -> str:
+        """`missing`, `set` или `corrupt`; сам ключ наружу не отдаёт."""
+        key = self.api_key_raw()
+        if key is None:
+            return "missing"
+        return "corrupt" if has_control_chars(key) else "set"
+
+    def api_key_raw(self) -> str | None:
         return self._b.get_password(SERVICE, API_KEY_USER) or None
 
     def set_secret(self, script: str, param: str, value: str) -> None:
-        self._b.set_password(SERVICE, _secret_user(script, param), _non_empty(value, "секрет"))
+        self._b.set_password(SERVICE, _secret_user(script, param), clean_secret(value, "секрет", f"dawg-replay secret set {script} {param}"))
 
     def get_secret(self, script: str, param: str) -> str | None:
         return self._b.get_password(SERVICE, _secret_user(script, param)) or None
@@ -81,8 +97,31 @@ class SecretStore:
         self._b.delete_password(SERVICE, _secret_user(script, param))
 
 
-def _non_empty(value: str, what: str) -> str:
+CORRUPT_API_KEY = "ключ DAWG повреждён, задайте заново: dawg-replay config set-key"
+
+# Маркеры bracketed paste: терминал оборачивает ими вставленный текст, getpass их не убирает.
+_PASTE_MARKERS = ("\x1b[200~", "\x1b[201~")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def has_control_chars(value: str) -> bool:
+    return _CONTROL.search(value) is not None
+
+
+def clean_secret(value: str, what: str, command: str | None = "dawg-replay config set-key") -> str:
+    """Убирает маркеры вставки и пробелы по краям. Пустое значение и значение с управляющими
+    символами не сохраняются; в тексте ошибки самого значения нет."""
+    for marker in _PASTE_MARKERS:
+        value = value.replace(marker, "")
     value = value.strip()
     if not value:
         raise ReplayError("empty_secret", f"{what} пустой")
+    if has_control_chars(value):
+        msg = f"{what} содержит невидимые управляющие символы и не сохранён."
+        if command:
+            msg += (
+                " Так бывает при вставке в терминал; передайте значение через stdin: "
+                f"pbpaste | {command} (macOS) или {command} < файл"
+            )
+        raise ReplayError("bad_secret", msg)
     return value

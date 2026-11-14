@@ -14,7 +14,7 @@ from dawg_replay.paths import Paths, default_home
 from dawg_replay.presets import Preset, Presets
 from dawg_replay.registry import Registry
 from dawg_replay.runs import RunStore
-from dawg_replay.secrets import Backend, SecretStore
+from dawg_replay.secrets import Backend, SecretStore, clean_secret
 
 
 class App:
@@ -46,23 +46,27 @@ class App:
         return set_config_value(self.paths.config, key, value)
 
     def config_info(self) -> dict[str, Any]:
+        state = self.secrets.api_key_state()
         return {
             "home": str(self.paths.home),
             "config_file": str(self.paths.config),
             "config": self.config.to_dict(),
-            "api_key_set": self.secrets.get_api_key() is not None,
+            "api_key_set": state != "missing",
+            "api_key_corrupt": state == "corrupt",
         }
 
     def settings_view(self) -> dict[str, Any]:
         """Настройки для экрана: ключ только подсказкой (последние 4 символа)."""
         cfg = self.config
         try:
-            key = self.secrets.get_api_key()
+            state = self.secrets.api_key_state()
+            key = self.secrets.get_api_key() if state == "set" else None
             keyring_error = None
         except ReplayError as e:
-            key, keyring_error = None, e.message
+            state, key, keyring_error = "missing", None, e.message
         return {
-            "api_key_set": key is not None,
+            "api_key_set": state != "missing",
+            "api_key_corrupt": state == "corrupt",
             "api_key_hint": account.key_hint(key),
             "keyring_error": keyring_error,
             "max_parallel_runs": cfg.max_parallel_runs,
@@ -72,9 +76,7 @@ class App:
 
     def set_api_key(self, value: str, check: bool = True) -> account.Usage | None:
         """Сохраняет ключ. С check ключ сначала проверяется на платформе, неверный не сохраняется."""
-        value = value.strip()
-        if not value:
-            raise ReplayError("empty_secret", "ключ DAWG пустой")
+        value = clean_secret(value, "ключ DAWG", command=None)  # форма UI: подсказка про терминал не нужна
         usage = account.fetch_usage(value, self.config.base_url or None) if check else None
         self.secrets.set_api_key(value)
         return usage
