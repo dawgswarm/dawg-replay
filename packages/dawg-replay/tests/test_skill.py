@@ -80,3 +80,21 @@ def test_plugin_manifests_consistent():
     assert server["command"] == "uvx" and server["args"] == ["--with", "mcp<2", "dawg-mcp"]
     keys = re.findall(r"\$\{user_config\.(\w+)\}", json.dumps(server))
     assert keys and all(plugin["userConfig"][k]["sensitive"] for k in keys)
+
+
+def test_license_is_mit_everywhere():
+    text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+    assert text.startswith("MIT License\n") and "Copyright (c) 2026 dawgswarm" in text
+    for copy in ("packages/dawg-replay", "packages/dawg-replay-kit", "skill"):
+        assert (ROOT / copy / "LICENSE").read_text(encoding="utf-8") == text, f"{copy}/LICENSE отличается от корневого"
+    try:
+        import tomllib
+    except ImportError:  # Python 3.10
+        import tomli as tomllib
+    for pkg in ("dawg-replay", "dawg-replay-kit"):
+        project = tomllib.loads((ROOT / "packages" / pkg / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+        assert project["license"] == "MIT" and project["license-files"] == ["LICENSE"]
+        assert not any(c.startswith("License ::") for c in project["classifiers"])
+    plugin = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    assert plugin["license"] == "MIT"
+    assert frontmatter(SKILL.read_text(encoding="utf-8"))["license"] == "MIT"

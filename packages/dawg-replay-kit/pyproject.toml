@@ -3,6 +3,8 @@ name = "dawg-replay-kit"
 dynamic = ["version"]
 description = "Библиотека для скриптов dawg-replay: параметры, события, браузеры DAWG"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "dawgswarm" }]
 classifiers = [
@@ -37,5 +39,5 @@ path = "src/dawg_replay_kit/__init__.py"
 cache-keys = [{ file = "pyproject.toml" }, { file = "src/dawg_replay_kit/__init__.py" }]
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

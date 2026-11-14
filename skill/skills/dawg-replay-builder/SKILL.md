@@ -1,6 +1,7 @@
 ---
 name: dawg-replay-builder
 description: Use when a client wants data collected from a website on a regular basis (marketplace cards, prices, listings, sports statistics, Ozon, Wildberries, Avito and similar) and it should become a reusable script for the dawg-replay app, or when a dawg-replay script stopped working, fails, returns wrong or empty data. Russian requests like «собирать с сайта», «парсер», «выгрузка карточек», «скрипт сломался», «запуск упал».
+license: MIT
 compatibility: Requires the dawg-replay app (uv tool install dawg-replay), uv, and the dawg-mcp server connected to the agent.
 metadata:
   contract: "1"

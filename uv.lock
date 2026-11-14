@@ -360,7 +360,7 @@ wheels = [
 
 [[package]]
 name = "dawg-replay"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "packages/dawg-replay" }
 dependencies = [
     { name = "dawg-replay-kit" },
