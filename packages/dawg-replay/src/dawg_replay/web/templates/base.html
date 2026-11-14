@@ -13,14 +13,14 @@
   <script src="/static/app.js" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body>
+<body{% if runs_active(request) %} class="runs-active"{% endif %}>
   <a class="skip" href="#main">К содержимому</a>
   <header class="top">
    <div class="top-inner">
     <a class="brand" href="/" aria-label="dawg-replay, на главную">
       <svg class="brand-mark" viewBox="0 0 40 16" aria-hidden="true">
-        <path d="M2 12 C 10 12, 12 4, 20 4 S 30 12, 38 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" stroke-linecap="round"/>
-        <circle cx="38" cy="12" r="2.6" fill="currentColor"/>
+        <path class="brand-line" d="M2 12 C 10 12, 12 4, 20 4 S 30 12, 38 12" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="3 3" stroke-linecap="round"/>
+        <circle class="brand-dot" cx="38" cy="12" r="2.6" fill="currentColor"/>
       </svg>
       <span>dawg-replay</span>
     </a>

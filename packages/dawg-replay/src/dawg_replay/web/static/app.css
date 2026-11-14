@@ -194,7 +194,25 @@ a:hover { color: var(--action-hover); }
   letter-spacing: -0.01em;
 }
 .brand:hover { color: var(--ink); }
-.brand-mark { width: 36px; height: 15px; color: var(--action); flex: none; }
+.brand-mark { width: 36px; height: 15px; color: var(--action); flex: none; overflow: visible; }
+
+/* Знак: пунктир бежит по кривой к точке, точка мягко пульсирует. При загрузке
+   страницы один проход; пока идут запуски (body.runs-active), непрерывно.
+   Шаг пунктира 3+3, поэтому сдвиг кратен 6 и цикл без рывка. */
+.brand-line { animation: brand-flow 1.6s cubic-bezier(0.3, 0.6, 0.4, 1) 1; }
+.brand-dot {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: brand-pulse 1.6s ease-in-out 1;
+}
+.runs-active .brand-line { animation: brand-flow-loop 0.9s linear infinite; }
+.runs-active .brand-dot { animation: brand-pulse 1.8s ease-in-out infinite; }
+@keyframes brand-flow { from { stroke-dashoffset: 30; } to { stroke-dashoffset: 0; } }
+@keyframes brand-flow-loop { from { stroke-dashoffset: 6; } to { stroke-dashoffset: 0; } }
+@keyframes brand-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.7; }
+}
 .brand { margin-right: 0.75rem; }
 
 .top-search { flex: 1; display: flex; justify-content: flex-end; margin: 0; }
