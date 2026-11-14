@@ -97,6 +97,9 @@ def main(dist: Path) -> None:
 
 
 if __name__ == "__main__":
+    # На Windows вывод в канал CI идёт в кодировке локали (cp1252), кириллица в print его роняет.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     if len(sys.argv) != 2:
         raise SystemExit("использование: smoke_dist.py <каталог со сборкой>")
     main(Path(sys.argv[1]))
