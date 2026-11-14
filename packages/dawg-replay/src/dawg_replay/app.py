@@ -13,7 +13,7 @@ from dawg_replay.errors import ReplayError
 from dawg_replay.paths import Paths, default_home
 from dawg_replay.presets import Preset, Presets
 from dawg_replay.registry import Registry
-from dawg_replay.runs import RunStore
+from dawg_replay.runs import STATUS_RUNNING, RunStore
 from dawg_replay.secrets import Backend, SecretStore, clean_secret
 
 
@@ -97,14 +97,21 @@ class App:
 
     # --- скрипты ---
 
+    def running_count(self) -> int:
+        return self.db.execute("SELECT COUNT(*) FROM runs WHERE status = ?", (STATUS_RUNNING,)).fetchone()[0]
+
     def runs_fingerprint(self) -> str:
-        """Меняется, когда меняется что-то в недавних запусках: для живого обновления экранов."""
+        """Меняется, когда меняется что-то в недавних запусках: для живого обновления экранов.
+
+        Вид `<идущих запусков>:<хеш>`; число нужно шапке для анимации знака.
+        """
         rows = self.db.execute(
             "SELECT id, status, reason, finished_at FROM runs ORDER BY created_at DESC, id DESC LIMIT 100"
         ).fetchall()
         import hashlib
 
-        return hashlib.sha1(repr([tuple(r) for r in rows]).encode()).hexdigest()[:16]
+        digest = hashlib.sha1(repr([tuple(r) for r in rows]).encode()).hexdigest()[:16]
+        return f"{self.running_count()}:{digest}"
 
     def script_view(self, name: str, runs_limit: int = 20) -> dict[str, Any]:
         """Экран скрипта: описание, версии, пресеты, история запусков, код текущей версии."""

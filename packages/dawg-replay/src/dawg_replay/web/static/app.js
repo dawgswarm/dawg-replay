@@ -26,16 +26,39 @@
     box.textContent = text;
   });
 
+  // Знак в шапке анимирован, пока есть идущие запуски: класс runs-active на body.
+  // Сервер ставит его при отрисовке, дальше его обновляет поток /events/runs или,
+  // на страницах без этого потока, редкий опрос /events/active.
+  function setRunsActive(n) {
+    document.body.classList.toggle("runs-active", n > 0);
+  }
+
   // Списки с data-live-runs обновляются, когда меняются запуски (в том числе начатые из CLI).
   var source = null;
   function connect() {
-    if (source || !document.querySelector("[data-live-runs]") || !window.EventSource) return;
+    if (source || !document.querySelector("[data-live-runs]") || !window.EventSource) {
+      if (!source) pollActive();
+      return;
+    }
     source = new EventSource("/events/runs");
     var first = true;
-    source.addEventListener("change", function () {
+    source.addEventListener("change", function (e) {
+      setRunsActive(parseInt(String(e.data).split(":")[0], 10) || 0);
       if (first) { first = false; return; }  // первое значение: страница и так свежая
       if (window.htmx) htmx.trigger(document.body, "runs-changed");
     });
+  }
+  var POLL_MS = 10000;
+  function pollActive() {
+    if (!window.fetch) return;
+    window.setTimeout(function tick() {
+      if (document.hidden) { window.setTimeout(tick, POLL_MS); return; }
+      fetch("/events/active", { credentials: "same-origin", cache: "no-store" })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) { if (d) setRunsActive(d.running); })
+        .catch(function () { /* сервер остановлен: знак просто стоит */ })
+        .then(function () { window.setTimeout(tick, POLL_MS); });
+    }, POLL_MS);
   }
   function disconnect() {
     if (source) { source.close(); source = null; }

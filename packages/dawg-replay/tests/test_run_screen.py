@@ -405,3 +405,25 @@ def test_cli_run_shown_live(client, make_run, home):
     run_id, run_dir = make_run([ev("stage", name="Из CLI")], draft=False)
     h = client.get(f"/runs/{run_id}").text
     assert "Из CLI" in h and "data-live" in h
+
+
+# --- знак в шапке -------------------------------------------------------------------
+
+
+def test_brand_mark_animates_while_runs_are_active(client, make_run, home):
+    for path in ("/", "/scripts", "/settings"):
+        h = client.get(path).text
+        assert '<body>' in h and 'class="brand-line"' in h and 'class="brand-dot"' in h
+    assert client.get("/events/active").json() == {"running": 0}
+    with App(home) as app:
+        assert app.runs_fingerprint().startswith("0:")
+
+    run_id, _ = make_run([ev("stage", name="A")])
+    for path in ("/", "/settings", f"/runs/{run_id}"):
+        assert '<body class="runs-active">' in client.get(path).text, path
+    r = client.get("/events/active")
+    assert r.json() == {"running": 1} and r.headers["cache-control"] == "no-store"
+    with App(home) as app:
+        assert app.runs_fingerprint().startswith("1:")
+        app.runs.finish(run_id, status="ok", reason=None, exit_code=0)
+    assert '<body>' in client.get("/").text

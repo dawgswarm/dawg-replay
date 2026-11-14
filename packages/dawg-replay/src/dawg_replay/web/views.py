@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -87,9 +88,19 @@ def plural(n: Any, one: str, few: str, many: str) -> str:
     return many
 
 
+def runs_active(request: Request) -> bool:
+    """Есть ли идущие запуски: от этого зависит анимация знака в шапке."""
+    try:
+        with _ui(request).open_app() as app:
+            return app.running_count() > 0
+    except (AttributeError, ReplayError, sqlite3.Error, OSError):
+        return False
+
+
 def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env = templates.env
     env.globals["csrf_token"] = secrets_.csrf
+    env.globals["runs_active"] = runs_active
     env.filters["when"] = when
     env.filters["status"] = status_view
     env.filters["number"] = number
@@ -377,6 +388,14 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         )
 
+    def runs_active_count(request: Request) -> Response:
+        """Число идущих запусков для страниц без потока /events/runs (анимация знака в шапке)."""
+        from starlette.responses import JSONResponse
+
+        with _ui(request).open_app() as app:
+            n = app.running_count()
+        return JSONResponse({"running": n})
+
     # --- Настройки ---
 
     def settings(request: Request) -> Response:
@@ -480,6 +499,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
         *run_screen.routes(templates),
         Route("/events/runs", runs_events),
+        Route("/events/active", runs_active_count),
         Route("/settings", settings),
         Route("/settings/key", settings_key, methods=["POST"]),
         Route("/settings/key/check", settings_key_check, methods=["POST"]),
