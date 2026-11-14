@@ -46,6 +46,11 @@ class Paths:
         return self.home / "tmp"
 
     @property
+    def imports(self) -> Path:
+        """Файлы, загруженные через интерфейс и ещё не добавленные (импорт скрипта)."""
+        return self.home / "imports"
+
+    @property
     def dev_kit(self) -> Path:
         """Сборки локального kit для режима разработки."""
         return self.home / "dev-kit"

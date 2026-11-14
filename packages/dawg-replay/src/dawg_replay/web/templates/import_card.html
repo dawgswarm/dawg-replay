@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% from "_icons.html" import cover %}
+{% block title %}Добавить {{ m.title }}, dawg-replay{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/scripts">Скрипты</a> / <a href="/scripts/_import">Добавить скрипт</a></p>
+<div class="script-head">
+  {{ cover(c.cover, "l") }}
+  <div>
+    <h1>{{ m.title }}</h1>
+    {% if m.description %}<p class="lead">{{ m.description }}</p>{% endif %}
+    <p class="script-id">{% if c.site %}{{ c.site }}, {% endif %}{{ m.name }}, версия {{ m.version }}{% for t in c.tags %}<span class="lib-tag">{{ t }}</span>{% endfor %}</p>
+  </div>
+</div>
+
+{% if c.status == "unchanged" %}
+  <p class="notice notice-ok">Версия {{ m.version }} этого скрипта уже есть в библиотеке с тем же содержимым. Добавлять нечего.</p>
+  <p><a class="button" href="/scripts/{{ m.name }}">Открыть скрипт</a></p>
+{% else %}
+  {% if c.previous_version is not none %}
+  <section class="card" aria-labelledby="update-title">
+    <div class="card-head"><h2 id="update-title">Новая версия {{ m.version }} вместо {{ c.previous_version }}</h2></div>
+    {% set d = c.params_diff %}
+    {% if not (d.added or d.removed or d.changed) %}
+      <p class="hint">Параметры не изменились: пресеты продолжат работать как раньше.</p>
+    {% else %}
+      <ul class="param-diff">
+        {% for p in d.added %}<li><span class="status status-ok">добавлен</span> <code>{{ p.name }}</code>, {{ p.title }} ({{ p.type }})</li>{% endfor %}
+        {% for p in d.removed %}<li><span class="status status-failed">удалён</span> <code>{{ p.name }}</code>, {{ p.title }}: из пресетов это значение уйдёт</li>{% endfor %}
+        {% for p in d.changed %}<li><span class="status status-partial">изменён</span> <code>{{ p.name }}</code>, {{ p.title }}: {{ p.changes | join("; ") }}</li>{% endfor %}
+      </ul>
+    {% endif %}
+    <details class="fold code-panel">
+      <summary><span class="fold-title">Показать отличия кода</span></summary>
+      {% if c.code_diff %}<pre class="code diff"><code>{% for line in c.code_diff.splitlines() %}<span class="{% if line.startswith('+++') or line.startswith('---') %}diff-file{% elif line.startswith('@@') %}diff-hunk{% elif line.startswith('+') %}diff-add{% elif line.startswith('-') %}diff-del{% endif %}">{{ line }}</span>
+{% endfor %}</code></pre>{% else %}<p class="hint">Код не отличается.</p>{% endif %}
+    </details>
+  </section>
+  {% endif %}
+
+  <section class="card" aria-labelledby="params-title">
+    <div class="card-head"><h2 id="params-title">Параметры</h2></div>
+    {% if m.params %}
+    <ul class="param-list">
+      {% for p in m.params %}
+      <li><code>{{ p.name }}</code> {{ p.title }} <span class="hint-inline">{{ p.type }}{% if p.required %}, обязательный{% endif %}{% if p.default is defined and p.default is not none %}, по умолчанию {{ p.default }}{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="hint">Параметров нет.</p>{% endif %}
+  </section>
+
+  <section class="card" aria-labelledby="deps-title">
+    <div class="card-head"><h2 id="deps-title">Что поставит uv</h2></div>
+    <p class="hint">Python {{ c.requires_python or "любой" }}. Пакеты:</p>
+    {% if c.dependencies %}<ul class="param-list">{% for dep in c.dependencies %}<li><code>{{ dep }}</code></li>{% endfor %}</ul>{% else %}<p class="hint">нет</p>{% endif %}
+  </section>
+
+  <p class="notice notice-warn">Скрипт это программа: она запускается на этом компьютере с вашим ключом DAWG. Добавляйте только скрипты из надёжного источника.</p>
+  <div id="import-error"></div>
+  <div class="actions">
+    <button hx-post="/scripts/_import/{{ c.id }}/add" hx-target="#import-error" hx-disabled-elt="this">{% if c.previous_version is not none %}Добавить версию {{ m.version }}{% else %}Добавить скрипт{% endif %}</button>
+    <a class="button secondary" href="/scripts">Отменить</a>
+  </div>
+{% endif %}
+{% endblock %}

@@ -56,9 +56,22 @@
   <div id="version-error"></div>
 </details>
 
+<details class="card fold danger-zone">
+  <summary><span class="fold-title">Удалить скрипт</span><span class="hint-inline">версии, пресеты и секреты</span></summary>
+  <p class="hint">Удалятся все версии скрипта, его пресеты и сохранённые секреты. История запусков и их файлы останутся. Вернуть скрипт можно, только добавив файл заново.</p>
+  <form class="delete-form" hx-post="/scripts/{{ s.name }}/delete" hx-target="#delete-error" hx-disabled-elt="find button">
+    <label for="delete-confirm">Чтобы подтвердить, введите имя скрипта <code>{{ s.name }}</code></label>
+    <div class="row">
+      <input id="delete-confirm" type="text" name="_confirm" autocomplete="off" spellcheck="false" required>
+      <button class="danger" type="submit">Удалить скрипт</button>
+    </div>
+  </form>
+  <div id="delete-error"></div>
+</details>
+
 <details class="card fold code-panel">
   <summary><span class="fold-title">Код скрипта</span><span class="hint-inline">версия {{ s.current_version }}, только просмотр</span></summary>
-  <p class="hint">Скрипт меняет агент; новая версия появляется после dawg-replay add.</p>
+  <p class="hint">Скрипт меняет агент; новая версия появляется после dawg-replay add или <a href="/scripts/_import">добавления файла</a>.</p>
   {% if v.code is not none %}
     <pre class="code"><code>{{ v.code }}</code></pre>
   {% else %}

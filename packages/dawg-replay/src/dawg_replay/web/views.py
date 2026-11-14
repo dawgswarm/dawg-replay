@@ -11,17 +11,24 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException
+from starlette.formparsers import MultiPartException
 from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms
+from dawg_replay import forms, imports
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
 from dawg_replay.web import run_screen
 from dawg_replay.web.security import Secrets
+
+# Тело запроса загрузки: файл и поля multipart. Меньше порога SpooledTemporaryFile Starlette
+# (1 МиБ), поэтому загруженный файл не попадает во временный каталог системы.
+UPLOAD_BODY_MAX = imports.MAX_BYTES + 32 * 1024
 
 # Статус запуска словами для человека и класс оформления.
 STATUS = {
@@ -128,7 +135,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
     def scripts(request: Request) -> Response:
         lib = _library(request)
-        return page(request, "scripts.html", active="scripts", lib=lib, search_q=lib["query"])
+        removed = request.query_params.get("removed", "")[:64]
+        return page(request, "scripts.html", active="scripts", lib=lib, search_q=lib["query"], removed=removed)
 
     def scripts_list(request: Request) -> Response:
         return fragment(request, "_scripts_list.html", lib=_library(request))
@@ -262,6 +270,94 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         return await run_in_threadpool(work)
 
+    # --- Импорт и удаление скрипта ---
+
+    def import_page(request: Request) -> Response:
+        return page(request, "import.html", active="scripts", max_mb=imports.MAX_BYTES // 1_000_000)
+
+    async def import_upload(request: Request) -> Response:
+        """Шаг 1: файл проверяется как в add; при успехе переход к карточке."""
+
+        def fail(message: str, issues: Any = None) -> Response:
+            return fragment(request, "_import_errors.html", message=message, issues=issues)
+
+        try:
+            length = int(request.headers.get("content-length", ""))
+        except ValueError:
+            return fail("Браузер не сообщил размер файла. Выберите файл заново.")
+        if length > UPLOAD_BODY_MAX:
+            return fail("Файл больше 1 МБ, это не похоже на скрипт dawg-replay.")
+        try:
+            form = await request.form(max_files=1, max_fields=4, max_part_size=64 * 1024)
+        except (MultiPartException, HTTPException):  # лишние файлы и поля, битый multipart
+            return fail("Загрузите один файл .py.")
+        try:
+            files = [v for v in form.getlist("file") if isinstance(v, UploadFile)]
+            if len(files) != 1:
+                return fail("Загрузите один файл .py.")
+            data = await files[0].read(imports.MAX_BYTES + 1)
+            filename = files[0].filename or ""
+        finally:
+            await form.close()
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    import_id = imports.Imports(app).stage(data, filename)
+                except ReplayError as e:
+                    if e.code == "invalid_manifest":
+                        first = e.message.splitlines()[0]
+                        return fail(first, e.details)
+                    return fail(e.message[:1].upper() + e.message[1:])
+            return Response(status_code=204, headers={"HX-Redirect": f"/scripts/_import/{import_id}"})
+
+        return await run_in_threadpool(work)
+
+    def import_card(request: Request) -> Response:
+        """Шаг 2: что будет добавлено и чем отличается от текущей версии."""
+        import_id = request.path_params["import_id"]
+        with _ui(request).open_app() as app:
+            try:
+                card = imports.Imports(app).preview(import_id)
+            except ReplayError as e:
+                return page(request, "import.html", active="scripts", max_mb=imports.MAX_BYTES // 1_000_000,
+                            error=e.message[:1].upper() + e.message[1:], issues=e.details if e.code == "invalid_manifest" else None,
+                            status_code=200 if e.code != "import_not_found" else 404)
+        m = card["manifest"]
+        card["cover"] = home_data.cover(m["title"], card["site"])
+        return page(request, "import_card.html", active="scripts", c=card, m=m)
+
+    async def import_add(request: Request) -> Response:
+        """Шаг 3: регистрация и переход на страницу скрипта."""
+        import_id = request.path_params["import_id"]
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    result = imports.Imports(app).commit(import_id)
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+            return Response(status_code=204, headers={"HX-Redirect": f"/scripts/{result.script.name}"})
+
+        return await run_in_threadpool(work)
+
+    async def script_delete(request: Request) -> Response:
+        """Удаление как `dawg-replay remove --yes`; подтверждение вводом name скрипта."""
+        name = request.path_params["name"]
+        form = await _form(request)
+
+        def work() -> Response:
+            if form.get("_confirm", "").strip() != name:
+                return fragment(request, "_error.html", message=f"Для удаления введите имя скрипта: {name}")
+            with _ui(request).open_app() as app:
+                try:
+                    app.remove(name)
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+            return Response(status_code=204, headers={"HX-Redirect": f"/scripts?{urlencode({'removed': name})}"})
+
+        return await run_in_threadpool(work)
+
     async def runs_events(request: Request) -> Response:
         """SSE: сигнал «запуски изменились» для живого обновления списков."""
         from dawg_replay.web.server import sse_stream
@@ -363,6 +459,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/quick", script_quick, methods=["POST"]),
         Route("/runs/{run_id}/again", run_again, methods=["POST"]),
         Route("/scripts/_list", scripts_list),
+        Route("/scripts/_import", import_page),
+        Route("/scripts/_import", import_upload, methods=["POST"]),
+        Route("/scripts/_import/{import_id}", import_card),
+        Route("/scripts/_import/{import_id}/add", import_add, methods=["POST"]),
+        Route("/scripts/{name}/delete", script_delete, methods=["POST"]),
         Route("/scripts/{name}", script_page),
         Route("/scripts/{name}/_form", script_form),
         Route("/scripts/{name}/_runs", script_runs),

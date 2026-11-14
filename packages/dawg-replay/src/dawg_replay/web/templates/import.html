@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Добавить скрипт, dawg-replay{% endblock %}
+{% block content %}
+<p class="crumbs"><a href="/scripts">Скрипты</a></p>
+<div class="page-head">
+  <h1>Добавить скрипт</h1>
+  <p class="lead">Файл script.py, который собрал агент. Сначала проверим его и покажем, что будет добавлено; в библиотеку он попадёт только после подтверждения.</p>
+</div>
+
+<form class="dropzone" data-dropzone hx-post="/scripts/_import" hx-encoding="multipart/form-data" hx-target="#import-result" hx-swap="innerHTML" hx-disabled-elt="find button">
+  <label class="dropzone-label" for="import-file">
+    <span class="dropzone-title">Перетащите файл сюда</span>
+    <span class="hint-inline">или выберите на компьютере: один файл .py, до {{ max_mb }} МБ, в кодировке UTF-8</span>
+  </label>
+  <input id="import-file" class="dropzone-input" type="file" name="file" accept=".py,text/x-python" required>
+  <button type="submit">Проверить файл</button>
+</form>
+
+<div id="import-result" aria-live="polite">
+  {% if error %}{% include "_import_errors.html" %}{% endif %}
+</div>
+
+<p class="notice notice-warn">Скрипт это программа: она запускается на этом компьютере с вашим ключом DAWG. Добавляйте только скрипты из надёжного источника.</p>
+{% endblock %}

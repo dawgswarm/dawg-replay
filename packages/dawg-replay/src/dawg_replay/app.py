@@ -147,6 +147,19 @@ class App:
         }
 
     def remove(self, name: str) -> dict[str, Any]:
+        """Удаляет скрипт, версии, пресеты и секреты; история запусков остаётся.
+        Пока идёт запуск этого скрипта, удалять нельзя: его файл и секреты ещё нужны."""
+        from dawg_replay import launch  # launch импортирует app
+
+        self.registry.get(name)
+        launch.recover_lost(self)  # «идёт» у запусков с пропавшим супервизором закрывается
+        active = [r.id for r in self.runs.running() if r.script_name == name and not r.draft]
+        if active:
+            raise ReplayError(
+                "script_running",
+                f"скрипт `{name}` сейчас запущен ({', '.join(active)}). Дождитесь конца или отмените запуск, потом удаляйте",
+                {"runs": active},
+            )
         secret_params = set()
         for v in self.registry.versions(name):
             try:

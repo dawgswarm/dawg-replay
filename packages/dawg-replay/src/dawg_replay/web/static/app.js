@@ -89,6 +89,34 @@
     }
   });
   document.addEventListener("DOMContentLoaded", focusSheet);
+
+  // Импорт скрипта: файл можно перетащить на поле или выбрать; проверка начинается сразу.
+  function dropzone(e) { return e.target.closest && e.target.closest("[data-dropzone]"); }
+  function submitZone(zone) { if (window.htmx) htmx.trigger(zone, "submit"); }
+  document.addEventListener("dragover", function (e) {
+    var zone = dropzone(e);
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.add("is-over");
+  });
+  document.addEventListener("dragleave", function (e) {
+    var zone = dropzone(e);
+    if (zone && !zone.contains(e.relatedTarget)) zone.classList.remove("is-over");
+  });
+  document.addEventListener("drop", function (e) {
+    var zone = dropzone(e);
+    if (!zone) return;
+    e.preventDefault();
+    zone.classList.remove("is-over");
+    var input = zone.querySelector("input[type=file]");
+    if (!input || !e.dataTransfer || !e.dataTransfer.files.length) return;
+    input.files = e.dataTransfer.files;
+    submitZone(zone);
+  });
+  document.addEventListener("change", function (e) {
+    var zone = dropzone(e);
+    if (zone && e.target.type === "file" && e.target.files.length) submitZone(zone);
+  });
   window.addEventListener("pagehide", disconnect);
   window.addEventListener("pageshow", connect);
 })();

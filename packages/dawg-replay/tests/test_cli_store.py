@@ -1,5 +1,6 @@
 import json
 
+from dawg_replay.app import App
 from dawg_replay.cli import main
 
 
@@ -173,3 +174,16 @@ def test_new_fields_need_contract_11(cli, write_script):
     text = write_script(version=1).read_text(encoding="utf-8").replace("# version = 1\n", '# site = "Ozon"\n# version = 1\n')
     code, data = cli("add", str(write_script(text=text)))
     assert code == 1 and data["error"]["details"][0]["code"] == "field_needs_minor"
+
+
+def test_remove_refused_while_running(cli, write_script, home):
+    cli("add", str(write_script(version=1)))
+    with App(home) as app:
+        app.runs.reserve(
+            run_id="20261114-000000-bbbbbb", script_name="ozon-cards", script_version=1, script_path="/x/script.py",
+            draft=False, preset=None, params={}, timeout_seconds=60, limit=10,
+        )
+    code, data = cli("remove", "ozon-cards", "--yes")
+    assert code == 1 and data["error"]["code"] == "script_running"
+    assert data["error"]["details"] == {"runs": ["20261114-000000-bbbbbb"]}
+    assert [s["name"] for s in cli("list")[1]["scripts"]] == ["ozon-cards"]

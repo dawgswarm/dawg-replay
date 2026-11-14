@@ -1,0 +1,10 @@
+<div class="notice notice-error" role="alert">
+  <p>{{ error or message }}</p>
+  {% if issues %}
+  <ul class="issue-list">
+    {% for i in issues %}
+    <li>{% if i.line %}строка {{ i.line }}{% if i.path %}, {% endif %}{% endif %}{% if i.path %}<code>{{ i.path }}</code>{% endif %}{% if i.line or i.path %}: {% endif %}{{ i.message }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</div>
