@@ -341,6 +341,34 @@ def test_soft_cancel_kit_releases_itself(tmp_path, fake):
     assert not (run.run_dir / "insurance.json").exists()  # страховке делать нечего
 
 
+def test_timeout_releases_browser(tmp_path, fake):
+    # Критерий 3: таймаут. Скрипт уходит по мягкой остановке и закрывает браузер сам.
+    run = start_run(tmp_path, fake, timeout=2, grace=10)
+    outcome = run.wait(40)
+    assert outcome is not None and (outcome.label, outcome.killed) == ("failed (timeout)", False)
+    assert fake.sessions == {}
+
+
+STUBBORN = SCRIPT.replace(
+    "    time.sleep(60)",
+    "    while True:\n        try:\n            time.sleep(60)\n        except SystemExit:\n            pass",
+)
+
+
+def test_stubborn_script_killed_and_browser_released(tmp_path, fake):
+    # Скрипт глотает SystemExit от отмены: через grace дерево убивается, браузер освобождает страховка.
+    run = start_run(tmp_path, fake, body=STUBBORN, grace=1)
+    assert wait_for(lambda: has(run, lambda e: e.get("msg") == "работаю"))
+    assert len(fake.sessions) == 1
+    run.cancel()
+    outcome = run.wait(40)
+    assert outcome is not None and (outcome.reason, outcome.killed) == ("cancelled", True)
+    assert outcome.hook_errors == []
+    assert fake.sessions == {}
+    report = json.loads((run.run_dir / "insurance.json").read_text(encoding="utf-8"))
+    assert len(report["released"]) == 1
+
+
 def test_normal_exit_closes(tmp_path, fake):
     body = SCRIPT.replace("time.sleep(60)", "pass")
     run = start_run(tmp_path, fake, body=body)

@@ -178,6 +178,22 @@ def test_preset_rejects(app, write_script, values, fragment):
 def test_preset_bad_name(app, write_script):
     app.registry.add(write_script(version=1))
     assert err(app.save_preset, "ozon-cards", "a b", {}).code == "bad_preset_name"
+    # `$` в регулярном выражении пропускал перевод строки в конце имени.
+    assert err(app.save_preset, "ozon-cards", "night\n", {}).code == "bad_preset_name"
+
+
+def test_import_id_with_trailing_newline_is_not_a_file_name(app, tmp_path):
+    from dawg_replay.imports import Imports
+
+    imp = Imports(app)
+    imp.dir.mkdir(parents=True, exist_ok=True)
+    good = "A" * 22
+    (imp.dir / f"{good}\n.py").write_bytes(b"x")
+    with pytest.raises(ReplayError) as e:
+        imp.load(good + "\n")
+    assert e.value.code == "import_not_found"
+    imp.discard(good + "\n")
+    assert (imp.dir / f"{good}\n.py").exists()
 
 
 def test_preset_filtered_by_current_version(app, write_script):
@@ -278,3 +294,15 @@ def test_home_can_be_moved(home, kr, write_script, tmp_path):
     home.rename(moved)
     with App(moved, kr) as a:
         assert a.registry.manifest("ozon-cards").version == 1
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "", "a/b", "a\\b", "../db", "x..y", "ozon\n", "/etc", "C:x", "a\x00"])
+def test_paths_take_one_safe_component(tmp_path, bad):
+    from dawg_replay.paths import Paths
+
+    p = Paths(tmp_path)
+    for f in (p.script_dir, p.run_dir, lambda n: p.script_file(n, 1)):
+        with pytest.raises(ValueError):
+            f(bad)
+    assert p.script_dir("ozon-cards") == tmp_path / "scripts" / "ozon-cards"
+    assert p.run_dir("20261115-010000-aaaaaa") == tmp_path / "runs" / "20261115-010000-aaaaaa"

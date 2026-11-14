@@ -99,13 +99,13 @@ class Imports:
         return result
 
     def discard(self, import_id: str) -> None:
-        if _ID_RE.match(import_id or ""):
+        if _ID_RE.fullmatch(import_id or ""):
             self._path(import_id).unlink(missing_ok=True)
 
     # --- хранение ---
 
     def load(self, import_id: str) -> bytes:
-        if not _ID_RE.match(import_id or ""):
+        if not _ID_RE.fullmatch(import_id or ""):
             raise ReplayError("import_not_found", EXPIRED)
         path = self._path(import_id)
         try:

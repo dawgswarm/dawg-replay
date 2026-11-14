@@ -155,8 +155,11 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     run_dir = app.paths.run_dir(rec.id)
     suspects = cli_release.suspects_for(app, rec.id)
     warning = "\n".join(cli_release.warning_lines(app, rec.id))
+    # Логи читает и агент, который чинит скрипт: ключ DAWG и сохранённые секреты скрипта
+    # маскируются так же, как в хвосте stderr на экране запуска.
+    secrets = diagnosis.known_secrets(app, rec.script_name)
     if args.events:
-        lines = _read(run_dir / "events.jsonl").splitlines()
+        lines = diagnosis.mask(_read(run_dir / "events.jsonl"), secrets).splitlines()
         events: list[Any] = []
         for line in lines:
             try:
@@ -168,7 +171,8 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         if warning:
             text += "\n\n" + warning
         return {"run": rec.to_dict(), "events": events, "suspects": suspects}, text
-    stdout, stderr = _read(run_dir / "stdout.log"), _read(run_dir / "stderr.log")
+    stdout = diagnosis.mask(_read(run_dir / "stdout.log"), secrets)
+    stderr = diagnosis.mask(_read(run_dir / "stderr.log"), secrets)
     parts = [f"запуск {rec.id}: {rec.label}"]
     if warning:
         parts.append(warning)

@@ -121,6 +121,24 @@ def test_cli_logs_hint(home, failed_run, capsys):
     assert json.loads(capsys.readouterr().out)["hint"] == diagnosis.KIT_HINT
 
 
+def test_cli_logs_mask_key_and_saved_secrets(home, failed_run, kr, capsys):
+    """Агент читает `dawg-replay logs`, чтобы чинить скрипт: ключа и секретов там быть не должно."""
+    kr.set_password("dawg-replay", "dawg-api-key", "SECRETKEY99")
+    with App(home) as app:
+        app.set_secret("ozon-cards", "sheet_token", "tok-SECRET-1")
+    run_id = failed_run(
+        stderr="key SECRETKEY99\ntoken tok-SECRET-1\n",
+        events=[{"t": "log", "ts": "2026-11-14T12:00:00Z", "level": "info", "msg": "tok-SECRET-1 и SECRETKEY99"}],
+    )
+    with App(home) as app:
+        (app.paths.run_dir(run_id) / "stdout.log").write_text("print SECRETKEY99\n", encoding="utf-8")
+    for argv in (["logs", run_id], ["--json", "logs", run_id], ["logs", run_id, "--events"], ["--json", "logs", run_id, "--events"]):
+        assert main(argv) == 0
+        out = capsys.readouterr().out
+        assert "SECRETKEY99" not in out and "tok-SECRET-1" not in out, argv
+        assert "***" in out, argv
+
+
 def test_cli_run_follow_shows_tail_and_hint(home, kr, tmp_path, monkeypatch, capsys):
     """Скрипт падает до kit: в событиях пусто, причина только в stderr."""
     import sys

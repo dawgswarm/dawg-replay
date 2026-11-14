@@ -200,12 +200,14 @@ def test_unsupported_contract(contract):
     assert "контракт 2" in issues[0].message
 
 
-@pytest.mark.parametrize("contract", ['"1"', "1.0", "true", '"v1"'])
+@pytest.mark.parametrize("contract", ['"1"', "1.0", "true", '"v1"', '"1.1\\n"'])
 def test_bad_contract_value(contract):
     assert codes(make(HEAD.replace("contract = 1", f"contract = {contract}"))) == ["bad_value"]
 
 
-@pytest.mark.parametrize("name", ['"Ozon"', '"ozon_cards"', '"-ozon"', '"ozon--x"', '""', "5", f'"{"a" * 65}"'])
+@pytest.mark.parametrize(
+    "name", ['"Ozon"', '"ozon_cards"', '"-ozon"', '"ozon--x"', '""', "5", f'"{"a" * 65}"', '"ozon\\n"', '"ozon\\n/../x"']
+)
 def test_bad_slug(name):
     assert codes(make(HEAD.replace('name = "demo"', f"name = {name}"))) == ["bad_slug"]
 
@@ -249,6 +251,7 @@ def test_bad_script_block_dependencies():
         ('name = "q"\ntype = "string"', "missing_field", "params[0](q).title"),
         ('name = "Query"\ntype = "string"\ntitle = "x"', "bad_param_name", "params[0].name"),
         ('name = "max-pages"\ntype = "string"\ntitle = "x"', "bad_param_name", "params[0].name"),
+        ('name = "query\\n"\ntype = "string"\ntitle = "x"', "bad_param_name", "params[0].name"),
         ('name = "params"\ntype = "string"\ntitle = "x"', "reserved_param_name", "params[0].name"),
         ('name = "q"\ntype = "date"\ntitle = "x"', "bad_type", "params[0](q).type"),
         ('name = "q"\ntype = "string"\ntitle = "x"\nrequired = "yes"', "bad_value", "params[0](q).required"),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -10,6 +11,19 @@ import platformdirs
 
 APP_NAME = "dawg-replay"
 ENV_HOME = "DAWG_REPLAY_HOME"
+
+
+_PART_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def _part(value: str) -> str:
+    """Имя скрипта или id запуска как один компонент пути: без `..`, разделителей и управляющих символов.
+
+    Имена и id проверяются раньше (манифест, БД); это последняя защита перед rmtree и записью файлов.
+    """
+    if not isinstance(value, str) or not _PART_RE.fullmatch(value) or ".." in value:
+        raise ValueError(f"недопустимое имя в пути: {value!r}")
+    return value
 
 
 def default_home() -> Path:
@@ -56,13 +70,13 @@ class Paths:
         return self.home / "dev-kit"
 
     def script_dir(self, name: str) -> Path:
-        return self.scripts / name
+        return self.scripts / _part(name)
 
     def script_file(self, name: str, version: int) -> Path:
-        return self.scripts / name / f"v{version}" / "script.py"
+        return self.scripts / _part(name) / f"v{int(version)}" / "script.py"
 
     def run_dir(self, run_id: str) -> Path:
-        return self.runs / run_id
+        return self.runs / _part(run_id)
 
     def ensure(self) -> None:
         for d in (self.home, self.scripts, self.runs):
