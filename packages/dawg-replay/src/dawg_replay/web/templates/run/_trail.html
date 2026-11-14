@@ -1,7 +1,6 @@
-<section id="run-trail" class="run-section" aria-labelledby="trail-title">
-  <h2 id="trail-title">Шаги</h2>
+<div id="run-trail" class="run-trail">
   {% if s.timeline %}
-  <ol class="trail">
+  <ol class="trail trail-vertical">
     {% for step in s.timeline %}
     <li class="trail-step{% if loop.last %} trail-current{% if running %} trail-active{% endif %}{% endif %}"{% if loop.last %} aria-current="step"{% endif %}>
       <span class="trail-name">{{ step.name }}</span>
@@ -12,4 +11,4 @@
   {% else %}
   <p class="hint">{% if running %}Скрипт готовится к работе: ставит зависимости и открывает браузер.{% else %}Скрипт не сообщал о шагах.{% endif %}</p>
   {% endif %}
-</section>
+</div>

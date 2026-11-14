@@ -1,6 +1,6 @@
 /* dawg-replay, экран запуска. Токены цвета и шрифтов из app.css. */
 
-.run { max-width: 64rem; }
+.run { max-width: 76rem; }
 
 /* --- шапка запуска --- */
 
@@ -17,6 +17,7 @@
   gap: 0.75rem 1.5rem;
 }
 .run-title h1 { margin-bottom: 0.65rem; min-width: 0; }
+.run-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 
 .run-meta {
   display: flex;
@@ -78,14 +79,7 @@ button.danger:hover { background: var(--failed-bg); color: var(--failed); border
 
 /* --- итог --- */
 
-.result {
-  margin: 0 0 1.25rem;
-  padding: 1.25rem 1.5rem 1.35rem;
-  border: 1px solid var(--line);
-  border-radius: var(--r-card);
-  background: var(--surface);
-  box-shadow: var(--shadow-raised);
-}
+.result { margin: 0; }
 .result h2 {
   display: flex;
   align-items: center;
@@ -120,44 +114,6 @@ button.danger:hover { background: var(--failed-bg); color: var(--failed); border
 .result-summary ul { padding-left: 1.2rem; }
 .result-summary code { font-family: var(--mono); font-size: 0.9em; padding: 0 0.3rem; border-radius: 5px; background: var(--sunken); }
 .result-reason { margin: 0.6rem 0 0; color: var(--ink-soft); max-width: 46rem; }
-
-/* --- остаточное окно --- */
-
-.warning {
-  margin: 0 0 1.25rem;
-  padding: 1.2rem 1.5rem 1.3rem;
-  border: 1px solid color-mix(in srgb, var(--partial) 40%, transparent);
-  border-radius: var(--r-card);
-  background: var(--partial-bg);
-}
-.warning h2 { color: var(--partial); margin-bottom: 0.45rem; display: flex; align-items: center; gap: 0.55rem; }
-.warning h2::before {
-  content: "!";
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  width: 1.4rem;
-  height: 1.4rem;
-  border-radius: 50%;
-  background: var(--partial);
-  color: var(--partial-bg);
-  font: 700 0.9rem/1 var(--font);
-}
-.warning p { margin: 0 0 0.9rem; max-width: 46rem; }
-.suspects { list-style: none; margin: 0 0 1rem; padding: 0; }
-.suspects li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem 1rem;
-  margin-bottom: 0.45rem;
-  padding: 0.55rem 0.6rem 0.55rem 0.9rem;
-  border-radius: var(--r-control);
-  background: var(--surface);
-  overflow-wrap: anywhere;
-}
-#run-suspects .notice p { margin: 0; }
 
 /* --- шаги: пунктирная тропа, точка на текущем шаге --- */
 
@@ -390,7 +346,64 @@ tbody tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 560px) {
-  .run-section, .result, .warning { padding: 1.1rem 1.1rem 1.2rem; border-radius: 14px; }
+  .run-section, .warning { padding: 1.1rem 1.1rem 1.2rem; border-radius: 14px; }
   .run-section-head { align-items: flex-start; }
   .log-filter { flex-wrap: wrap; }
+}
+
+/* --- итог запуска: главный блок, данные на всю ширину, шаги и журнал свёрнуты --- */
+
+.run-hero {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1.25rem 2.5rem; align-items: center;
+  margin: 0 0 1.25rem; padding: 1.4rem 1.5rem;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 20px; box-shadow: var(--shadow-raised);
+}
+.run-hero-main { display: grid; gap: 1rem; min-width: 0; }
+.run-hero .result h2 { font-size: 1.45rem; }
+.run-hero .result-icon { width: 2.4rem; height: 2.4rem; }
+.run-hero .result-icon svg { width: 1.3rem; height: 1.3rem; }
+.result-running h2, .result-running .result-icon { color: var(--running); }
+.result-running .result-icon { background: var(--running-bg); }
+.result-running .result-icon svg { animation: pulse 1.6s ease-in-out infinite; }
+.result-muted h2 { color: var(--ink); }
+.run-hero .result-ok, .run-hero .result-partial, .run-hero .result-failed, .run-hero .result-muted { border-top: 0; }
+.run-progress.is-empty, .run-metrics.is-empty { display: none; }
+.run-hero:not(:has(.run-metrics:not(.is-empty))) { grid-template-columns: minmax(0, 1fr); }
+
+.run-metrics { padding-left: 2.25rem; border-left: 1px solid var(--line); }
+.run-metrics .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(8.5rem, auto)); gap: 0.9rem 2rem; }
+.run-metrics .metric { padding: 0; border: 0; background: none; }
+.run-metrics .metric-value { font-size: 1.75rem; white-space: nowrap; }
+
+.run-files { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 0.6rem 0.75rem; }
+.run-files .files { display: flex; flex-wrap: wrap; gap: 0.6rem 0.75rem; list-style: none; margin: 0; padding: 0; }
+.run-files > .file-missing, #files-notice { flex-basis: 100%; }
+.run-files .files li { display: flex; flex-direction: column; gap: 0.2rem; }
+.run-files .file-meta { color: var(--ink-soft); font-size: 0.82rem; padding-left: 0.2rem; overflow-wrap: anywhere; }
+.run-files-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 1rem; }
+.run-files-actions form { margin: 0; }
+.file-missing { margin: 0 0 0.5rem; }
+#files-notice .notice { margin: 0; }
+#files-notice:empty { display: none; }
+
+.run-folds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 1.1rem; align-items: start; }
+.run-folds .fold { margin: 0; }
+.run-folds .run-section-head { margin: 0 1.25rem 0.8rem; justify-content: flex-start; }
+
+.trail-vertical { flex-direction: column; gap: 0; }
+.trail-vertical .trail-step { max-width: none; padding: 0 0 1.1rem 1.75rem; }
+.trail-vertical .trail-step:last-child { padding-bottom: 0; }
+.trail-vertical .trail-step::before {
+  top: 1.15rem; bottom: 0.2rem; left: 0.4rem; right: auto; width: 2px; height: auto;
+  background: repeating-linear-gradient(180deg, var(--action) 0 5px, transparent 5px 10px);
+}
+.trail-vertical .trail-step::after { top: 0.2rem; }
+
+@media (max-width: 900px) {
+  .run-hero, .run-folds { grid-template-columns: minmax(0, 1fr); }
+  .run-metrics { padding: 1rem 0 0; border-left: 0; border-top: 1px solid var(--line); }
+}
+@media (max-width: 560px) {
+  .run-hero { padding: 1.1rem; }
+  .run-files .files li, .run-files .files .button { width: 100%; }
 }

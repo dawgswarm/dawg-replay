@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon, cover %}
+{% block title %}Главная, dawg-replay{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Главная</h1></div>
+<div id="home-notice" aria-live="polite"></div>
+<div class="home-grid">
+  {% include "home/_live.html" %}
+  <aside class="home-side">
+    <section class="card" aria-labelledby="quick-title">
+      <div class="card-head"><h2 id="quick-title">Быстрый запуск</h2></div>
+      {% if d.quick %}
+      <p class="hint card-note">Пресеты, которые запускали недавно.</p>
+      <ul class="quick-list">
+        {% for q in d.quick %}
+        <li><form hx-post="/scripts/{{ q.script }}/quick" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
+          <input type="hidden" name="_preset" value="{{ q.preset }}">
+          <button class="quick" type="submit">{{ cover(q.cover, "s") }}<span class="quick-text"><span class="quick-name">{{ q.preset }}</span><span class="quick-script">{{ q.title }}</span></span>{{ icon("play", "ico ico-s") }}</button>
+        </form></li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="hint">Здесь появятся пресеты недавних скриптов. Пресет сохраняется в форме запуска скрипта.</p>
+      {% endif %}
+    </section>
+    <section class="card" aria-labelledby="usage-title">
+      <div class="card-head"><h2 id="usage-title">Минуты и браузеры</h2><a class="small" href="/settings">Настройки</a></div>
+      <div id="home-usage" hx-get="/home/usage" hx-trigger="load" hx-swap="innerHTML"><p class="hint">Спрашиваю у платформы DAWG…</p></div>
+    </section>
+  </aside>
+</div>
+{% endblock %}

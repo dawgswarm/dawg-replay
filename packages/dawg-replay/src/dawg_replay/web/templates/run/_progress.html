@@ -1,7 +1,6 @@
-<section id="run-progress" class="run-section{% if not s.progress %} is-empty{% endif %}" aria-labelledby="progress-title">
+<div id="run-progress" class="run-progress{% if not s.progress %} is-empty{% endif %}">
   {% if s.progress %}
-  <h2 id="progress-title">Прогресс</h2>
-  <ul class="bars">
+  <ul class="bars" aria-label="Прогресс">
     {% for p in s.progress.values() %}
     <li class="bar">
       <span class="bar-label">{{ p.label }}</span>
@@ -11,4 +10,4 @@
     {% endfor %}
   </ul>
   {% endif %}
-</section>
+</div>

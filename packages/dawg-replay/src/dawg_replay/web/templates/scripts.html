@@ -1,9 +1,19 @@
 {% extends "base.html" %}
 {% block title %}Скрипты, dawg-replay{% endblock %}
 {% block content %}
-<div class="page-head">
-  <h1>Скрипты</h1>
-  <p class="lead">Каждый скрипт повторяет путь по сайту, который один раз прошёл агент. Выберите скрипт, задайте параметры и запустите.</p>
+<div class="lib-head">
+  <div class="page-head">
+    <h1>Скрипты</h1>
+    <p class="lead">Каждый скрипт повторяет путь по сайту, который один раз прошёл агент. Запустите его с карточки: со своими параметрами или готовым пресетом.</p>
+  </div>
+  {% if lib.sites %}
+  <nav class="chips lib-filters" aria-label="Сайт">
+    <a class="chip{% if not lib.site %} chip-on{% endif %}" href="/scripts{% if lib.query %}?q={{ lib.query | urlencode }}{% endif %}"{% if not lib.site %} aria-current="true"{% endif %}>Все</a>
+    {% for site in lib.sites %}
+    <a class="chip{% if lib.site == site %} chip-on{% endif %}" href="/scripts?site={{ site | urlencode }}{% if lib.query %}&amp;q={{ lib.query | urlencode }}{% endif %}"{% if lib.site == site %} aria-current="true"{% endif %}>{{ site }}</a>
+    {% endfor %}
+  </nav>
+  {% endif %}
 </div>
 {% include "_scripts_list.html" %}
 {% endblock %}

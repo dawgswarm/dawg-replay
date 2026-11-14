@@ -11,13 +11,14 @@ from typing import Any
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response, StreamingResponse
+from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
 from dawg_replay import forms
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
+from dawg_replay.web import home as home_data
 from dawg_replay.web import run_screen
 from dawg_replay.web.security import Secrets
 
@@ -62,12 +63,26 @@ def number(value: Any) -> str:
         return ""
 
 
+def plural(n: Any, one: str, few: str, many: str) -> str:
+    """Форма слова для числа: 1 сообщение, 2 сообщения, 5 сообщений."""
+    try:
+        n = abs(int(n))
+    except (TypeError, ValueError):
+        return many
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return few
+    return many
+
+
 def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env = templates.env
     env.globals["csrf_token"] = secrets_.csrf
     env.filters["when"] = when
     env.filters["status"] = status_view
     env.filters["number"] = number
+    env.filters["plural"] = plural
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
@@ -82,20 +97,58 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def fragment(request: Request, name: str, **ctx: Any) -> Response:
         return templates.TemplateResponse(request, name, ctx)
 
-    # --- Скрипты ---
+    # --- Главная ---
+
+    def _dashboard(request: Request) -> dict[str, Any]:
+        with _ui(request).open_app() as app:
+            return home_data.dashboard(app, run_screen.views_of(request))
 
     def home(request: Request) -> Response:
-        return RedirectResponse("/scripts", status_code=303)
+        return page(request, "home.html", active="home", d=_dashboard(request))
+
+    def home_live(request: Request) -> Response:
+        return fragment(request, "home/_live.html", d=_dashboard(request))
+
+    def home_usage(request: Request) -> Response:
+        """Минуты и браузеры DAWG отдельным запросом: сеть не задерживает и не ломает главную."""
+        with _ui(request).open_app() as app:
+            try:
+                return fragment(request, "home/_usage.html", usage=app.check_api_key())
+            except ReplayError as e:
+                return fragment(request, "home/_usage.html", error=e.message, code=e.code)
+
+    # --- Скрипты ---
+
+    def _library(request: Request) -> dict[str, Any]:
+        q = request.query_params.get("q", "")[:200]
+        site = request.query_params.get("site", "")[:200]
+        with _ui(request).open_app() as app:
+            return home_data.library(app, q, site)
 
     def scripts(request: Request) -> Response:
-        with _ui(request).open_app() as app:
-            items = app.scripts_overview()
-        return page(request, "scripts.html", active="scripts", items=items)
+        lib = _library(request)
+        return page(request, "scripts.html", active="scripts", lib=lib, search_q=lib["query"])
 
     def scripts_list(request: Request) -> Response:
-        with _ui(request).open_app() as app:
-            items = app.scripts_overview()
-        return fragment(request, "_scripts_list.html", items=items)
+        return fragment(request, "_scripts_list.html", lib=_library(request))
+
+    async def script_quick(request: Request) -> Response:
+        """Быстрый запуск по пресету с карточки или главной."""
+        name = request.path_params["name"]
+        form = await request.form()
+        preset = (form.get("_preset") or "").strip() or None
+        ui = _ui(request)
+
+        def work() -> Response:
+            try:
+                run = ui.runs.start(name, preset=preset)
+            except ReplayError as e:
+                what = f"«{preset}»" if preset else "без пресета"
+                return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {e.message}",
+                                link=f"/scripts/{name}" + (f"?preset={preset}" if preset else "") + "#launch")
+            return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
+
+        return await run_in_threadpool(work)
 
     # --- Скрипт ---
 
@@ -123,8 +176,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             try:
                 view = app.script_view(name)
                 ctx = _script_ctx(app, name, preset)
+                meta = home_data.manifest_meta(app, name)
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
+        view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
+        view["tags"] = list(meta["tags"])
         return page(request, "script.html", active="scripts", v=view, f=ctx)
 
     def script_form(request: Request) -> Response:
@@ -159,8 +215,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     return fragment(request, "_error.html", message=e.message)
                 if not sub.ok:
                     return fragment(request, "_script_form.html", f=_script_ctx(app, name, preset, sub))
+                known = preset if preset in [p.name for p in app.list_presets(name)] else None
             try:
-                run = ui.runs.start(name, values=sub.values)
+                run = ui.runs.start(name, preset=known, values=sub.values)
             except ReplayError as e:
                 with ui.open_app() as app:
                     ctx = _script_ctx(app, name, preset, sub)
@@ -273,9 +330,37 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         return await run_in_threadpool(work)
 
+    async def run_again(request: Request) -> Response:
+        """«Запустить снова»: те же значения параметров (без секретов, они берутся из хранилища)."""
+        run_id = request.path_params["run_id"]
+        ui = _ui(request)
+
+        def work() -> Response:
+            with ui.open_app() as app:
+                try:
+                    rec = app.runs.get(run_id)
+                    if rec.draft:
+                        raise ReplayError("draft_run", "черновой запуск повторяется только из терминала")
+                    names = {p.name for p in app.registry.manifest(rec.script_name).params}
+                    presets = [p.name for p in app.list_presets(rec.script_name)]
+                except ReplayError as e:
+                    return fragment(request, "_flash.html", message=e.message, link=None)
+            values = {k: v for k, v in rec.params.items() if k in names}
+            try:
+                run = ui.runs.start(rec.script_name, preset=rec.preset if rec.preset in presets else None, values=values)
+            except ReplayError as e:
+                return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}", link=f"/scripts/{rec.script_name}#launch")
+            return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
+
+        return await run_in_threadpool(work)
+
     return [
         Route("/", home),
+        Route("/home/_live", home_live),
+        Route("/home/usage", home_usage),
         Route("/scripts", scripts),
+        Route("/scripts/{name}/quick", script_quick, methods=["POST"]),
+        Route("/runs/{run_id}/again", run_again, methods=["POST"]),
         Route("/scripts/_list", scripts_list),
         Route("/scripts/{name}", script_page),
         Route("/scripts/{name}/_form", script_form),
