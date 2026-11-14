@@ -13,9 +13,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 from dawg_replay.errors import ReplayError
 
@@ -65,6 +68,46 @@ def mask(text: str, secrets: Iterable[str]) -> str:
     return text
 
 
+# Значения, которые похожи на секрет по виду, а не по совпадению с известным значением:
+# токены в адресах из traceback, заголовки авторизации, пароль в адресе.
+_SENSITIVE_NAME = re.compile(
+    r"token|secret|passw|signature|credential|auth(?!or)|session|cookie|private|api[_-]?key|access[_-]?key",
+    re.IGNORECASE,
+)
+_SHORT_NAMES = frozenset({"key", "sig", "pwd", "pass", "sid", "apikey", "hash", "code"})
+_QUERY_PARAM = re.compile(r"([?&;])([A-Za-z0-9_.\-\[\]%]{1,64})=([^&#\s\"'<>`)]*)")
+_NAMED_VALUE = re.compile(
+    r"(?i)\b([\w.-]*(?:token|secret|passw(?:or)?d?|api[_-]?key|access[_-]?key|authorization|cookie)[\w.-]*)"
+    r"([\"']?[ \t]*[:=][ \t]*[\"']?)((?:bearer|basic)[ \t]+)?([^\s\"',;&]{4,})"
+)
+_AUTH_SCHEME = re.compile(r"(?i)\b(bearer|basic)([ \t]+)[A-Za-z0-9._~+/=-]{8,}")
+_URL_USERINFO = re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)([^/\s:@]+):([^/\s@]+)@")
+
+
+def sensitive_param(name: str) -> bool:
+    """Имя параметра адреса или поля, значение которого надо скрыть."""
+    low = unquote(name).lower().strip("[]")
+    return low in _SHORT_NAMES or low.endswith(("_key", "-key", ".key")) or bool(_SENSITIVE_NAME.search(low))
+
+
+def _mask_query(m: re.Match[str]) -> str:
+    if not m.group(3) or not sensitive_param(m.group(2)):
+        return m.group(0)
+    return f"{m.group(1)}{m.group(2)}={MASK}"
+
+
+def scrub(text: str, secrets: Iterable[str] = ()) -> str:
+    """Скрывает известные значения секретов и всё, что похоже на секрет:
+    параметры адреса (`?token=`, `&sig=`, `key=`...), `Authorization: Bearer ...`,
+    пары вида `api_key=...` или `"token": "..."` и пароль в адресе `user:pass@host`."""
+    text = mask(text, secrets)
+    text = _URL_USERINFO.sub(lambda m: f"{m.group(1)}{m.group(2)}:{MASK}@", text)
+    text = _QUERY_PARAM.sub(_mask_query, text)
+    text = _NAMED_VALUE.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3) or ''}{MASK}", text)
+    text = _AUTH_SCHEME.sub(lambda m: f"{m.group(1)}{m.group(2)}{MASK}", text)
+    return text
+
+
 def explained(run_dir: Path) -> bool:
     """В событиях есть `result` или `log` уровня error: скрипт сам объяснил, что случилось."""
     try:
@@ -90,6 +133,9 @@ def known_secrets(app: Any, script: str) -> list[str]:
             out.append(key)
     except ReplayError:
         pass
+    env_key = os.environ.get("DAWG_API_KEY")
+    if env_key:
+        out.append(env_key)
     try:
         manifest = app.registry.manifest(script)
     except ReplayError:
@@ -116,7 +162,7 @@ def diagnose(app: Any, rec: Any, lines: int = TAIL_LINES) -> dict[str, Any] | No
     if not tail:
         return None
     secrets = known_secrets(app, rec.script_name)
-    tail = [mask(line, secrets) for line in tail]
+    tail = [scrub(line, secrets) for line in tail]
     text = "\n".join(tail)
     return {"tail": tail, "hint": hint_for(text), "summary": hint_for(text) or _last_meaningful(tail)}
 

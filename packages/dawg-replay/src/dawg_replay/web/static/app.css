@@ -931,3 +931,11 @@ button.danger:hover { background: color-mix(in srgb, var(--failed) 85%, black); 
   border: 1px solid var(--line); border-radius: var(--r-control); background: var(--surface-2); color: var(--ink); text-decoration: none;
 }
 .plan:hover { background: var(--action-soft); }
+
+/* --- починить с агентом на главной --- */
+
+a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem; border-radius: 8px; }
+.dash-att > a.button { flex: none; }
+@media (max-width: 640px) {
+  .dash-att > a.button { margin-left: 2.9rem; }
+}

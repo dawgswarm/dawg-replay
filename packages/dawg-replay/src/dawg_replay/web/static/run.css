@@ -411,3 +411,26 @@ tbody tr:last-child td { border-bottom: 0; }
   .run-files .files li, .run-files .files .button { width: 100%; }
 }
 .log-is-empty .fold > .log-empty { margin: 0 1.25rem 1.25rem; }
+
+
+/* --- починить с агентом (dawg_replay.repair) --- */
+
+.repair { margin: 0 0 1.25rem; }
+.repair > p { max-width: 46rem; }
+.repair-box > summary { display: inline-flex; list-style: none; cursor: pointer; }
+.repair-box > summary::-webkit-details-marker { display: none; }
+.repair-box[open] > summary { margin-bottom: 0.9rem; }
+.repair-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: 0.85rem/1.45 var(--mono);
+  resize: vertical;
+}
+.repair-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin-bottom: 0.6rem; }
