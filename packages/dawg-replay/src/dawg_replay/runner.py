@@ -17,6 +17,7 @@
     stdout.log       сырой stdout процесса
     stderr.log       сырой stderr процесса
     output/          DAWG_SCRIPT_OUTPUT_DIR
+    stop             появляется при отмене (DAWG_SCRIPT_STOP_FILE)
 
 Секреты. `params.json` в каталоге запуска лежит без секретов (ТЗ 6.2). Если у
 запуска есть секреты, скрипт получает в `DAWG_SCRIPT_PARAMS` отдельный файл
@@ -28,12 +29,15 @@
 и показывается пользователю.
 
 Отмена и таймаут (5.7). Процесс стартует в своей группе: на POSIX новой сессией,
-на Windows с CREATE_NEW_PROCESS_GROUP. Мягкий сигнал уходит всей группе
-(SIGTERM или CTRL_BREAK_EVENT), так его получают и `uv`, и интерпретатор
-скрипта. Kit превращает сигнал в SystemExit, скрипт закрывает браузеры
-и дописывает события. Через `grace` секунд (15 по умолчанию) дерево
-убивается: SIGKILL группе или `taskkill /F /T`. После любого завершения
-оставшиеся в группе процессы тоже убиваются, сирот не остаётся.
+на Windows с CREATE_NEW_PROCESS_GROUP. Мягкая остановка: раннер создаёт файл
+остановки (`DAWG_SCRIPT_STOP_FILE`), а на POSIX ещё шлёт SIGTERM всей группе,
+так его получают и `uv`, и интерпретатор скрипта. На Windows сигнал не
+шлётся: CTRL_BREAK убивает `uv run` вместе со скриптом, поэтому kit там
+узнаёт об отмене по файлу. Kit превращает отмену в SystemExit, скрипт
+закрывает браузеры и дописывает события. Через `grace` секунд (15 по
+умолчанию) дерево убивается: SIGKILL группе или `taskkill /F /T`. После
+любого завершения оставшиеся в группе процессы тоже убиваются, сирот не
+остаётся.
 
 После того как процесс и его дерево завершились, вызываются хуки `after_exit`.
 Через них подключается страховка браузеров (5.6): `launch` ставит её первой.
@@ -65,6 +69,8 @@ ENV_PARAMS = "DAWG_SCRIPT_PARAMS"
 ENV_EVENTS = "DAWG_SCRIPT_EVENTS"
 ENV_OUTPUT_DIR = "DAWG_SCRIPT_OUTPUT_DIR"
 ENV_RUN_ID = "DAWG_SCRIPT_RUN_ID"
+ENV_STOP_FILE = "DAWG_SCRIPT_STOP_FILE"
+STOP_FILE = "stop"
 
 # Переменные, которые не наследуются от процесса приложения: их значения задаёт только раннер.
 _STRIP_PREFIXES = ("DAWG_SCRIPT_", "DAWG_SECRET_")
@@ -160,6 +166,7 @@ class ScriptRun:
         self.stdout_path = self.run_dir / "stdout.log"
         self.stderr_path = self.run_dir / "stderr.log"
         self.output_dir = self.run_dir / "output"
+        self.stop_path = self.run_dir / STOP_FILE
         self._values = dict(values or {})
         self._secret_names = set(secret_names)
         self._api_key = api_key
@@ -263,6 +270,7 @@ class ScriptRun:
                 ENV_EVENTS: str(self.events_path.resolve()),
                 ENV_OUTPUT_DIR: str(self.output_dir.resolve()),
                 ENV_RUN_ID: self.run_id,
+                ENV_STOP_FILE: str(self.stop_path.resolve()),
                 # Сырые логи пишутся сразу по ходу работы; кодировка не зависит от локали Windows.
                 "PYTHONUNBUFFERED": "1",
                 "PYTHONIOENCODING": "utf-8",
@@ -305,7 +313,7 @@ class ScriptRun:
                 if deadline is not None and time.monotonic() >= deadline:
                     self._request_stop(REASON_TIMEOUT)
                 if self._stop.wait(_POLL):
-                    killed = terminate(proc, self._grace)
+                    killed = terminate(proc, self._grace, self.stop_path)
                     break
             proc.wait()
             # Процессы, которые скрипт оставил в группе, не переживают запуск.
@@ -373,17 +381,22 @@ def _group_kwargs() -> dict[str, Any]:
     return {"start_new_session": True}
 
 
-def soft_stop(pid: int) -> bool:
-    """Мягкий сигнал группе процесса `pid`. False, если группы уже нет.
+def soft_stop(pid: int, stop_file: str | Path | None = None) -> bool:
+    """Мягкая остановка группы процесса `pid`. False, если группы уже нет.
 
-    На Windows CTRL_BREAK_EVENT доходит, только если у приложения и скрипта
-    общая консоль.
+    Создаёт файл остановки, если он передан, и на POSIX шлёт группе SIGTERM.
+    На Windows сигнала нет: CTRL_BREAK завершает `uv run` сразу, а тот через
+    job object убивает скрипт, не дав ему убраться. Там kit видит файл.
     """
+    if stop_file is not None:
+        try:
+            Path(stop_file).touch()
+        except OSError:
+            pass
+    if _IS_WINDOWS:
+        return True
     try:
-        if _IS_WINDOWS:
-            os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-        else:
-            os.killpg(pid, signal.SIGTERM)
+        os.killpg(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         return False
     except OSError:
@@ -413,14 +426,14 @@ def kill_tree(pid: int, leader_alive: bool = True) -> None:
         pass
 
 
-def terminate(proc: subprocess.Popen[Any], grace: float = GRACE_SECONDS) -> bool:
+def terminate(proc: subprocess.Popen[Any], grace: float = GRACE_SECONDS, stop_file: str | Path | None = None) -> bool:
     """Процедура 5.7: мягкий сигнал, ожидание `grace` секунд, затем kill дерева.
 
     Возвращает True, если дерево пришлось убить.
     """
     if proc.poll() is not None:
         return False
-    soft_stop(proc.pid)
+    soft_stop(proc.pid, stop_file)
     try:
         proc.wait(grace)
         return False

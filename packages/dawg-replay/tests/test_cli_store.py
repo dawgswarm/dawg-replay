@@ -7,7 +7,7 @@ from dawg_replay.cli import main
 def test_full_flow(cli, write_script, kr, home):
     code, data = cli("add", str(write_script(version=1)))
     assert code == 0 and data["ok"] and data["status"] == "added"
-    assert data["version"]["path"].endswith("scripts/ozon-cards/v1/script.py")
+    assert data["version"]["path"].replace("\\", "/").endswith("scripts/ozon-cards/v1/script.py")
 
     code, data = cli("add", str(write_script(version=2)))
     assert data["previous_version"] == 1

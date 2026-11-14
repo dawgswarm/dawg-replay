@@ -256,6 +256,20 @@ KIT_CANCEL_BODY = '''
 '''
 
 
+def test_stop_file_alone_stops_kit_script(script, runs_dir):
+    # Так отмена работает на Windows: сигнала нет, kit видит файл остановки.
+    run = make_run(script(KIT_CANCEL_BODY), runs_dir, grace=10)
+    run.start()
+    assert wait_for(lambda: (run.output_dir / "started").exists())
+    t0 = time.monotonic()
+    run.stop_path.touch()
+    outcome = run.wait(15)
+    assert outcome is not None and time.monotonic() - t0 < 5
+    assert (outcome.exit_code, outcome.killed) == (143, False)
+    assert "finally скрипта" in [e.get("msg") for e in events(run)]
+    assert (run.output_dir / "atexit").exists()
+
+
 def test_soft_cancel_runs_finally_atexit_and_flushes_pending_events(script, runs_dir):
     run = make_run(script(KIT_CANCEL_BODY), runs_dir, grace=10)
     run.start()
@@ -379,6 +393,7 @@ def test_processes_left_after_normal_exit_are_killed(script, runs_dir):
 
 
 @pytest.mark.skipif(shutil.which("uv") is None, reason="uv не установлен")
+@pytest.mark.skipif(not POSIX, reason="на Windows сигнал не шлётся, отмену скрипт узнаёт от kit по файлу")
 def test_cancel_through_uv_run_reaches_script(script, runs_dir):
     # Без зависимостей: uv не ходит в сеть, проверяем доставку сигнала через uv.
     path = script('''
@@ -412,3 +427,20 @@ def test_cancel_through_uv_run_reaches_script(script, runs_dir):
     assert outcome.killed is False
     assert outcome.label == "failed (cancelled)"
     assert (run.output_dir / "finally").exists()
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv не установлен")
+def test_cancel_through_uv_run_with_kit(script, runs_dir):
+    # Kit ставится из рабочей копии через --with, сеть нужна только для tomli на 3.10.
+    kit_dir = Path(__file__).resolve().parents[2] / "dawg-replay-kit"
+    path = script(MANIFEST.replace('["dawg-replay-kit"]', "[]") + textwrap.dedent(KIT_CANCEL_BODY), manifest=False)
+    run = make_run(path, runs_dir, command=["uv", "run", "--quiet", "--with", str(kit_dir)], grace=10)
+    run.start()
+    assert wait_for(lambda: (run.output_dir / "started").exists(), 120), run.stderr_path.read_text(encoding="utf-8")
+    run.cancel()
+    outcome = run.wait(30)
+    assert outcome is not None
+    assert (outcome.label, outcome.killed, outcome.exit_code) == ("failed (cancelled)", False, 143)
+    msgs = [e.get("msg") for e in events(run) if e["t"] == "log"]
+    assert "finally скрипта" in msgs and msgs[-1] == "запуск остановлен приложением (отмена или таймаут)"
+    assert (run.output_dir / "atexit").exists()
