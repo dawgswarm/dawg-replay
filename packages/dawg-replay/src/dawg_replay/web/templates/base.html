@@ -26,13 +26,13 @@
     <nav class="nav" aria-label="Разделы">
       <a href="/" {% if active == 'home' %}aria-current="page"{% endif %}>Главная</a>
       <a href="/scripts" {% if active == 'scripts' %}aria-current="page"{% endif %}>Скрипты</a>
+      <a href="/settings" {% if active == 'settings' %}aria-current="page"{% endif %}>Настройки</a>
     </nav>
     <form class="top-search" action="/scripts" method="get" role="search">
       <label>{{ icon("search") }}<span class="sr">Найти скрипт</span>
         <input type="search" name="q" value="{{ search_q or '' }}" placeholder="Найти скрипт" autocomplete="off"></label>
     </form>
-    <button class="icon-button" type="button" data-theme-toggle aria-label="Сменить тему: светлая или тёмная">{{ icon("theme") }}</button>
-    <a class="icon-button" href="/settings" aria-label="Настройки" {% if active == 'settings' %}aria-current="page"{% endif %}>{{ icon("gear") }}</a>
+    <button class="icon-button" type="button" data-theme-toggle title="Тема: светлая или тёмная" aria-label="Переключить тему: светлая или тёмная">{{ icon("theme") }}</button>
    </div>
   </header>
   <main class="page" id="main">

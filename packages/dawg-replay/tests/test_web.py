@@ -659,3 +659,22 @@ def test_quick_run_by_preset_and_run_again(logged, secrets_, home, monkeypatch, 
 
     r = post(logged, "/scripts/ui-run/quick", {"_preset": "нет такого"}, csrf=secrets_.csrf)
     assert r.status_code == 200 and "не начат" in r.text and 'href="/scripts/ui-run?preset=' in r.text
+
+
+def test_quick_error_link_encodes_preset(logged, secrets_, home, write_script):
+    from urllib.parse import parse_qs, urlsplit
+
+    with App(home) as app:
+        app.registry.add(write_script(title="Ozon: карточки"))
+    r = post(logged, "/scripts/ozon-cards/quick", {"_preset": "a & b #1"}, csrf=secrets_.csrf)
+    href = r.text.split('href="', 1)[1].split('"', 1)[0].replace("&amp;", "&")
+    parts = urlsplit(href)
+    assert parts.path == "/scripts/ozon-cards" and parts.fragment == "launch"
+    assert parse_qs(parts.query) == {"preset": ["a & b #1"]}
+
+
+def test_header_navigation_has_settings_and_one_theme_button(logged):
+    h = logged.get("/settings").text
+    nav = h.split('<nav class="nav"', 1)[1].split("</nav>", 1)[0]
+    assert '>Главная<' in nav and '>Скрипты<' in nav and 'aria-current="page">Настройки<' in nav
+    assert h.count("data-theme-toggle") == 1 and 'aria-label="Переключить тему' in h

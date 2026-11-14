@@ -43,16 +43,27 @@
   document.addEventListener("DOMContentLoaded", connect);
 
   // Переключатель темы: светлая или тёмная, выбор хранится в браузере.
+  // Подпись кнопки говорит, что произойдёт по нажатию.
+  function currentTheme() {
+    return document.documentElement.getAttribute("data-theme") ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  }
+  function labelThemeButtons() {
+    var text = currentTheme() === "dark" ? "Включить светлую тему" : "Включить тёмную тему";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-theme-toggle]"), function (b) {
+      b.setAttribute("title", text);
+      b.setAttribute("aria-label", text);
+    });
+  }
   document.addEventListener("click", function (e) {
     var btn = e.target.closest && e.target.closest("[data-theme-toggle]");
     if (!btn) return;
-    var root = document.documentElement;
-    var current = root.getAttribute("data-theme") ||
-      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
-    var next = current === "dark" ? "light" : "dark";
-    root.setAttribute("data-theme", next);
+    var next = currentTheme() === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", next);
     try { localStorage.setItem("dawg-replay-theme", next); } catch (err) { /* без сохранения */ }
+    labelThemeButtons();
   });
+  document.addEventListener("DOMContentLoaded", labelThemeButtons);
 
   // Панель запуска на странице скрипта открывается якорем #launch (CSS :target).
   // Здесь только фокус внутрь панели, возврат фокуса и закрытие по Esc.

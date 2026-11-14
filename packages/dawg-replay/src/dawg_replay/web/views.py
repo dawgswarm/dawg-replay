@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from urllib.parse import quote, urlencode
 
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
@@ -145,7 +146,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             except ReplayError as e:
                 what = f"«{preset}»" if preset else "без пресета"
                 return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {e.message}",
-                                link=f"/scripts/{name}" + (f"?preset={preset}" if preset else "") + "#launch")
+                                link=f"/scripts/{quote(name)}" + (f"?{urlencode({'preset': preset})}" if preset else "") + "#launch")
             return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
 
         return await run_in_threadpool(work)
@@ -349,7 +350,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             try:
                 run = ui.runs.start(rec.script_name, preset=rec.preset if rec.preset in presets else None, values=values)
             except ReplayError as e:
-                return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}", link=f"/scripts/{rec.script_name}#launch")
+                return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}", link=f"/scripts/{quote(rec.script_name)}#launch")
             return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
 
         return await run_in_threadpool(work)
