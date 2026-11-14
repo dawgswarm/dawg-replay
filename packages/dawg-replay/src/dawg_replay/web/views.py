@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -15,7 +16,7 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
@@ -29,6 +30,8 @@ from dawg_replay.web.security import Secrets
 # Тело запроса загрузки: файл и поля multipart. Меньше порога SpooledTemporaryFile Starlette
 # (1 МиБ), поэтому загруженный файл не попадает во временный каталог системы.
 UPLOAD_BODY_MAX = imports.MAX_BYTES + 32 * 1024
+
+ICON = Path(__file__).parent / "static" / "icon.svg"
 
 # Статус запуска словами для человека и класс оформления.
 STATUS = {
@@ -451,7 +454,12 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         return await run_in_threadpool(work)
 
+    def favicon(request: Request) -> Response:
+        """Браузеры запрашивают /favicon.ico сами; отдаём тот же SVG, что в <link rel="icon">."""
+        return FileResponse(ICON, media_type="image/svg+xml", headers={"Cache-Control": "max-age=86400"})
+
     return [
+        Route("/favicon.ico", favicon),
         Route("/", home),
         Route("/home/_live", home_live),
         Route("/home/usage", home_usage),
