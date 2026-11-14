@@ -114,6 +114,7 @@ button.danger:hover { background: var(--failed-bg); color: var(--failed); border
 .result-summary ul { padding-left: 1.2rem; }
 .result-summary code { font-family: var(--mono); font-size: 0.9em; padding: 0 0.3rem; border-radius: 5px; background: var(--sunken); }
 .result-reason { margin: 0.6rem 0 0; color: var(--ink-soft); max-width: 46rem; }
+.result-minutes { margin: 0.6rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
 .result-hint { margin: 0.75rem 0 0; padding: 0.6rem 0.85rem; max-width: 46rem; border-radius: 10px; background: var(--partial-bg); color: var(--partial); font-weight: 600; }
 .stderr-tail { margin: 0.6rem 0 0; max-height: 22rem; overflow: auto; font-size: 0.82rem; white-space: pre; }
 

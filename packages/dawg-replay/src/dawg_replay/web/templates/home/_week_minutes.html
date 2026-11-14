@@ -1,0 +1,3 @@
+{% if week and week.runs %}
+<p class="hint">Браузеры DAWG в запусках за 7 дней: {{ week.minutes | minutes }}, примерно{% if week.scripts and week.scripts[0].minutes > 0 %}, больше всего у «{{ week.scripts[0].script }}»{% endif %}. Оценка по событиям запусков{% if usage %}, точный остаток выше из личного кабинета{% endif %}.</p>
+{% endif %}

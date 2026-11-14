@@ -142,3 +142,37 @@ def test_cli_usage_text(week, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert out.startswith("Минуты браузеров DAWG за 7 дн.: ≈ 16 мин, запусков 4")
     assert "ozon-cards  ≈ 15 мин, запусков 2, с браузером 2" in out and "личном кабинете" in out
+
+
+def test_minutes_in_ui(home, kr, write_script):
+    from datetime import timedelta
+
+    from starlette.testclient import TestClient
+
+    from dawg_replay.web.security import Secrets
+    from dawg_replay.web.server import create_app
+
+    now = datetime.now(timezone.utc)
+
+    def iso(d):
+        return d.isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+    start = now - timedelta(hours=1)
+    run_id = "20261115-100000-ffffff"
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+        add_run(app, run_id, "ozon-cards", iso(start),
+                {"t": "session", "ts": iso(start), "action": "open", "session_id": "s1"},
+                {"t": "session", "ts": iso(start + timedelta(minutes=3)), "action": "close", "session_id": "s1"},
+                {"t": "session", "ts": iso(start + timedelta(minutes=4)), "action": "open", "session_id": "s2"},
+                finished=iso(start + timedelta(minutes=6)))
+    s = Secrets(port=54341)
+    with TestClient(create_app(home, s, keyring_backend=kr), base_url="http://127.0.0.1:54341", follow_redirects=False) as c:
+        assert c.get(f"/?token={s.token}").status_code == 303
+        h = c.get(f"/runs/{run_id}").text
+        assert "Браузеры DAWG: ≈ 5,0 мин за 2 сессии, примерно." in h
+        assert "У 1 нет события закрытия" in h
+        assert "Браузеры DAWG за 7 дней: ≈ 5,0 мин, примерно" in c.get("/scripts/ozon-cards").text
+        h = c.get("/home/usage").text  # ключа нет: точного остатка нет, оценка есть
+        assert "Браузеры DAWG в запусках за 7 дней: ≈ 5,0 мин, примерно, больше всего у «ozon-cards»" in h
+        assert "точный остаток выше" not in h and "Ключ DAWG не задан" in h

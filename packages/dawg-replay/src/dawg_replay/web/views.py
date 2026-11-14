@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms, imports
+from dawg_replay import forms, imports, minutes
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
@@ -105,6 +105,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["status"] = status_view
     env.filters["number"] = number
     env.filters["plural"] = plural
+    env.filters["minutes"] = minutes.fmt
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
@@ -134,10 +135,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def home_usage(request: Request) -> Response:
         """Минуты и браузеры DAWG отдельным запросом: сеть не задерживает и не ломает главную."""
         with _ui(request).open_app() as app:
+            week = minutes.period(app, days=7).to_dict()  # оценка по запускам, рядом точный остаток
             try:
-                return fragment(request, "home/_usage.html", usage=app.check_api_key())
+                return fragment(request, "home/_usage.html", usage=app.check_api_key(), week=week)
             except ReplayError as e:
-                return fragment(request, "home/_usage.html", error=e.message, code=e.code)
+                return fragment(request, "home/_usage.html", error=e.message, code=e.code, week=week)
 
     # --- Скрипты ---
 
@@ -200,6 +202,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 view = app.script_view(name)
                 ctx = _script_ctx(app, name, preset)
                 meta = home_data.manifest_meta(app, name)
+                view["minutes"] = minutes.period(app, days=7, script=name).to_dict()
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
