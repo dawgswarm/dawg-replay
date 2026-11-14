@@ -130,3 +130,23 @@ def test_when_next():
     assert when_next(datetime(2026, 11, 14, 12, 0), now) == "сегодня 12:00"
     assert when_next("2026-11-15T09:00", now) == "завтра 09:00"
     assert when_next(datetime(2026, 11, 16, 9, 5), now) == "пн 16 ноя 09:05"
+
+
+def test_schedules_block_above_history_and_form_folds(c, secrets_):
+    h = c.get("/scripts/ozon-cards").text
+    assert h.index('id="sched-title"') < h.index('id="runs-title"')
+    frag = c.get("/scripts/ozon-cards/_schedules").text
+    assert '<details class="schedule-add" open>' in frag  # расписаний нет: форма сразу видна
+    r = post(c, secrets_, "/scripts/ozon-cards/schedules", {"_preset": "daily", "_kind": "daily", "_time": "09:00"})
+    assert '<details class="schedule-add">' in r.text  # есть расписание: форма свёрнута
+    r = post(c, secrets_, "/scripts/ozon-cards/schedules", {"_preset": "daily", "_kind": "daily", "_time": "99:00"})
+    assert '<details class="schedule-add" open>' in r.text  # ошибка: форма открыта с введённым значением
+
+
+def test_run_head_status_before_actions(c, home, kr):
+    with App(home, keyring_backend=kr) as a:
+        p = launch.prepare(a, "ozon-cards", preset="daily")
+        a.runs.finish(p.run.id, status="ok", reason=None)
+    h = c.get(f"/runs/{p.run.id}").text
+    head = h[h.index('id="run-head"'):]
+    assert head.index("run-meta") < head.index("Запустить снова")

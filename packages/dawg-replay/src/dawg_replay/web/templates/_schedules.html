@@ -27,6 +27,10 @@
 {% if not sc.presets %}
   <p class="hint">Регулярный запуск идёт по пресету. Сохраните пресет в <a href="#launch">форме запуска</a>, затем вернитесь сюда.</p>
 {% else %}
+  {# Когда расписания уже есть, форма свёрнута: блок короткий и не отодвигает историю запусков. #}
+  {% set form_open = not sc.entries or sc.error %}
+  <details class="schedule-add"{% if form_open %} open{% endif %}>
+  <summary{% if not sc.entries %} hidden{% endif %}>Добавить расписание</summary>
   <form class="schedule-form" data-schedule-form hx-post="/scripts/{{ sc.name }}/schedules" hx-target="#schedules" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
     <div class="schedule-fields">
       <div class="field">
@@ -70,5 +74,6 @@
       <span class="hint-inline">Время этого компьютера. Он должен быть включён, а вы в системе.</span>
     </div>
   </form>
+  </details>
 {% endif %}
 </div>
