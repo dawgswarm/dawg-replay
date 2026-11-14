@@ -187,7 +187,7 @@ def test_fix_prompt_template_and_masking(make_run, home, kr, monkeypatch):
     )
     rid = make_run(status="failed", reason="exit_code", exit_code=1, stderr=stderr, preset="ноутбуки",
                    params={"query": "ноутбук", "max_pages": 3, "url": "https://x.ru/?sig=SIG999"},
-                   events=_events(errors=["капча на странице 2"]), summary="упал на странице 2")
+                   events=_events(errors=["сайт не пропустил проверку на странице 2"]), summary="упал на странице 2")
     a, rec = _rec(home, kr, rid)
     with a:
         p = repair.fix_prompt(a, rec)
@@ -196,7 +196,7 @@ def test_fix_prompt_template_and_masking(make_run, home, kr, monkeypatch):
         "Скрипт dawg-replay сломался", "dawg-replay-builder", "«Ozon: карточки» (ozon-cards), версия 1",
         "/x/v1/script.py", rid, "пресет «ноутбуки»", 'query = "ноутбук"', "max_pages = 3",
         f"dawg-replay logs {rid} --events", "dawg-replay show ozon-cards --json", "dawg-replay add ./ozon-cards/script.py",
-        "капча на странице 2", "упал на странице 2", "TimeoutError: селектор .tile не найден", "Скрипт завершился с кодом 1.",
+        "сайт не пропустил проверку на странице 2", "упал на странице 2", "TimeoutError: селектор .tile не найден", "Скрипт завершился с кодом 1.",
     ):
         assert part in t, part
     for secret in (API_KEY, "SHEETSECRET77", "tok_abcdef", "SIG999"):
