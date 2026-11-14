@@ -18,8 +18,15 @@
     {% if run.reason and run.reason in REASONS %}
       <p class="result-reason">{{ REASONS[run.reason] }}</p>
     {% elif run.reason == 'exit_code' %}
-      <p class="result-reason">Скрипт завершился с ошибкой (код {{ run.exit_code }}). Что случилось, видно в журнале ниже.</p>
+      <p class="result-reason">Скрипт завершился с ошибкой (код {{ run.exit_code }}).{% if not run.diagnosis and s.log_total %} Что случилось, видно в журнале ниже.{% endif %}</p>
     {% endif %}
     {% if run.error %}<p class="result-reason">{{ run.error }}</p>{% endif %}
+    {% set dg = run.diagnosis %}
+    {% if dg %}
+      {% if dg.hint %}<p class="result-hint">{{ dg.hint }}</p>{% endif %}
+      <p class="result-reason">Скрипт ничего не сообщил{% if not s.log_total %}, журнал пуст{% endif %}. Последние строки вывода ошибок (stderr):</p>
+      <pre class="code stderr-tail"><code>{{ dg.tail | join("\n") }}</code></pre>
+      <p class="hint">Полностью: <a href="/runs/{{ run.id }}/stderr.log" download>скачать stderr.log</a> или <code>dawg-replay logs {{ run.id }}</code> в терминале.</p>
+    {% endif %}
   {% endif %}
 </div>

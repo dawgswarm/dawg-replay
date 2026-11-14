@@ -53,7 +53,7 @@
         {{ cover(a.cover, "s") }}
         <div class="dash-text">
           <span class="dash-att-top"><span class="status status-{{ st.kind }}">{{ st.text }}</span><a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
-          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% endif %}</span>
+          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
         </div>
         <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
       </li>

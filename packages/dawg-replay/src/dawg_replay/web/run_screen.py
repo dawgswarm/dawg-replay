@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import insurance, launch
+from dawg_replay import diagnosis, insurance, launch
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -108,12 +108,15 @@ class Views:
         def run_info() -> dict[str, Any]:
             # Своё подключение к БД на вызов: RunView опрашивают из разных потоков.
             with state.open_app() as a:
-                r = a.runs.get(run_id).to_dict()
+                rec_ = a.runs.get(run_id)
+                r = rec_.to_dict()
+                dg = diagnosis.diagnose(a, rec_)
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
                     "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)
+            info["diagnosis"] = dg  # упал, ничего не сообщив: хвост stderr и подсказка
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
@@ -386,6 +389,25 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         mime = listed[rel].get("mime") or "application/octet-stream"
         return FileResponse(full, media_type=mime, filename=full.name)
 
+    def stderr_log(request: Request) -> Response:
+        """stderr.log запуска целиком, с той же маскировкой секретов, что и хвост на экране."""
+        with request.app.state.ui.open_app() as app:
+            try:
+                rec = app.runs.get(request.path_params["run_id"])
+            except ReplayError as e:
+                return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            path = app.paths.run_dir(rec.id) / "stderr.log"
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            text = diagnosis.mask(text, diagnosis.known_secrets(app, rec.script_name))
+        return Response(
+            text or "stderr пуст\n",
+            media_type="text/plain; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="stderr-{rec.id}.log"'},
+        )
+
     async def open_dir(request: Request) -> Response:
         try:
             view = await run_in_threadpool(get_view, request)
@@ -458,6 +480,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/runs/{run_id}", run_page),
         Route("/runs/{run_id}/events", run_events),
         Route("/runs/{run_id}/files/{path:path}", download),
+        Route("/runs/{run_id}/stderr.log", stderr_log),
         Route("/runs/{run_id}/open-folder", open_dir, methods=["POST"]),
         Route("/runs/{run_id}/cancel", cancel, methods=["POST"]),
         Route("/runs/{run_id}/release", release, methods=["POST"]),

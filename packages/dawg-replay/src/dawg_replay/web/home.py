@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from dawg_replay import insurance
+from dawg_replay import diagnosis, insurance
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
@@ -128,7 +128,11 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
         seen.add(rec.script_name)
         if rec.label in ATTENTION_LABELS:
             title, cov = _title(app, rec, titles)
-            attention.append({"run": rec.to_dict(), "title": title, "cover": cov})
+            why = None
+            if not rec.summary and not rec.error:
+                dg = diagnosis.diagnose(app, rec, lines=10)
+                why = dg["summary"] if dg else None
+            attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": why})
 
     suspects = []
     for rec in recent_recs:

@@ -12,7 +12,7 @@ from typing import Any
 
 from dawg_replay_kit.events import ConsoleSink
 
-from dawg_replay import launch
+from dawg_replay import diagnosis, launch
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
 from dawg_replay.runs import Run
@@ -114,7 +114,14 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         lines.append(f"код выхода {rec.exit_code}; stderr: dawg-replay logs {run_id}")
     if rec.error:
         lines.append(rec.error)
-    return {"run": rec.to_dict(), "run_dir": str(run_dir), "warnings": prepared.warnings}, "\n".join(lines)
+    dg = diagnosis.diagnose(app, rec)
+    if dg:
+        lines.append("скрипт ничего не сообщил; последние строки stderr:")
+        lines += [f"  {line}" for line in dg["tail"]]
+        if dg["hint"]:
+            lines.append(dg["hint"])
+    data = {"run": rec.to_dict(), "run_dir": str(run_dir), "warnings": prepared.warnings, "diagnosis": dg}
+    return data, "\n".join(lines)
 
 
 def _runs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
@@ -167,7 +174,11 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         parts.append(warning)
     parts += ["--- stdout ---", stdout.rstrip("\n")] if stdout else ["--- stdout пуст ---"]
     parts += ["--- stderr ---", stderr.rstrip("\n")] if stderr else ["--- stderr пуст ---"]
-    return {"run": rec.to_dict(), "stdout": stdout, "stderr": stderr, "suspects": suspects}, "\n".join(parts)
+    hint = diagnosis.hint_for(stderr) if rec.status == "failed" else None
+    if hint:
+        parts += ["", hint]
+    data = {"run": rec.to_dict(), "stdout": stdout, "stderr": stderr, "suspects": suspects, "hint": hint}
+    return data, "\n".join(parts)
 
 
 def _cancel(app: App, args: argparse.Namespace) -> tuple[dict, str]:
