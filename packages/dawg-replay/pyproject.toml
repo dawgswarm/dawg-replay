@@ -1,8 +1,10 @@
 [project]
 name = "dawg-replay"
-version = "0.1.0"
+version = "1.0.0"
 description = "Локальное приложение для запуска скриптов сбора данных через браузеры DAWG"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [{ name = "dawgswarm" }]
 classifiers = [
@@ -40,5 +42,5 @@ dawg-replay = "dawg_replay.cli:main"
 dawg-replay-kit = { workspace = true }
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"

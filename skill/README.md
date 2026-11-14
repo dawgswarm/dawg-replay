@@ -88,3 +88,7 @@ claude --plugin-dir ./skill
 ```
 
 `skills/dawg-replay-builder/contract.md` это копия `docs/contract.md` из репозитория `dawg-replay`; тест `test_skill.py` следит, чтобы они совпадали. После правки контракта скопируйте файл заново.
+
+## Лицензия
+
+MIT, текст в [LICENSE](LICENSE).
