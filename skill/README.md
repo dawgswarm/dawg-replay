@@ -31,12 +31,14 @@ claude
 
 ## Claude Code
 
+В сессии Claude Code:
+
 ```
-claude plugin marketplace add dawgswarm/dawg-replay-builder
-claude plugin install dawg-replay-builder@dawg-replay
+/plugin marketplace add dawgswarm/dawg-replay-builder
+/plugin install dawg-replay-builder@dawg-replay
 ```
 
-Затем в сессии Claude Code: `/plugin configure dawg-replay-builder` и введите ключ DAWG. Ключ хранится в системном хранилище паролей, в файлы настроек не попадает. Если устанавливать через `/plugin` внутри сессии, окно ввода ключа откроется само.
+При установке откроется окно ввода ключа DAWG. Ключ хранится в системном хранилище паролей, в файлы настроек не попадает. То же из терминала: `claude plugin marketplace add dawgswarm/dawg-replay-builder` и `claude plugin install dawg-replay-builder@dawg-replay`, тогда ключ вводится в сессии командой `/plugin configure dawg-replay-builder`.
 
 Проверка: `/mcp` показывает сервер `dawg` плагина в статусе connected, `/plugin` показывает плагин без ошибок. Скилл срабатывает сам на просьбы вроде «собирай с сайта...», вызвать явно: `/dawg-replay-builder:dawg-replay-builder`.
 
@@ -47,23 +49,19 @@ claude plugin install dawg-replay-builder@dawg-replay
 
 Скиллу всё равно, какой сервер остался: он ищет инструменты `browser_*` с любым префиксом.
 
-Локальная проверка до публикации, из корня репозитория `dawg_replay`:
-
-```
-claude plugin validate ./skill
-claude --plugin-dir ./skill
-```
+Обновление: `/plugin marketplace update dawg-replay`.
 
 ## Codex
 
-1. Скопируйте папку скилла в каталог скиллов пользователя:
+1. Скачайте плагин и скопируйте папку скилла в каталог скиллов пользователя:
 
    ```
+   git clone --depth 1 https://github.com/dawgswarm/dawg-replay-builder ~/dawg-replay-builder
    mkdir -p ~/.agents/skills
-   cp -R skills/dawg-replay-builder ~/.agents/skills/
+   cp -R ~/dawg-replay-builder/skills/dawg-replay-builder ~/.agents/skills/
    ```
 
-   Для одного проекта вместо этого: `<проект>/.agents/skills/dawg-replay-builder`.
+   Без git: на странице https://github.com/dawgswarm/dawg-replay-builder нажмите Code, Download ZIP и скопируйте из архива папку `skills/dawg-replay-builder`. На Windows каталог скиллов: `%USERPROFILE%\.agents\skills`. Для одного проекта вместо этого: `<проект>/.agents/skills/dawg-replay-builder`.
 
 2. Подключите dawg-mcp в `~/.codex/config.toml`:
 
@@ -78,6 +76,15 @@ claude --plugin-dir ./skill
 
 3. Перезапустите Codex. Проверка: `/skills` показывает `dawg-replay-builder`, `/mcp` показывает сервер `dawg`. Вызвать явно: `$dawg-replay-builder`.
 
-## Обновление контракта
+Обновление: `git -C ~/dawg-replay-builder pull` и снова команда `cp` из шага 1.
+
+## Разработка
+
+Плагин живёт в папке `skill/` репозитория `dawgswarm/dawg-replay`. Проверка из рабочей копии, из корня репозитория:
+
+```
+claude plugin validate ./skill
+claude --plugin-dir ./skill
+```
 
 `skills/dawg-replay-builder/contract.md` это копия `docs/contract.md` из репозитория `dawg-replay`; тест `test_skill.py` следит, чтобы они совпадали. После правки контракта скопируйте файл заново.
