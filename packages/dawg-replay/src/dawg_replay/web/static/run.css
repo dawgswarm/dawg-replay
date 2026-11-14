@@ -16,8 +16,10 @@
   justify-content: space-between;
   gap: 0.75rem 1.5rem;
 }
+.run-title-main { flex: 1 1 24rem; min-width: 0; }
 .run-title h1 { margin-bottom: 0.65rem; min-width: 0; }
 .run-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.run-head > .hint { margin-top: 0.6rem; }
 
 .run-meta {
   display: flex;
