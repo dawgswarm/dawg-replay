@@ -426,11 +426,10 @@ def _wait_working(home, run_id, timeout=30):
 
 
 def _alive(pid):
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True
+    # os.kill(pid, 0) на Windows завершил бы процесс; проверка приложения работает везде.
+    from dawg_replay.launch import pid_alive
+
+    return pid_alive(pid)
 
 
 @pytest.fixture

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from dawg_replay import launch
+
 from dawg_replay.runner import (
     REASON_CANCELLED,
     REASON_EXIT_CODE,
@@ -82,13 +84,8 @@ def wait_for(predicate, timeout=10.0):
 
 
 def alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    # os.kill(pid, 0) на Windows не проверка, а TerminateProcess: берём проверку приложения.
+    return launch.pid_alive(pid)
 
 
 # --- итог по 5.4 -------------------------------------------------------------

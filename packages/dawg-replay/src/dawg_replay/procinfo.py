@@ -43,7 +43,9 @@ def boot_time() -> float | None:
         if _IS_WINDOWS:
             import ctypes
 
-            return time.time() - ctypes.windll.kernel32.GetTickCount64() / 1000.0  # type: ignore[attr-defined]
+            tick = ctypes.windll.kernel32.GetTickCount64  # type: ignore[attr-defined]
+            tick.restype = ctypes.c_ulonglong  # без этого ctypes обрежет до int: ошибка после 24.8 дня работы
+            return time.time() - tick() / 1000.0
         if os.path.exists("/proc/stat"):
             with open("/proc/stat", encoding="ascii") as f:
                 for line in f:
@@ -115,6 +117,12 @@ def _win_start_time(pid: int) -> float | None:
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     STILL_ACTIVE = 259
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+    # Типы явно: по умолчанию ctypes возвращает int, и HANDLE на 64-битной Windows обрезается.
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.GetProcessTimes.argtypes = (wintypes.HANDLE,) + (ctypes.POINTER(wintypes.FILETIME),) * 4
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return None

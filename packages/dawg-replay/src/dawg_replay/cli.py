@@ -87,7 +87,24 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _utf8_stdio() -> None:
+    """На Windows вывод в трубу идёт в кодировке ANSI (cp1252), кириллица на ней падает.
+
+    Агент и скрипты читают вывод CLI как UTF-8, поэтому пишем UTF-8 везде.
+    """
+    if sys.platform != "win32":
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
     if not hasattr(args, "json"):
