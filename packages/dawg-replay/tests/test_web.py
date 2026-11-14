@@ -156,7 +156,7 @@ def test_csrf_token_is_in_page(logged, secrets_):
 
 def test_scripts_empty(logged):
     html = logged.get("/scripts").text
-    assert "Скриптов пока нет" in html and "dawg-replay add script.py" in html
+    assert "Скриптов пока нет" in html and "dawg-replay add script.py" in html and "/scripts/_import" in html
 
 
 def test_scripts_list_with_last_run(logged, home, write_script):
@@ -678,3 +678,187 @@ def test_header_navigation_has_settings_and_one_theme_button(logged):
     nav = h.split('<nav class="nav"', 1)[1].split("</nav>", 1)[0]
     assert '>Главная<' in nav and '>Скрипты<' in nav and 'aria-current="page">Настройки<' in nav
     assert h.count("data-theme-toggle") == 1 and 'aria-label="Переключить тему' in h
+
+
+# --- импорт скрипта ---
+
+
+def upload(c, secrets_, data: bytes, filename="script.py", **kw):
+    return c.post(
+        "/scripts/_import",
+        files={"file": (filename, data, "text/x-python")},
+        headers={"Origin": BASE, "X-CSRF-Token": secrets_.csrf, **kw},
+    )
+
+
+def staged(home):
+    d = home / "imports"
+    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+
+def test_import_new_script(logged, secrets_, home, write_script):
+    assert "Добавить скрипт" in logged.get("/scripts").text
+    page_ = logged.get("/scripts/_import").text
+    assert "data-dropzone" in page_ and "надёжного источника" in page_
+    data = write_script(version=1).read_bytes()
+    r = upload(logged, secrets_, data)
+    assert r.status_code == 204
+    card_url = r.headers["hx-redirect"]
+    import_id = card_url.rsplit("/", 1)[1]
+    assert staged(home) == [f"{import_id}.py"]
+    with App(home) as app:
+        assert app.registry.list() == []  # шаг 1 ничего не регистрирует
+
+    card = logged.get(card_url).text
+    assert "Ozon: карточки" in card and "версия 1" in card
+    assert "query" in card and "max_pages" in card and "dawg-replay-kit&gt;=1,&lt;2" in card
+    assert "Python &gt;=3.10" in card and "надёжного источника" in card
+    assert "вместо" not in card
+
+    r = post(logged, f"{card_url}/add", csrf=secrets_.csrf)
+    assert r.status_code == 204 and r.headers["hx-redirect"] == "/scripts/ozon-cards"
+    with App(home) as app:
+        assert app.registry.get("ozon-cards").current_version == 1
+    assert staged(home) == []
+    assert logged.get(card_url).status_code == 404  # id одноразовый
+
+
+def test_import_new_version_with_diff(logged, secrets_, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+    v2 = write_script(version=2).read_text(encoding="utf-8").replace("# default = 5\n", "# default = 7\n").replace(
+        '# name = "sheet_token"\n# type = "secret"\n# title = "Токен"\n', '# name = "city"\n# type = "string"\n# title = "Город"\n'
+    )
+    r = upload(logged, secrets_, v2.encode())
+    assert r.status_code == 204, r.text
+    card = logged.get(r.headers["hx-redirect"]).text
+    assert "Новая версия 2 вместо 1" in card
+    assert "добавлен</span> <code>city</code>" in card
+    assert "удалён</span> <code>sheet_token</code>" in card
+    assert "изменён</span> <code>max_pages</code>" in card and "по умолчанию: 5 → 7" in card
+    assert "Показать отличия кода" in card
+    assert '<span class="diff-del">-# version = 1</span>' in card and '<span class="diff-add">+# version = 2</span>' in card
+    assert "Добавить версию 2" in card
+
+
+def test_import_same_version_same_content(logged, secrets_, home, write_script):
+    f = write_script(version=1)
+    with App(home) as app:
+        app.registry.add(f)
+    r = upload(logged, secrets_, f.read_bytes())
+    card = logged.get(r.headers["hx-redirect"]).text
+    assert "уже есть в библиотеке с тем же содержимым" in card and "/add" not in card
+
+
+def test_import_broken_manifest(logged, secrets_, home, write_script):
+    data = write_script(version=1).read_text(encoding="utf-8").replace('# title = "Ozon: карточки"\n', "").replace("# version = 1", "# version = 0")
+    r = upload(logged, secrets_, data.encode(), filename="broken.py")
+    assert r.status_code == 200 and "hx-redirect" not in r.headers
+    assert "broken.py: манифест не прошёл проверку, ошибок: 2" in r.text
+    assert "нет обязательного поля `title`" in r.text and "<code>version</code>" in r.text
+    assert staged(home) == []
+
+
+def test_import_too_large(logged, secrets_, home, write_script):
+    big = write_script(version=1).read_bytes() + b"#" * 1_000_000
+    r = upload(logged, secrets_, big)
+    assert "больше 1 МБ" in r.text and staged(home) == []
+    r = upload(logged, secrets_, b"#" * 2_000_000)  # тело больше предела: отказ до разбора multipart
+    assert "больше 1 МБ" in r.text and staged(home) == []
+
+
+def test_import_encoding(logged, secrets_, home, write_script):
+    text = write_script(version=1).read_text(encoding="utf-8")
+    r = upload(logged, secrets_, text.encode("cp1251"), filename="cp.py")
+    assert "файл не в UTF-8: cp.py" in r.text.replace("Файл", "файл") and staged(home) == []
+    r = upload(logged, secrets_, b"\xef\xbb\xbf" + text.encode())  # BOM допускается, как в validate
+    assert r.status_code == 204
+
+
+def test_import_version_not_greater(logged, secrets_, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(version=2))
+    r = upload(logged, secrets_, write_script(version=1).read_bytes())
+    assert "уже есть версия 2, новая должна быть больше" in r.text
+    other = write_script(version=2).read_text(encoding="utf-8") + "\n# правка\n"
+    r = upload(logged, secrets_, other.encode())
+    assert "уже зарегистрирована с другим содержимым" in r.text
+    assert staged(home) == []
+
+
+def test_import_rejects_other_files(logged, secrets_, home, write_script):
+    data = write_script(version=1).read_bytes()
+    assert "нужен один файл .py" in upload(logged, secrets_, data, filename="script.txt").text
+    assert "пустой" in upload(logged, secrets_, b"").text
+    r = logged.post(
+        "/scripts/_import",
+        files=[("file", ("a.py", data, "text/x-python")), ("file", ("b.py", data, "text/x-python"))],
+        headers={"Origin": BASE, "X-CSRF-Token": secrets_.csrf},
+    )
+    assert "Загрузите один файл .py" in r.text
+    # имя файла из браузера не становится путём
+    r = upload(logged, secrets_, data, filename="../../etc/evil.py")
+    assert r.status_code == 204 and not (home.parent / "etc").exists()
+    assert all(len(n) == 25 for n in staged(home))
+
+
+def test_import_needs_csrf_and_origin(logged, secrets_, home, write_script):
+    data = write_script(version=1).read_bytes()
+    r = logged.post("/scripts/_import", files={"file": ("s.py", data)}, headers={"Origin": BASE})
+    assert r.status_code == 403
+    r = logged.post("/scripts/_import", files={"file": ("s.py", data)}, headers={"Origin": "http://evil.test", "X-CSRF-Token": secrets_.csrf})
+    assert r.status_code == 403 and staged(home) == []
+
+
+def test_import_expired_and_bad_id(logged, secrets_, home, write_script):
+    from dawg_replay import imports
+
+    r = upload(logged, secrets_, write_script(version=1).read_bytes())
+    url = r.headers["hx-redirect"]
+    path = home / "imports" / (url.rsplit("/", 1)[1] + ".py")
+    old = time.time() - imports.TTL_SECONDS - 5
+    os.utime(path, (old, old))
+    r = logged.get(url)
+    assert r.status_code == 404 and "устарел" in r.text and not path.exists()
+    assert logged.get("/scripts/_import/..%2F..%2Fdb").status_code == 404
+    r = post(logged, "/scripts/_import/AAAAAAAAAAAAAAAAAAAAAA/add", csrf=secrets_.csrf)
+    assert "устарел" in r.text
+
+
+# --- удаление скрипта ---
+
+
+def test_delete_script_with_confirmation(logged, secrets_, home, kr, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+        app.registry.add(write_script(version=2))
+        app.set_secret("ozon-cards", "sheet_token", "tok-1")
+        app.save_preset("ozon-cards", "base", {"query": "a"})
+    page_ = logged.get("/scripts/ozon-cards").text
+    assert "Удалить скрипт" in page_ and 'name="_confirm"' in page_
+
+    r = post(logged, "/scripts/ozon-cards/delete", {"_confirm": "ozon"}, csrf=secrets_.csrf)
+    assert "введите имя скрипта: ozon-cards" in r.text and "hx-redirect" not in r.headers
+    with App(home) as app:
+        assert app.registry.get("ozon-cards")
+
+    r = post(logged, "/scripts/ozon-cards/delete", {"_confirm": "ozon-cards"}, csrf=secrets_.csrf)
+    assert r.status_code == 204 and r.headers["hx-redirect"] == "/scripts?removed=ozon-cards"
+    with App(home) as app:
+        assert app.registry.list() == []
+    assert ("dawg-replay", "secret:ozon-cards:sheet_token") not in kr.store
+    assert not (home / "scripts" / "ozon-cards").exists()
+    assert "Скрипт ozon-cards удалён" in logged.get("/scripts?removed=ozon-cards").text
+
+
+def test_delete_refused_while_running(logged, secrets_, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+        app.runs.reserve(
+            run_id="20261114-000000-aaaaaa", script_name="ozon-cards", script_version=1, script_path="/x/script.py",
+            draft=False, preset=None, params={}, timeout_seconds=60, limit=10,
+        )
+    r = post(logged, "/scripts/ozon-cards/delete", {"_confirm": "ozon-cards"}, csrf=secrets_.csrf)
+    assert "сейчас запущен (20261114-000000-aaaaaa)" in r.text and "hx-redirect" not in r.headers
+    with App(home) as app:
+        assert app.registry.get("ozon-cards")

@@ -6,6 +6,8 @@
     <h1>Скрипты</h1>
     <p class="lead">Каждый скрипт повторяет путь по сайту, который один раз прошёл агент. Запустите его с карточки: со своими параметрами или готовым пресетом.</p>
   </div>
+  <div class="lib-side">
+  <a class="button secondary" href="/scripts/_import">Добавить скрипт</a>
   {% if lib.sites %}
   <nav class="chips lib-filters" aria-label="Сайт">
     <a class="chip{% if not lib.site %} chip-on{% endif %}" href="/scripts{% if lib.query %}?q={{ lib.query | urlencode }}{% endif %}"{% if not lib.site %} aria-current="true"{% endif %}>Все</a>
@@ -14,6 +16,8 @@
     {% endfor %}
   </nav>
   {% endif %}
+  </div>
 </div>
+{% if removed %}<p class="notice notice-ok" role="status">Скрипт {{ removed }} удалён. История его запусков осталась на главной.</p>{% endif %}
 {% include "_scripts_list.html" %}
 {% endblock %}

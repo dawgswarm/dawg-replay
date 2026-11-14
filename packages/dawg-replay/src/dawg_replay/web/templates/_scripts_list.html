@@ -3,9 +3,9 @@
 {% if not lib.total %}
   <div class="empty">
     <h2>Скриптов пока нет</h2>
-    <p>Попросите агента собрать скрипт под вашу задачу. Готовый файл добавьте командой</p>
-    <pre class="command">dawg-replay add script.py</pre>
-    <p>и он появится здесь.</p>
+    <p>Попросите агента собрать скрипт под вашу задачу. Готовый файл добавьте здесь</p>
+    <p><a class="button" href="/scripts/_import">Добавить скрипт</a></p>
+    <p>или командой <code>dawg-replay add script.py</code>, и он появится в этом списке.</p>
   </div>
 {% elif not lib.cards %}
   <div class="empty">

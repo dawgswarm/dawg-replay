@@ -89,6 +89,17 @@ class AddResult:
         }
 
 
+@dataclass(frozen=True)
+class Check:
+    """Итог проверки файла перед регистрацией (Registry.check)."""
+
+    status: str  # "added" (будет добавлен) или "unchanged" (та же версия с тем же содержимым)
+    manifest: Manifest
+    text: str
+    sha256: str
+    previous_version: int | None  # текущая версия скрипта с этим name, если он уже есть
+
+
 def invalid_manifest(e: ManifestError, file: str | Path) -> ReplayError:
     return ReplayError(
         "invalid_manifest",
@@ -197,37 +208,57 @@ class Registry:
             raise ReplayError("file_not_found", f"файл не найден: {src}") from None
         except OSError as e:
             raise ReplayError("file_unreadable", f"не удалось прочитать {src}: {e.strerror}") from None
+        return self.add_bytes(data, src)
+
+    def check(self, data: bytes, label: str | Path) -> Check:
+        """Всё, что проверяет add, без записи: манифест, кодировка, правила версий.
+        Ошибки те же (`invalid_manifest`, `bad_encoding`, `version_exists`, `version_too_low`);
+        `label` подставляется в текст вместо пути файла."""
         try:
-            manifest = parse_manifest(data.decode("utf-8-sig"))
+            text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
-            raise ReplayError("bad_encoding", f"файл не в UTF-8: {src}") from None
+            raise ReplayError("bad_encoding", f"файл не в UTF-8: {label}") from None
+        try:
+            manifest = parse_manifest(text)
         except ManifestError as e:
-            raise invalid_manifest(e, src) from None
+            raise invalid_manifest(e, label) from None
 
         name, version = manifest.name, manifest.version
         sha = hashlib.sha256(data).hexdigest()
         existing = self._db.execute("SELECT * FROM scripts WHERE name = ?", (name,)).fetchone()
         previous = existing["current_version"] if existing else None
+        status = "added"
 
         if existing:
             same = self._db.execute(
                 "SELECT sha256 FROM script_versions WHERE name = ? AND version = ?", (name, version)
             ).fetchone()
             if same is not None:
-                if same["sha256"] == sha:
-                    return AddResult("unchanged", self.get(name), self.version(name, version), previous)
-                raise ReplayError(
-                    "version_exists",
-                    f"версия {version} скрипта `{name}` уже зарегистрирована с другим содержимым. "
-                    "Поднимите `version` в манифесте",
-                )
-            top = self._db.execute("SELECT MAX(version) FROM script_versions WHERE name = ?", (name,)).fetchone()[0]
-            if version < top:
-                raise ReplayError(
-                    "version_too_low",
-                    f"у скрипта `{name}` уже есть версия {top}, новая должна быть больше. "
-                    f"Поставьте `version = {top + 1}`",
-                )
+                if same["sha256"] != sha:
+                    raise ReplayError(
+                        "version_exists",
+                        f"версия {version} скрипта `{name}` уже зарегистрирована с другим содержимым. "
+                        "Поднимите `version` в манифесте",
+                    )
+                status = "unchanged"
+            else:
+                top = self._db.execute("SELECT MAX(version) FROM script_versions WHERE name = ?", (name,)).fetchone()[0]
+                if version < top:
+                    raise ReplayError(
+                        "version_too_low",
+                        f"у скрипта `{name}` уже есть версия {top}, новая должна быть больше. "
+                        f"Поставьте `version = {top + 1}`",
+                    )
+        return Check(status=status, manifest=manifest, text=text, sha256=sha, previous_version=previous)
+
+    def add_bytes(self, data: bytes, label: str | Path) -> AddResult:
+        """Регистрация содержимого файла: проверка как в check, затем запись версии."""
+        chk = self.check(data, label)
+        manifest, sha, previous = chk.manifest, chk.sha256, chk.previous_version
+        name, version = manifest.name, manifest.version
+        if chk.status == "unchanged":
+            return AddResult("unchanged", self.get(name), self.version(name, version), previous)
+        existing = previous is not None
 
         dest = self._paths.script_file(name, version)
         dest.parent.mkdir(parents=True, exist_ok=True)
