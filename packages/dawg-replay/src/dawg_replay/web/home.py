@@ -149,9 +149,13 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
             title, _ = _title(app, rec, titles)
             suspects.append({"run": rec.to_dict(), "title": title, "suspects": pending})
 
+    since_block = since_last_visit(app, since, titles)
+    if since_block:  # запуск уже показан в «С прошлого визита»: во «Требует внимания» не повторяем
+        shown = {i["run"]["id"] for i in since_block["items"]}
+        attention = [a for a in attention if a["run"]["id"] not in shown]
     return {"running": running, "attention": attention[:5], "recent": recent, "suspects": suspects,
             "quick": quick_presets(app, recent_recs, titles), "upcoming": upcoming(app, titles),
-            "since": since_last_visit(app, since, titles), "waiting": waiting}
+            "since": since_block, "waiting": waiting}
 
 
 UPCOMING = 5

@@ -287,8 +287,9 @@ def test_home_attention_and_since_last_visit(client, make_run, home, kr):
     since = h.split("С прошлого визита", 1)[1].split("Идут сейчас", 1)[0]
     assert f"/runs/{bad}#repair" in since and f"/runs/{empty}#repair" in since and "похоже, сайт поменялся" in since
     assert since.count("Починить с агентом") == 2  # отменённый не попал
-    att = h.split("Требует внимания", 1)[1].split("Последние запуски", 1)[0]
-    assert f"/runs/{empty}#repair" in att and "ничего не собрал" in att  # последний запуск скрипта: тихая поломка
+    # Уже показанное в «С прошлого визита» во «Требует внимания» не повторяется.
+    att = h.split("Требует внимания", 1)[1].split("Последние запуски", 1)[0] if "Требует внимания" in h else ""
+    assert f"/runs/{empty}#repair" not in att
     # Тот же визит: граница не сдвинулась, блок остаётся и в живом обновлении.
     assert "С прошлого визита" in client.get("/").text
     assert "С прошлого визита" in client.get("/home/_live").text
@@ -296,4 +297,8 @@ def test_home_attention_and_since_last_visit(client, make_run, home, kr):
 
 def test_home_first_visit_has_no_since_block(client, make_run):
     make_run(status="failed", reason="exit_code", exit_code=1)
-    assert "С прошлого визита" not in client.get("/").text
+    empty = make_run(events=_events(rows=0))
+    h = client.get("/").text
+    assert "С прошлого визита" not in h
+    att = h.split("Требует внимания", 1)[1].split("Последние запуски", 1)[0]
+    assert f"/runs/{empty}#repair" in att and "ничего не собрал" in att  # последний запуск скрипта: тихая поломка
