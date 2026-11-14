@@ -102,7 +102,7 @@ def _list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     if not scripts:
         text = "скриптов нет; зарегистрировать: dawg-replay add script.py"
     else:
-        text = "\n".join(f"{s.name}  v{s.current_version}  {s.title}" for s in scripts)
+        text = "\n".join(f"{s.name}  v{s.current_version}  {s.title}" + (f"  ({s.site})" if s.site else "") for s in scripts)
     return {"scripts": [s.to_dict() for s in scripts]}, text
 
 
@@ -112,6 +112,10 @@ def _show(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     lines = [f"{m['name']} v{m['version']}: {m['title']}"]
     if m.get("description"):
         lines.append(m["description"])
+    if m.get("site"):
+        lines.append(f"сайт: {m['site']}")
+    if m.get("tags"):
+        lines.append(f"метки: {', '.join(m['tags'])}")
     lines.append(f"файл: {info['path']}")
     lines.append(f"версии: {', '.join(str(v) for v in info['versions'])}")
     lines.append(f"таймаут: {m['timeout_minutes']} мин")

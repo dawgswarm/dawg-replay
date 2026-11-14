@@ -46,7 +46,7 @@ browser_navigate(url=<страница выдачи или нужная стра
 ```python
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script

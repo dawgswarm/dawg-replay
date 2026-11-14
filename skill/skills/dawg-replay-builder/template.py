@@ -1,13 +1,16 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = 1
+# contract = "1.1"
 # name = "example-search-cards"
 # title = "Пример: карточки по поисковому запросу"
 # description = "Обходит выдачу сайта по запросу и собирает название, цену, рейтинг и ссылку."
+# # site: как сайт называют люди ("Ozon", "Wildberries", "Яндекс Маркет"); tags: 1-3 метки о том, что собирается
+# site = "Пример"
+# tags = ["Цены", "Карточки"]
 # version = 1
 # timeout_minutes = 30
 #

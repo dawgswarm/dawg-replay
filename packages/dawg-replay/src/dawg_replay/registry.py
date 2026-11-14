@@ -28,6 +28,8 @@ class Version:
     path: Path
     added_at: str
     current: bool
+    site: str | None = None
+    tags: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +37,8 @@ class Version:
             "version": self.version,
             "title": self.title,
             "description": self.description,
+            "site": self.site,
+            "tags": list(self.tags),
             "contract": self.contract,
             "sha256": self.sha256,
             "path": str(self.path),
@@ -52,6 +56,8 @@ class Script:
     versions_count: int
     created_at: str
     updated_at: str
+    site: str | None = None  # из манифеста текущей версии (контракт 1.1)
+    tags: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -59,6 +65,8 @@ class Script:
             "current_version": self.current_version,
             "title": self.title,
             "description": self.description,
+            "site": self.site,
+            "tags": list(self.tags),
             "versions_count": self.versions_count,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -89,6 +97,15 @@ def invalid_manifest(e: ManifestError, file: str | Path) -> ReplayError:
     )
 
 
+def _site_tags(manifest_json: str) -> dict[str, Any]:
+    """site и tags из сохранённого манифеста; у версий до контракта 1.1 их нет."""
+    try:
+        m = json.loads(manifest_json)
+    except (TypeError, ValueError):
+        return {}
+    return {"site": m.get("site"), "tags": tuple(m.get("tags") or ())}
+
+
 class Registry:
     def __init__(self, conn: sqlite3.Connection, paths: Paths):
         self._db = conn
@@ -108,7 +125,7 @@ class Registry:
 
     def _script(self, row: sqlite3.Row) -> Script:
         v = self._db.execute(
-            "SELECT title, description FROM script_versions WHERE name = ? AND version = ?",
+            "SELECT title, description, manifest_json FROM script_versions WHERE name = ? AND version = ?",
             (row["name"], row["current_version"]),
         ).fetchone()
         count = self._db.execute("SELECT COUNT(*) FROM script_versions WHERE name = ?", (row["name"],)).fetchone()[0]
@@ -120,6 +137,7 @@ class Registry:
             versions_count=count,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            **_site_tags(v["manifest_json"]),
         )
 
     def list(self) -> list[Script]:
@@ -156,6 +174,7 @@ class Registry:
             path=home / row["path"],  # путь хранится относительно каталога данных
             added_at=row["added_at"],
             current=row["version"] == current,
+            **_site_tags(row["manifest_json"]),
         )
 
     def manifest(self, name: str, version: int | None = None) -> Manifest:

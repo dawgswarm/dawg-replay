@@ -36,8 +36,9 @@ def wb():
 def test_manifest_valid():
     m = load_manifest(SCRIPT)
     assert m.name == "wb-search-cards"
+    assert (m.contract, m.contract_minor) == (1, 1) and m.site == "Wildberries" and m.tags
     assert [p.name for p in m.params] == ["query", "max_pages", "sort", "geo"]
-    assert "dawg-replay-kit>=1,<2" in m.dependencies
+    assert "dawg-replay-kit>=1.1,<2" in m.dependencies
 
 
 def test_card_row_takes_cheapest_size_in_rubles(wb):

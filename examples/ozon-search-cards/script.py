@@ -1,14 +1,16 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = 1
+# contract = "1.1"
 # name = "ozon-search-cards"
 # title = "Ozon: карточки по поисковому запросу"
 # description = "Обходит выдачу Ozon по запросу и собирает название, цену, старую цену, рейтинг и число отзывов. Продавца нет: в выдаче Ozon его нет, а страница товара отдаёт капчу, поэтому скрипт на страницы товаров не ходит."
-# version = 3
+# site = "Ozon"
+# tags = ["Цены", "Карточки"]
+# version = 4
 # timeout_minutes = 30
 #
 # [[params]]

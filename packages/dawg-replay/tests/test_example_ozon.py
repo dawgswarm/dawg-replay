@@ -41,6 +41,7 @@ def oz():
 def test_manifest_valid():
     m = load_manifest(SCRIPT)
     assert m.name == "ozon-search-cards"
+    assert (m.contract, m.contract_minor) == (1, 1) and m.site == "Ozon" and m.tags
     assert [p.name for p in m.params] == ["query", "max_pages", "sort", "geo"]
     assert "продавца нет" in m.description.lower()
 
