@@ -57,6 +57,7 @@ from dawg_replay.runner import (
     soft_stop,
 )
 from dawg_replay.runs import REASON_LOST, REASON_START_ERROR, Run, new_run_id, parse_ts
+from dawg_replay.secrets import has_control_chars
 from dawg_replay.values import parse_set_args, read_params_file
 
 if TYPE_CHECKING:
@@ -194,7 +195,9 @@ def prepare(
         if p.type != "secret":
             continue
         value = app.secrets.get_secret(manifest.name, p.name)
-        if value is not None:
+        if value is not None and has_control_chars(value):
+            missing.append(f"`{p.name}`: секрет «{p.title}» повреждён, задайте заново: dawg-replay secret set {manifest.name} {p.name}")
+        elif value is not None:
             values[p.name] = value
         elif p.required:
             missing.append(f"`{p.name}`: обязательный секрет «{p.title}» не задан: dawg-replay secret set {manifest.name} {p.name}")

@@ -342,6 +342,31 @@ def test_run_from_ui_starts_and_finishes(logged, secrets_, home, write_script, m
         assert app.runs.get(run_id).supervisor_pid == os.getpid()  # супервизор: процесс сервера
 
 
+def test_corrupt_key_in_settings_and_run(logged, secrets_, home, kr, write_script, tmp_path):
+    kr.set_password("dawg-replay", "dawg-api-key", "\x1b[2~SECRET")
+    html = logged.get("/settings").text
+    assert "ключ повреждён" in html and "Проверить сохранённый ключ" not in html and "SECRET" not in html
+    r = post(logged, "/settings/key/check", csrf=secrets_.csrf)
+    assert "ключ DAWG повреждён, задайте заново" in r.text
+    f = tmp_path / "ui-run.py"
+    f.write_text(MANIFEST + textwrap.dedent(SCRIPT), encoding="utf-8")
+    with App(home) as app:
+        app.registry.add(f)
+    r = post(logged, "/scripts/ui-run/run", {"seconds": "0"}, csrf=secrets_.csrf)
+    assert r.status_code == 200 and "ключ DAWG повреждён, задайте заново: dawg-replay config set-key" in r.text
+    with App(home) as app:
+        assert app.runs.list() == []
+
+
+def test_settings_key_form_strips_paste_markers(logged, secrets_, kr, fake, with_fake_base):
+    r = post(logged, "/settings/key", {"api_key": "\x1b[200~" + KEY + "\x1b[201~"}, csrf=secrets_.csrf)
+    assert "Ключ проверен и сохранён" in r.text
+    assert kr.store[("dawg-replay", "dawg-api-key")] == KEY
+    r = post(logged, "/settings/key", {"api_key": "a\x01SECRET"}, csrf=secrets_.csrf)
+    assert "невидимые управляющие символы" in r.text and "pbpaste" not in r.text and "SECRET" not in r.text
+    assert kr.store[("dawg-replay", "dawg-api-key")] == KEY
+
+
 def test_run_from_ui_error_shown(logged, secrets_):
     r = post(logged, "/scripts/nope/run", {}, csrf=secrets_.csrf)
     assert r.status_code == 200 and "не зарегистрирован" in r.text

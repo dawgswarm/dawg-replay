@@ -187,6 +187,24 @@ def test_secret_cannot_be_passed_on_command_line(cli, registered):
     assert "secret set" in data["error"]["message"]
 
 
+def test_corrupt_api_key_blocks_run(cli, registered, kr, home):
+    kr.set_password("dawg-replay", "dawg-api-key", "\x1b[2~SECRET")
+    code, data = cli("run", registered, "--set", "query=x", "--follow")
+    assert code == 1 and data["error"]["code"] == "corrupt_api_key"
+    assert data["error"]["message"] == "ключ DAWG повреждён, задайте заново: dawg-replay config set-key"
+    assert "SECRET" not in json.dumps(data)
+    with App(home) as app:
+        assert app.runs.list() == []
+
+
+def test_corrupt_secret_blocks_run(cli, registered, kr):
+    kr.set_password("dawg-replay", "secret:launch-test:token", "tok\x01SECRET")
+    code, data = cli("run", registered, "--set", "query=x", "--follow")
+    assert code == 1 and data["error"]["code"] == "bad_params"
+    assert "повреждён, задайте заново: dawg-replay secret set launch-test token" in data["error"]["message"]
+    assert "SECRET" not in json.dumps(data)
+
+
 def test_missing_required_values_are_explained(cli, make_script):
     code, data = cli("run", str(make_script(name="no-values")), "--follow")
     assert code == 1 and data["error"]["code"] == "bad_params"
