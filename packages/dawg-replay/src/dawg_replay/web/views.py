@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms, imports
+from dawg_replay import forms, imports, uistate
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
@@ -121,12 +121,14 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
     # --- Главная ---
 
-    def _dashboard(request: Request) -> dict[str, Any]:
+    def _dashboard(request: Request, visit: bool = False) -> dict[str, Any]:
         with _ui(request).open_app() as app:
-            return home_data.dashboard(app, run_screen.views_of(request))
+            state = app.paths.home / "ui-state.json"
+            since = uistate.visit(state) if visit else uistate.peek(state)
+            return home_data.dashboard(app, run_screen.views_of(request), since)
 
     def home(request: Request) -> Response:
-        return page(request, "home.html", active="home", d=_dashboard(request))
+        return page(request, "home.html", active="home", d=_dashboard(request, visit=True))
 
     def home_live(request: Request) -> Response:
         return fragment(request, "home/_live.html", d=_dashboard(request))

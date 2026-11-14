@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import diagnosis, insurance, launch
+from dawg_replay import diagnosis, insurance, launch, repair
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -54,9 +54,9 @@ PANELS_BY_KIND = {
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result",),
-    "run": ("head", "result", "suspects", "files", "trail"),
+    "run": ("head", "result", "repair", "suspects", "files", "trail"),
 }
-PANELS = ("head", "result", "suspects", "trail", "progress", "metrics", "files", "tables")
+PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "tables")
 
 REASONS = {
     "cancelled": "Запуск отменили. Собранное до отмены осталось в файлах результатов, если скрипт успел их сохранить.",
@@ -111,12 +111,20 @@ class Views:
                 rec_ = a.runs.get(run_id)
                 r = rec_.to_dict()
                 dg = diagnosis.diagnose(a, rec_)
+                # «Починить с агентом»: упал не по отмене или тихая поломка (dawg_replay.repair)
+                try:
+                    need = repair.needs_repair(a, rec_)
+                    fix = repair.fix_prompt(a, rec_)["text"] if need else None
+                except (ReplayError, OSError):
+                    need = fix = None  # панель починки не должна ломать экран запуска
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
                     "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)
             info["diagnosis"] = dg  # упал, ничего не сообщив: хвост stderr и подсказка
+            info["suspicion"] = need["suspicion"] if need else None
+            info["repair"] = fix
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
@@ -401,7 +409,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 text = ""
-            text = diagnosis.mask(text, diagnosis.known_secrets(app, rec.script_name))
+            text = diagnosis.scrub(text, diagnosis.known_secrets(app, rec.script_name))
         return Response(
             text or "stderr пуст\n",
             media_type="text/plain; charset=utf-8",

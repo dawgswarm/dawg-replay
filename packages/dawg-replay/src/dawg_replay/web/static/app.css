@@ -907,3 +907,12 @@ a.button.button-secondary:hover { background: var(--sunken); }
 .delete-form label { display: block; margin-bottom: 0.4rem; }
 button.danger { background: var(--failed); border-color: var(--failed); color: #fff; }
 button.danger:hover { background: color-mix(in srgb, var(--failed) 85%, black); border-color: color-mix(in srgb, var(--failed) 85%, black); color: #fff; }
+
+
+/* --- починить с агентом на главной --- */
+
+a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem; border-radius: 8px; }
+.dash-att > a.button { flex: none; }
+@media (max-width: 640px) {
+  .dash-att > a.button { margin-left: 2.9rem; }
+}

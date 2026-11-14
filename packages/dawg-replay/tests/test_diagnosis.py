@@ -86,7 +86,9 @@ def test_tail_is_escaped_and_limited(client, failed_run):
     run_id = failed_run(stderr="\n".join(lines) + "\n")
     h = client.get(f"/runs/{run_id}").text
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in h and "<script>alert(1)" not in h
-    assert "строка 39" in h and "строка 21" in h and "строка 20<" not in h and "строка 20\n" not in h
+    # Хвост на экране: 20 строк. В тексте для агента (панель починки) строк больше, проверяем только хвост.
+    tail = h.split('class="code stderr-tail"', 1)[1].split("</pre>", 1)[0]
+    assert "строка 39" in tail and "строка 21" in tail and "строка 20<" not in tail and "строка 20\n" not in tail
     assert "kit не найден" not in h
 
 

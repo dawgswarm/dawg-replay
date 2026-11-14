@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from dawg_replay import diagnosis, insurance
+from dawg_replay import diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
@@ -18,6 +18,8 @@ ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)")
 RECENT_RUNS = 8
 QUICK_PRESETS = 6
 SUSPECT_SCAN = 30  # сколько последних завершённых запусков смотреть на остаточные браузеры
+SINCE_SCAN = 100  # сколько последних запусков смотреть для блока «С прошлого визита»
+SINCE_SHOWN = 8
 
 
 def hue_for(key: str) -> str:
@@ -94,8 +96,9 @@ def _progress(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def dashboard(app: Any, views: Any) -> dict[str, Any]:
-    """Всё для главной, кроме минут DAWG (они грузятся отдельным запросом)."""
+def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
+    """Всё для главной, кроме минут DAWG (они грузятся отдельным запросом).
+    `since`: граница блока «С прошлого визита» (dawg_replay.uistate)."""
     titles: dict[str, tuple[str, dict[str, str]]] = {}
 
     running = []
@@ -126,13 +129,11 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
         if rec.draft or rec.script_name in seen or rec.running:
             continue
         seen.add(rec.script_name)
-        if rec.label in ATTENTION_LABELS:
+        sus = repair.suspicion(app, rec)
+        if rec.label in ATTENTION_LABELS or sus:
             title, cov = _title(app, rec, titles)
-            why = None
-            if not rec.summary and not rec.error:
-                dg = diagnosis.diagnose(app, rec, lines=10)
-                why = dg["summary"] if dg else None
-            attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": why})
+            attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
+                              "suspicion": sus})
 
     suspects = []
     for rec in recent_recs:
@@ -144,7 +145,35 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
             suspects.append({"run": rec.to_dict(), "title": title, "suspects": pending})
 
     return {"running": running, "attention": attention[:5], "recent": recent, "suspects": suspects,
-            "quick": quick_presets(app, recent_recs, titles)}
+            "quick": quick_presets(app, recent_recs, titles), "since": since_last_visit(app, since, titles)}
+
+
+def _why(app: Any, rec: Any) -> str | None:
+    if rec.summary or rec.error:
+        return None
+    dg = diagnosis.diagnose(app, rec, lines=10)
+    return dg["summary"] if dg else None
+
+
+def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, dict[str, str]]]) -> dict[str, Any] | None:
+    """Упавшие (не по отмене) и подозрительные запуски, закончившиеся после прошлого визита.
+    None, если прошлого визита не было."""
+    if since is None:
+        return None
+    items: list[dict[str, Any]] = []
+    total = 0
+    for rec in app.runs.list(None, SINCE_SCAN):
+        if rec.running or rec.draft or not rec.finished_at or rec.finished_at <= since:
+            continue
+        need = repair.needs_repair(app, rec)
+        if need is None:
+            continue
+        total += 1
+        if len(items) < SINCE_SHOWN:
+            title, cov = _title(app, rec, titles)
+            items.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
+                          "suspicion": need["suspicion"]})
+    return {"since": since, "items": items, "total": total}
 
 
 def quick_presets(app: Any, recs: list[Any], titles: dict[str, tuple[str, dict[str, str]]]) -> list[dict[str, Any]]:

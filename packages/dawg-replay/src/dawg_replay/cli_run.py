@@ -1,4 +1,4 @@
-"""Команды CLI запусков: run, runs, logs, cancel. Тонкая обёртка над dawg_replay.launch."""
+"""Команды CLI запусков: run, runs, logs, fix-prompt, cancel. Тонкая обёртка над dawg_replay.launch."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from typing import Any
 
 from dawg_replay_kit.events import ConsoleSink
 
-from dawg_replay import diagnosis, launch
+from dawg_replay import diagnosis, launch, repair
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
 from dawg_replay.runs import Run
@@ -181,6 +181,13 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     return data, "\n".join(parts)
 
 
+def _fix_prompt(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    launch.recover_lost(app)
+    rec = app.runs.get(args.run_id)
+    data = repair.fix_prompt(app, rec)
+    return {"run": rec.to_dict(), **{k: v for k, v in data.items() if k != "text"}, "prompt": data["text"]}, data["text"]
+
+
 def _cancel(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     # Сначала отмена: если супервизора нет, скрипт получит мягкий сигнал раньше, чем recover_lost убьёт его дерево.
     rec = launch.cancel(app, args.run_id, wait=not args.no_wait)
@@ -230,6 +237,16 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add("logs", _logs, "сырой stdout и stderr запуска или его события")
     p.add_argument("run_id")
     p.add_argument("--events", action="store_true", help="события из events.jsonl вместо сырого лога")
+
+    p = add(
+        "fix-prompt",
+        _fix_prompt,
+        "текст для агента: починить скрипт по упавшему запуску",
+        "Печатает готовый промпт для Claude Code или Codex: скрипт, версия, путь, параметры без секретов, "
+        "причина, хвост stderr. Ключ DAWG, секреты и токены в адресах скрыты. "
+        "Скопировать на macOS: dawg-replay fix-prompt <run_id> | pbcopy",
+    )
+    p.add_argument("run_id")
 
     p = add("cancel", _cancel, "отменить запуск: мягкий сигнал, через grace секунд kill дерева процессов")
     p.add_argument("run_id")
