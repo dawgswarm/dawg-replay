@@ -862,3 +862,13 @@ def test_delete_refused_while_running(logged, secrets_, home, write_script):
     assert "сейчас запущен (20261114-000000-aaaaaa)" in r.text and "hx-redirect" not in r.headers
     with App(home) as app:
         assert app.registry.get("ozon-cards")
+
+
+def test_favicon(logged):
+    r = logged.get("/favicon.ico")
+    assert r.status_code == 200 and r.headers["content-type"].startswith("image/svg+xml")
+    assert r.text.lstrip().startswith("<svg") and "<script" not in r.text and "<style" not in r.text
+    assert logged.get("/static/icon.svg").status_code == 200
+    for url in ("/", "/scripts", "/settings"):
+        assert '<link rel="icon" href="/static/icon.svg" type="image/svg+xml">' in logged.get(url).text
+    assert "img-src 'self' data:" in r.headers["content-security-policy"]  # CSP прежний
