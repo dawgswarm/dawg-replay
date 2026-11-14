@@ -407,3 +407,4 @@ tbody tr:last-child td { border-bottom: 0; }
   .run-hero { padding: 1.1rem; }
   .run-files .files li, .run-files .files .button { width: 100%; }
 }
+.log-is-empty .fold > .log-empty { margin: 0 1.25rem 1.25rem; }
