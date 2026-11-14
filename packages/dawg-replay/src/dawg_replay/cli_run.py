@@ -67,7 +67,9 @@ def format_event_line(line: str, sink: ConsoleSink) -> str:
 
 
 def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    prepared = launch.prepare(app, args.target, preset=args.preset, params_file=args.params, sets=args.set)
+    prepared = launch.prepare(
+        app, args.target, preset=args.preset, params_file=args.params, sets=args.set, schedule_id=args.schedule
+    )
     run_id = prepared.run.id
     run_dir = app.paths.run_dir(run_id)
     for w in prepared.warnings:
@@ -226,6 +228,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
     p.add_argument("--preset", help="пресет скрипта")
     p.add_argument("--follow", action="store_true", help="показывать события и ждать конца; Ctrl+C отменяет")
+    p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика)")
 
     p = add("runs", _runs, "история запусков")
     p.add_argument("name", nargs="?", help="только запуски этого скрипта")

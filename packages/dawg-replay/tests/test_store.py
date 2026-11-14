@@ -131,7 +131,7 @@ def test_remove(app, home, kr, write_script):
         "INSERT INTO runs (id, script_name, script_version, script_path, status, created_at) VALUES ('r1', 'ozon-cards', 2, 'x', 'ok', 'now')"
     )
     r = app.remove("ozon-cards")
-    assert r == {"name": "ozon-cards", "versions": [1, 2], "secrets_deleted": ["sheet_token"]}
+    assert r == {"name": "ozon-cards", "versions": [1, 2], "secrets_deleted": ["sheet_token"], "schedules_removed": []}
     assert app.registry.list() == []
     assert not (home / "scripts" / "ozon-cards").exists()
     assert app.db.execute("SELECT COUNT(*) FROM presets").fetchone()[0] == 0

@@ -112,7 +112,7 @@ class Views:
                 r = rec_.to_dict()
                 dg = diagnosis.diagnose(a, rec_)
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
-                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested")
+                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested", "trigger", "schedule_id")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)

@@ -177,6 +177,24 @@ def merge_values(
     return values
 
 
+def _check_schedule(app: App, schedule_id: str, target: str, preset: str | None) -> None:
+    """Задача планировщика без записи в приложении (сирота) не запускает скрипт и не тратит минуты."""
+    try:
+        s = app.schedules.get(schedule_id)
+    except ReplayError:
+        raise ReplayError(
+            "schedule_not_found",
+            f"расписания `{schedule_id}` в приложении нет, а задача в планировщике осталась. "
+            f"Снимите её: dawg-replay schedule remove {schedule_id}",
+        ) from None
+    if (s.script, s.preset) != (target, preset):
+        raise ReplayError(
+            "schedule_mismatch",
+            f"расписание `{schedule_id}` запускает {s.script} с пресетом {s.preset}, а не {target} с {preset}. "
+            "Поставьте задачу заново: dawg-replay schedule sync",
+        )
+
+
 def prepare(
     app: App,
     target: str,
@@ -185,9 +203,13 @@ def prepare(
     params_file: str | None = None,
     sets: Sequence[str] | None = None,
     values: Mapping[str, Any] | None = None,
+    schedule_id: str | None = None,
 ) -> Prepared:
-    """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms)."""
+    """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
+    `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом."""
     recover_lost(app)
+    if schedule_id is not None:
+        _check_schedule(app, schedule_id, target, preset)
     manifest, script_path, draft, version = _target(app, target)
     values = merge_values(app, manifest, preset, params_file, sets, values)
 
@@ -239,6 +261,7 @@ def prepare(
             params={k: v for k, v in full.items() if k not in secret_names},
             timeout_seconds=timeout_minutes * 60,
             limit=cfg.max_parallel_runs,
+            schedule_id=schedule_id,
         )
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)

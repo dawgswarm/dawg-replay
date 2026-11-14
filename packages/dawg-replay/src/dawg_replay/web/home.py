@@ -144,7 +144,26 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
             suspects.append({"run": rec.to_dict(), "title": title, "suspects": pending})
 
     return {"running": running, "attention": attention[:5], "recent": recent, "suspects": suspects,
-            "quick": quick_presets(app, recent_recs, titles)}
+            "quick": quick_presets(app, recent_recs, titles), "upcoming": upcoming(app, titles)}
+
+
+UPCOMING = 5
+
+
+def upcoming(app: Any, titles: dict[str, tuple[str, dict[str, str]]]) -> list[dict[str, Any]]:
+    """Ближайшие запуски по расписанию. Планировщик не опрашивается: главная не ждёт crontab."""
+    out = []
+    for item in app.schedules.upcoming(UPCOMING):
+        if item["script"] not in titles:
+            title = item["script"]
+            try:
+                title = app.registry.get(item["script"]).title
+            except ReplayError:
+                pass
+            titles[item["script"]] = (title, cover(title, manifest_meta(app, item["script"])["site"]))
+        title, cov = titles[item["script"]]
+        out.append({**item, "title": title, "cover": cov})
+    return out
 
 
 def quick_presets(app: Any, recs: list[Any], titles: dict[str, tuple[str, dict[str, str]]]) -> list[dict[str, Any]]:

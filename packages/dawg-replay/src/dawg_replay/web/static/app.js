@@ -142,4 +142,22 @@
   });
   window.addEventListener("pagehide", disconnect);
   window.addEventListener("pageshow", connect);
+
+  // Регулярный запуск: видны только поля выбранного «Как часто». Без скрипта видны все.
+  function syncScheduleForm(form) {
+    var kind = form.querySelector("select[name=_kind]");
+    if (!kind) return;
+    Array.prototype.forEach.call(form.querySelectorAll("[data-when]"), function (el) {
+      el.hidden = el.getAttribute("data-when").split(" ").indexOf(kind.value) < 0;
+    });
+  }
+  function syncAllScheduleForms() {
+    Array.prototype.forEach.call(document.querySelectorAll("[data-schedule-form]"), syncScheduleForm);
+  }
+  document.addEventListener("change", function (e) {
+    var form = e.target.closest && e.target.closest("[data-schedule-form]");
+    if (form && e.target.name === "_kind") syncScheduleForm(form);
+  });
+  document.addEventListener("DOMContentLoaded", syncAllScheduleForms);
+  document.addEventListener("htmx:afterSettle", syncAllScheduleForms);
 })();
