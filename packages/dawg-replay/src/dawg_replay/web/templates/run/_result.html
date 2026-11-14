@@ -2,7 +2,13 @@
 {% if not running and run.status %}
   {% set st = run.label | status %}
   <section class="result result-{{ st.kind }}" aria-labelledby="result-title">
-    <h2 id="result-title">{% if run.status == 'ok' %}Готово{% elif run.status == 'partial' %}Собрано не всё{% elif run.reason == 'cancelled' %}Запуск остановлен{% else %}Запуск не удался{% endif %}</h2>
+    <h2 id="result-title"><span class="result-icon" aria-hidden="true"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+      {%- if st.kind == 'ok' %}<path d="M4.5 10.5l3.5 3.5 7.5-8"/>
+      {%- elif st.kind == 'partial' %}<circle cx="10" cy="10" r="6.5" stroke-width="2"/><path d="M10 3.5a6.5 6.5 0 0 1 0 13z" fill="currentColor" stroke="none"/>
+      {%- elif st.kind == 'failed' %}<path d="M5.5 5.5l9 9M14.5 5.5l-9 9"/>
+      {%- elif st.kind == 'running' %}<circle cx="10" cy="10" r="3.5" fill="currentColor" stroke="none"/>
+      {%- else %}<rect x="5.5" y="5.5" width="9" height="9" rx="1.5" fill="currentColor" stroke="none"/>{% endif -%}
+    </svg></span>{% if run.status == 'ok' %}Готово{% elif run.status == 'partial' %}Собрано не всё{% elif run.reason == 'cancelled' %}Запуск остановлен{% else %}Запуск не удался{% endif %}</h2>
     {% if s.result and s.result.summary %}
       <div class="result-summary">{{ s.result.summary | markdown | safe }}</div>
     {% elif run.summary %}

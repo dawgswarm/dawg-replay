@@ -23,7 +23,7 @@
             <span class="status status-{{ st.kind }}">{{ st.text }}</span>
             <span class="last-when">{{ r.created_at | when }}</span>
           </a>
-          {% if r.summary %}<p class="last-summary">{{ r.summary }}</p>{% endif %}
+          {% if r.summary %}<p class="last-summary">{{ r.summary | markdown | striptags }}</p>{% endif %}
         {% else %}
           <p class="never">Ещё не запускался</p>
         {% endif %}
