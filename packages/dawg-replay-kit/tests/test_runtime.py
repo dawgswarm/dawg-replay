@@ -81,6 +81,34 @@ def test_autonomous_end_to_end(script_file, tmp_path):
     assert (tmp_path / "output" / "out.csv").exists()
 
 
+@pytest.mark.parametrize("mode", ["app", "autonomous"])
+def test_cyrillic_output_with_legacy_locale(script_file, tmp_path, mode):
+    # Так выглядит вывод в файл на Windows: кодировка локали cp1252. Kit сам переводит потоки в UTF-8.
+    path = script_file(SCRIPT_BODY)
+    env = {"PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    if mode == "app":
+        params = tmp_path / "params.json"
+        params.write_text(json.dumps({"query": "ноутбук", "max_pages": 1}), encoding="utf-8")
+        env.update(DAWG_SCRIPT_PARAMS=str(params), DAWG_SCRIPT_EVENTS=str(tmp_path / "events.jsonl"),
+                   DAWG_SCRIPT_OUTPUT_DIR=str(tmp_path / "out"), DAWG_SCRIPT_RUN_ID="run-1")
+        args = []
+    else:
+        args = ["--query", "ноутбук", "--max-pages", "1"]
+    r = run_script(path, args, env=env, cwd=tmp_path)
+    assert r.returncode == 0, r.stderr
+    assert "обычный print в stdout" in r.stdout
+    if mode == "autonomous":
+        assert "==> Старт" in r.stderr and "запрос ноутбук" in r.stderr
+
+
+def test_kit_errors_readable_with_legacy_locale(script_file, tmp_path):
+    path = script_file(SCRIPT_BODY)
+    r = run_script(path, [], env={"PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}, cwd=tmp_path)
+    assert r.returncode == 2
+    assert "обязательн" in r.stderr or "--query" in r.stderr
+    assert "\\u04" not in r.stderr  # кириллица не экранирована
+
+
 def test_autonomous_missing_required(script_file, tmp_path):
     path = script_file(SCRIPT_BODY)
     r = run_script(path, [], cwd=tmp_path)

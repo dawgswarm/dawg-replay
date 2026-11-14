@@ -12,6 +12,9 @@
 параметры из `DAWG_SCRIPT_PARAMS` или из аргументов командной строки.
 Если параметры не подходят, скрипт завершается с кодом 2 и объяснением в stderr.
 
+При импорте kit переводит stdout и stderr в UTF-8: на Windows вывод в файл
+иначе идёт в кодировке локали, и кириллица в print ломает скрипт.
+
 При инициализации kit ставит обработчик SIGTERM (на Windows CTRL_BREAK): отмена
 запуска из приложения превращается в SystemExit(143), поэтому `finally`
 и `atexit` срабатывают, а отложенные события дописываются в файл.
@@ -25,14 +28,14 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from dawg_replay_kit import cancel
+from dawg_replay_kit import cancel, stdio
 from dawg_replay_kit.browser import BrowserLimitReached, BrowserSession
 from dawg_replay_kit.dawg_api import BrowserError, BrowserLimitError
 from dawg_replay_kit.events import Log
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
 
-__version__ = "1.1.1"  # мажор равен мажору контракта; версия задаётся только здесь
+__version__ = "1.1.2"  # мажор равен мажору контракта; версия задаётся только здесь
 
 __all__ = [
     "SUPPORTED_CONTRACTS",
@@ -54,6 +57,8 @@ __all__ = [
     "set_browser_limit",
     "stage",
 ]
+
+stdio.use_utf8()
 
 _kit: Kit | None = None
 _lock = threading.Lock()

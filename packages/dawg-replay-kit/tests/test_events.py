@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink
+from dawg_replay_kit.events import THROTTLE_SECONDS, ConsoleSink, Emitter, JsonlSink
 
 
 class ListSink:
@@ -153,7 +153,7 @@ def test_non_json_values_become_strings(em, sink, tmp_path):
     j = Emitter(JsonlSink(f))
     j.rows("t", [{"d": date(2026, 1, 2), "p": Decimal("1.50")}])
     j.close()
-    assert json.loads(f.read_text())["rows"] == [{"d": "2026-01-02", "p": "1.50"}]
+    assert json.loads(f.read_text(encoding="utf-8"))["rows"] == [{"d": "2026-01-02", "p": "1.50"}]
 
 
 @pytest.mark.parametrize(
@@ -277,16 +277,34 @@ def test_timer_fires_close_to_window(tmp_path):
     em.close()
 
 
+class TimedSink(JsonlSink):
+    """Запоминает момент каждой записи: проверки не зависят от скорости машины."""
+
+    def __init__(self, path):
+        super().__init__(path)
+        self.times: list[float] = []
+
+    def write(self, event):
+        self.times.append(time.monotonic())
+        super().write(event)
+
+
 def test_timer_respects_newer_value_and_window(tmp_path):
     f = tmp_path / "events.jsonl"
-    em = Emitter(JsonlSink(f))
-    for i in range(1, 51):  # плотный цикл ~0.5 с
+    sink = TimedSink(f)
+    em = Emitter(sink)
+    for i in range(1, 51):  # плотный цикл, на быстрой машине ~0.5 с
         em.progress("p", "P", i, 100)
         time.sleep(0.01)
-    time.sleep(0.35)
+    deadline = time.monotonic() + 5
+    while read_jsonl(f)[-1]["done"] != 50 and time.monotonic() < deadline:
+        time.sleep(0.05)
     done = [e["done"] for e in read_jsonl(f)]
-    assert done[-1] == 50  # последнее значение не потерялось
-    assert len(done) <= 5  # не чаще 4 раз в секунду, плюс первое
+    assert done[-1] == 50  # последнее значение таймер записал сам, без close
+    assert done == sorted(done) and len(done) < 50  # отложенные значения заменяются новыми
+    # Не чаще раза в окно: между соседними записями не меньше окна, сколько бы ни шёл цикл.
+    gaps = [b - a for a, b in zip(sink.times, sink.times[1:])]
+    assert all(g >= THROTTLE_SECONDS - 0.02 for g in gaps), gaps
     em.close()
 
 
