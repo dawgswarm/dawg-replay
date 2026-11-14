@@ -99,3 +99,54 @@ def test_collector_dedups_and_writes_excel_csv(oz, tmp_path):
     assert path.read_bytes().startswith(b"\xef\xbb\xbf")
     rows = list(csv.DictReader(path.open(encoding="utf-8-sig")))
     assert [(r["position"], r["sku"], r["price"]) for r in rows] == [("1", "1", "100"), ("2", "2", "200"), ("3", "3", "300")]
+
+
+class FakePage:
+    """evaluate отдаёт шаги по очереди, последний повторяется."""
+
+    def __init__(self, script):
+        self.script = list(script)
+        self.gotos = 0
+
+    def goto(self, url, timeout=None):
+        self.gotos += 1
+
+    def evaluate(self, js, arg=None):
+        step = self.script.pop(0) if len(self.script) > 1 else self.script[0]
+        if isinstance(step, Exception):
+            raise step
+        return step
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+@pytest.fixture
+def quiet_kit(oz, monkeypatch):
+    warns = []
+    monkeypatch.setattr(oz, "kit", type("K", (), {"log": type("L", (), {"warn": staticmethod(warns.append)})}))
+    return warns
+
+
+def test_wait_grid_waits_through_site_check(oz):
+    state = json.dumps({"items": [{"sku": 1}]})
+    page = FakePage([
+        ("Antibot Challenge Page", None),
+        RuntimeError("Execution context was destroyed"),
+        ("Antibot Captcha", None),  # и такая проверка ждётся до таймаута
+        ("Кроссовки", state),
+    ])
+    assert oz.wait_grid(page, timeout=5) == [{"sku": 1}]
+    for title in oz.CHECK_TITLES:
+        with pytest.raises(oz.SiteCheckTimeout, match="сайт не пропустил браузер: страница проверки не прошла за 0 с"):
+            oz.wait_grid(FakePage([(title, None)]), timeout=0.01)
+    with pytest.raises(TimeoutError, match="выдача не появилась"):
+        oz.wait_grid(FakePage([("Кроссовки", None)]), timeout=0.01)
+
+
+def test_first_page_retries_site_check_a_limited_number_of_times(oz, quiet_kit, monkeypatch):
+    monkeypatch.setattr(oz.wait_grid, "__defaults__", (0.01,))
+    page = FakePage([("Antibot Captcha", None)])
+    with pytest.raises(oz.SiteCheckTimeout):
+        oz.open_first_page(page, "https://www.ozon.ru/search/?text=x", attempts=3, pause=0)
+    assert page.gotos == 3 and len(quiet_kit) == 2

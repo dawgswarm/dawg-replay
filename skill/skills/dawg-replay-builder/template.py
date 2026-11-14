@@ -58,19 +58,22 @@
 """Карточки сайта по поисковому запросу. Эталон для dawg-replay-builder.
 
 Разведка: ЗАМЕНИТЬ на дату и находки (адрес выдачи, эндпоинт, где лежат данные,
-как устроена пагинация, что делает антибот, нужен ли geo).
+как устроена пагинация, какие проверки показывает сайт, нужен ли geo).
 
 Пример записи по опыту Ozon (14.11.2026):
-- поиск проходит JS-проверку «Antibot Challenge Page» сам за несколько секунд и
-  перенаправляет в категорию с тем же `text`;
+- поиск сначала показывает страницу проверки «Antibot Challenge Page», браузер
+  DAWG проходит её сам за несколько секунд, затем сайт перенаправляет в категорию
+  с тем же `text`;
 - первая страница лежит в JSON атрибута `data-state` элемента выдачи, следующие
   страница запрашивает при прокрутке у внутреннего API, скрипт перехватывает ответы;
-- страница товара сразу показывает слайдер-капчу, поэтому скрипт на неё не ходит.
+- на странице товара проверка сайта не проходила, после неё проверка появлялась
+  и на выдаче, поэтому скрипт на страницы товаров не ходит.
 
 Приёмы: браузер только через kit (лимит указан явно), данные из ответов API и
-состояния страницы, ожидание проверки антибота по признакам на странице, повторы
+состояния страницы, ожидание проверки сайта по признакам на странице, повторы
 с паузой и явные таймауты, CSV дописывается после каждой страницы, при падении на
-середине итог `partial`. Капчу скрипт не обходит: при ней он останавливается с понятной ошибкой.
+середине итог `partial`. Проверку сайта браузер DAWG проходит сам, скрипт только
+ждёт; не прошла за отведённое время: понятная ошибка.
 """
 
 from __future__ import annotations
@@ -90,10 +93,10 @@ ORIGIN = "https://www.example.ru"
 SEARCH_URL = ORIGIN + "/search/?text={query}&sort={sort}"
 API_MARK = "/api/search"  # часть адреса запроса, который отдаёт страницу выдачи
 STATE_SELECTOR = '[id^="state-searchResults"]'  # элемент с JSON выдачи в data-state или None
-CAPTCHA_TITLES = ("Antibot Captcha",)  # заголовки страницы с капчей, которую не обходим
+CHECK_TITLES = ("Antibot Challenge Page", "Antibot Captcha")  # заголовки страниц проверки сайта
 
 PAGE_TIMEOUT_MS = 90_000  # загрузка страницы
-READY_TIMEOUT_S = 45  # проверка антибота и появление данных
+READY_TIMEOUT_S = 60  # проверка сайта и появление данных
 NEXT_PAGE_TIMEOUT_S = 45  # следующая страница при прокрутке
 ATTEMPTS = 3  # попыток открыть первую страницу
 RETRY_PAUSE_S = 10  # пауза между попытками
@@ -102,8 +105,8 @@ SCROLL_PAUSE_MS = 700  # умеренная скорость прокрутки
 COLUMNS = ["position", "id", "name", "price", "price_old", "rating", "reviews", "url"]
 
 
-class Captcha(RuntimeError):
-    """Сайт показал капчу. Её не обходим: запуск останавливается с понятной ошибкой."""
+class SiteCheckTimeout(RuntimeError):
+    """Страница проверки сайта не прошла за отведённое время."""
 
 
 # --- разбор данных: ЗАМЕНИТЬ под структуру сайта ----------------------------------
@@ -140,28 +143,33 @@ def card_row(item: dict[str, Any], position: int) -> dict[str, Any]:
 
 
 def with_retries(what: str, fn: Callable[[], T], attempts: int = ATTEMPTS, pause: float = RETRY_PAUSE_S) -> T:
-    """Повтор с паузой. Капча не повторяется: на том же выходе браузера она не уйдёт."""
+    """Повтор с паузой, не больше `attempts` раз.
+
+    Если и последняя попытка застряла на проверке сайта, наружу уходит
+    SiteCheckTimeout с понятным текстом.
+    """
     last: Exception | None = None
     for attempt in range(1, attempts + 1):
         try:
             return fn()
-        except Captcha:
-            raise
         except Exception as e:
             last = e
             if attempt < attempts:
                 kit.log.warn(f"{what}, попытка {attempt}: {e}; повтор через {pause:.0f} с")
                 time.sleep(pause)
+    if isinstance(last, SiteCheckTimeout):
+        raise last
     raise RuntimeError(f"{what}: не получилось за {attempts} попытки: {last}")
 
 
 def wait_ready(page: Any, timeout: float = READY_TIMEOUT_S) -> list[dict[str, Any]]:
-    """Ждёт, пока пройдёт проверка антибота и на странице появятся данные.
+    """Ждёт, пока браузер пройдёт проверку сайта и на странице появятся данные.
 
     Проверка перезагружает страницу, контекст на долю секунды пропадает: такие
-    ошибки пропускаются. Капча даёт исключение Captcha.
+    ошибки пропускаются. Страница проверки до самого таймаута даёт SiteCheckTimeout.
     """
     deadline = time.monotonic() + timeout
+    title = ""
     while time.monotonic() < deadline:
         try:
             title, state = page.evaluate(
@@ -174,11 +182,13 @@ def wait_ready(page: Any, timeout: float = READY_TIMEOUT_S) -> list[dict[str, An
         except Exception:
             page.wait_for_timeout(500)
             continue
-        if title in CAPTCHA_TITLES:
-            raise Captcha("сайт показал капчу: этот выход браузера помечен антиботом, попробуйте позже или другой geo")
         if state:
             return items_from(json.loads(state))
         page.wait_for_timeout(500)
+    if title in CHECK_TITLES:
+        raise SiteCheckTimeout(
+            f"сайт не пропустил браузер: страница проверки не прошла за {timeout:.0f} с, попробуйте позже или другой geo"
+        )
     raise TimeoutError(f"выдача не появилась за {timeout:.0f} с")
 
 

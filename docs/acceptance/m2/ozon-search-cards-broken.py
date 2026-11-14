@@ -7,10 +7,10 @@
 # contract = "1.1"
 # name = "ozon-search-cards"
 # title = "Ozon: карточки по поисковому запросу"
-# description = "Обходит выдачу Ozon по запросу и собирает название, цену, старую цену, рейтинг и число отзывов. Продавца нет: в выдаче Ozon его нет, а страница товара отдаёт капчу, поэтому скрипт на страницы товаров не ходит."
+# description = "Обходит выдачу Ozon по запросу и собирает название, цену, старую цену, рейтинг и число отзывов. Продавца нет: в выдаче Ozon его нет, а страница товара не проходит проверку сайта, поэтому скрипт на страницы товаров не ходит."
 # site = "Ozon"
 # tags = ["Цены", "Карточки"]
-# version = 5
+# version = 6
 # timeout_minutes = 30
 #
 # [[params]]
@@ -47,17 +47,19 @@
 
 Разведка сайта: 14.11.2026. Если Ozon поменял устройство выдачи, начинать с неё.
 
-- Поиск `/search/?text=...` проходит JS-проверку «Antibot Challenge Page» сам за
-  несколько секунд и обычно перенаправляет в категорию с тем же `text`.
+- Поиск `/search/?text=...` сначала показывает страницу проверки «Antibot Challenge
+  Page», браузер DAWG проходит её сам за несколько секунд, затем Ozon обычно
+  перенаправляет в категорию с тем же `text`.
 - Первая страница выдачи лежит в самой странице: JSON в `data-state` элемента
   `state-tileGridDesktop-*`. Следующие страницы (`page=N`) страница запрашивает
   при прокрутке из `/api/entrypoint-api.bx/page/json/v2?url=...`; скрипт
   перехватывает эти ответы, заголовки не подделывает. Размер страницы задаёт Ozon
   (при разведке 8 или 36 карточек, в зависимости от выдачи).
-- Продавца в выдаче нет. Страница товара и запрос её данных отдают антибот
-  (слайдер-капчу или 403), поэтому скрипт на страницы товаров не ходит и колонки
-  продавца нет. Капчу скрипт не обходит: если она появилась, запуск останавливается
-  с понятной ошибкой.
+- Продавца в выдаче нет. На странице товара проверка сайта не проходила (или
+  запрос её данных отдавал 403), после неё проверка появлялась и на выдаче, поэтому
+  скрипт на страницы товаров не ходит и колонки продавца нет.
+- Проверку сайта скрипт только ждёт. Если страница проверки не ушла за
+  CHECK_TIMEOUT_S, запуск останавливается с понятной ошибкой.
 
 Результат: `cards.csv` (UTF-8 с BOM, открывается в Excel), строки дописываются
 после каждой страницы. При падении на середине собранное остаётся, итог `partial`.
@@ -82,7 +84,8 @@ ORIGIN = "https://www.ozon.ru"
 GRID_PREFIX = "tileGridDesktop"
 FIRST_PAGE_ATTEMPTS = 3
 FIRST_PAGE_PAUSE_S = 10  # пауза перед повтором первой страницы
-CHALLENGE_TIMEOUT_S = 45  # сколько ждать прохождения JS-проверки и появления выдачи
+CHECK_TIMEOUT_S = 60  # сколько ждать прохождения проверки сайта и появления выдачи
+CHECK_TITLES = ("Antibot Challenge Page", "Antibot Captcha")  # заголовки страниц проверки
 SCROLL_TIMEOUT_S = 45
 
 COLUMNS = ["position", "sku", "name", "price", "price_old", "rating", "reviews", "url"]
@@ -91,8 +94,8 @@ _RATING = re.compile(r"^\d(?:[.,]\d+)?$")
 _REVIEWS = re.compile(r"^([\d\s  ]+)\s*отзыв")
 
 
-class Captcha(RuntimeError):
-    """Ozon показал слайдер-капчу. Её не обходим."""
+class SiteCheckTimeout(RuntimeError):
+    """Страница проверки Ozon не прошла за отведённое время."""
 
 
 def rubles(text: str | None) -> int | None:
@@ -193,39 +196,47 @@ class Collector:
         self._f.close()
 
 
-def open_first_page(page: Any, url: str) -> list[dict]:
-    """Открывает выдачу и ждёт, пока пройдёт JS-проверка. Повторяет с паузой."""
+def wait_grid(page: Any, timeout: float = CHECK_TIMEOUT_S) -> list[dict]:
+    """Ждёт, пока браузер пройдёт проверку сайта и появится выдача."""
+    deadline = time.monotonic() + timeout
+    title = ""
+    while time.monotonic() < deadline:
+        try:
+            title, state = page.evaluate(
+                f"""() => {{
+                    const el = document.querySelector('[id^="state-{GRID_PREFIX}"]');
+                    return [document.title, el ? el.dataset.state : null];
+                }}"""
+            )
+        except Exception:
+            # Проверка перезагружает страницу: контекст пропадает на долю секунды.
+            page.wait_for_timeout(500)
+            continue
+        if state:
+            return json.loads(state).get("items") or []
+        page.wait_for_timeout(500)
+    if title in CHECK_TITLES:
+        raise SiteCheckTimeout(
+            f"сайт не пропустил браузер: страница проверки не прошла за {timeout:.0f} с, попробуйте позже или другой geo"
+        )
+    raise TimeoutError(f"выдача не появилась за {timeout:.0f} с")
+
+
+def open_first_page(page: Any, url: str, attempts: int = FIRST_PAGE_ATTEMPTS, pause: float = FIRST_PAGE_PAUSE_S) -> list[dict]:
+    """Открывает выдачу и ждёт её. Повторяет с паузой, не больше `attempts` раз."""
     last: Exception | None = None
-    for attempt in range(1, FIRST_PAGE_ATTEMPTS + 1):
+    for attempt in range(1, attempts + 1):
         try:
             page.goto(url, timeout=90_000)
-            deadline = time.monotonic() + CHALLENGE_TIMEOUT_S
-            while time.monotonic() < deadline:
-                try:
-                    title, state = page.evaluate(
-                        f"""() => {{
-                            const el = document.querySelector('[id^="state-{GRID_PREFIX}"]');
-                            return [document.title, el ? el.dataset.state : null];
-                        }}"""
-                    )
-                except Exception:
-                    # JS-проверка перезагружает страницу: контекст пропадает на долю секунды.
-                    page.wait_for_timeout(500)
-                    continue
-                if title == "Antibot Captcha":
-                    raise Captcha("Ozon показал слайдер-капчу «Сопоставьте пазл»: этот выход браузера помечен антиботом")
-                if state:
-                    return json.loads(state).get("items") or []
-                page.wait_for_timeout(500)
-            raise TimeoutError(f"выдача не появилась за {CHALLENGE_TIMEOUT_S} с")
-        except Captcha:
-            raise
+            return wait_grid(page)
         except Exception as e:
             last = e
-            if attempt < FIRST_PAGE_ATTEMPTS:
-                kit.log.warn(f"первая страница, попытка {attempt}: {e}; повтор через {FIRST_PAGE_PAUSE_S} с")
-                time.sleep(FIRST_PAGE_PAUSE_S)
-    raise RuntimeError(f"первая страница не открылась за {FIRST_PAGE_ATTEMPTS} попытки: {last}")
+            if attempt < attempts:
+                kit.log.warn(f"первая страница, попытка {attempt}: {e}; повтор через {pause:.0f} с")
+                time.sleep(pause)
+    if isinstance(last, SiteCheckTimeout):
+        raise last
+    raise RuntimeError(f"первая страница не открылась за {attempts} попытки: {last}")
 
 
 def next_page(page: Any, wanted: int, pages: dict[int, list[dict]]) -> list[dict]:
