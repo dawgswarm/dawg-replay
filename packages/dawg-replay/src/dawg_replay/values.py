@@ -113,7 +113,7 @@ def parse_row_args(
     from_set = {item.partition("=")[0].strip().replace("-", "_") for item in sets}
     out: dict[str, list[dict[str, Any]]] = {}
     problems: list[str] = []
-    visible_secrets: set[str] = set()
+    visible_secrets: dict[str, list[str]] = {}  # таблица -> колонки, набранные в команде открыто
     for row in rows:
         if not row:
             continue
@@ -137,8 +137,8 @@ def parse_row_args(
                 continue
             if value == HIDDEN:
                 value = read_hidden(f"{name}, строка {len(out.get(name, [])) + 2}, {col}: ")
-            elif tables[name].secret and value:
-                visible_secrets.add(name)
+            elif tables[name].secret and value and col not in visible_secrets.get(name, []):
+                visible_secrets.setdefault(name, []).append(col)
             cells[col] = value
         if not cells:
             problems.append(f"--row {name}: в строке нет ни одной ячейки")
@@ -146,8 +146,12 @@ def parse_row_args(
         out.setdefault(name, []).append({**cells, "_row": len(out.get(name, [])) + 2})
     if visible_secrets and warn is not None:
         for name in sorted(visible_secrets):
-            warn(f"таблица `{name}` секретная, а значения набраны в команде и останутся в истории терминала; "
-                 f"пароли и коды задавайте как колонка=- , тогда они спрашиваются без отображения")
+            cols = visible_secrets[name]
+            which = (f"значение колонки «{cols[0]}» набрано" if len(cols) == 1
+                     else "значения колонок " + ", ".join(f"«{c}»" for c in cols) + " набраны")
+            hint = " ".join(f"{c}=-" for c in cols)
+            warn(f"таблица `{name}` секретная, а {which} в команде и останется в истории терминала; "
+                 f"чтобы ввести без отображения, задайте {hint}")
     if problems:
         raise ReplayError("bad_params", "строки таблиц не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems)
     return out

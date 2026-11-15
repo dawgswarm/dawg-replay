@@ -129,8 +129,22 @@ def test_visible_secret_values_warn(acts, capsys):
                  "--follow"])
     assert code == 0
     err = capsys.readouterr().err
-    assert "таблица `logins` секретная" in err and "колонка=-" in err
+    assert "таблица `logins` секретная, а значения колонок «login», «pass» набраны" in err
+    assert "задайте login=- pass=-" in err
     assert "open" not in err  # само значение в предупреждении не печатается
+
+
+def test_visible_secret_warning_names_only_typed_columns(acts, capsys, monkeypatch):
+    import io
+
+    from dawg_replay.cli import main
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("Pa$$\n"))
+    code = main(["run", "acts", "--row", "accounts", "email=a@x.ru", "--row", "logins", "login=ivan", "pass=-", "--follow"])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "значение колонки «login» набрано в команде" in err and "задайте login=-" in err
+    assert "«pass»" not in err and "Pa$$" not in err and "ivan" not in err
 
 
 def test_hidden_secret_values_do_not_warn(acts, capsys, monkeypatch):
@@ -245,3 +259,24 @@ def test_web_manual_needs_csrf(web):
     c, _ = web
     r = c.post("/scripts/acts/_table/accounts/manual", data={"_cols": ["email"], "_cells": ["a"]}, headers={"Origin": BASE})
     assert r.status_code == 403
+
+
+
+# --- пустые колонки из columns (dr-81): одно правило для файла, ввода вручную и --row ---
+
+
+def test_empty_required_column_in_manual_row(acts):
+    fl = forms.manual_table(acts, "acts", "accounts", ["email", "city"], ["a@x.ru", "", "", "Москва"])["field"]
+    assert fl.error == "строка 2: пустая колонка «email»"  # номер как в редакторе, не как в файле
+    fl = forms.manual_table(acts, "acts", "accounts", ["email", "city"], ["a@x.ru", "", "", "", "", "Тула"])["field"]
+    assert fl.error == "строка 3: пустая колонка «email»"  # пустая вторая строка в редакторе тоже считается
+
+
+def test_empty_required_column_in_file(acts):
+    fl = forms.upload_table(acts, "acts", "accounts", "email;city\na@x.ru;x\n  ;Казань\n".encode(), "a.csv")["field"]
+    assert fl.error == "строка 3: пустая колонка «email»"
+
+
+def test_empty_required_column_in_cli_rows(acts, cli):
+    code, data = cli("run", "acts", "--row", "accounts", "email=a@x.ru", "--row", "accounts", "city=Тула")
+    assert code == 1 and "строка 3: пустая колонка «email»" in data["error"]["message"]
