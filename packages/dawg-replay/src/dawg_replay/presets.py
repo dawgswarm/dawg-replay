@@ -73,13 +73,20 @@ class Preset:
     files: dict[str, str] = field(default_factory=dict)  # параметр table -> имя исходного файла
     dropped_why: dict[str, str] = field(default_factory=dict)  # отброшенное -> почему
     secret_tables: dict[str, dict[str, Any]] = field(default_factory=dict)  # параметр -> {"ref", "file", "count"}
+    missing: dict[str, str] = field(default_factory=dict)  # обязательные без значения в пресете: имя -> подпись
 
     def outdated(self) -> str | None:
-        """Текст для человека, если часть значений пресета не подходит текущей версии скрипта."""
-        if not self.dropped:
+        """Текст для человека, если пресет не подходит текущей версии скрипта: значения, которые она
+        не принимает, и обязательные значения, которых в пресете нет."""
+        parts = []
+        if self.dropped:
+            parts.append("текущая версия не принимает: " + "; ".join(self.dropped_why.get(n, f"`{n}`") for n in self.dropped))
+        if self.missing:
+            titles = ", ".join(f"«{t}»" for t in self.missing.values())
+            parts.append(("нет значения " if len(self.missing) == 1 else "нет значений ") + titles)
+        if not parts:
             return None
-        reasons = "; ".join(self.dropped_why.get(n, f"`{n}`") for n in self.dropped)
-        return (f"пресет «{self.name}» сохранён для другой версии скрипта, текущая не принимает: {reasons}. "
+        return (f"пресет «{self.name}» сохранён для другой версии скрипта: {'; '.join(parts)}. "
                 "Откройте пресет в форме запуска, поправьте значения и сохраните его заново")
 
     def to_dict(self) -> dict[str, Any]:
@@ -89,6 +96,7 @@ class Preset:
             "params": self.params,
             "dropped": self.dropped,
             "dropped_why": self.dropped_why,
+            "missing": list(self.missing),
             "files": self.files,
             "secret_tables": {k: {"file": v["file"], "count": v["count"]} for k, v in self.secret_tables.items()},
             "created_at": self.created_at,
@@ -195,5 +203,12 @@ class Presets:
         kept, why = filter_explained(manifest, stored)
         dropped = list(why)
         files = {k: v for k, v in files.items() if k in kept and isinstance(v, str)} if isinstance(files, dict) else {}
+        # Обязательное без значения: новая версия добавила параметр, а пресет сохранён раньше.
+        # Секреты берутся из хранилища паролей, секретная таблица из файла пресета.
+        missing = {
+            p.name: p.title for p in manifest.params
+            if p.required and p.type != "secret" and p.default is None and p.name not in kept
+            and not (p.type == "table" and p.secret and p.name in secret_tables) and p.name not in why
+        }
         return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files, why,
-                      secret_tables)
+                      secret_tables, missing)
