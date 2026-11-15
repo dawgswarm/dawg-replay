@@ -42,7 +42,7 @@ def examples():
 @pytest.mark.parametrize("path", examples(), ids=lambda p: p.parent.name)
 def test_changed_example_bumps_version(path):
     records = json.loads(RECORDS.read_text(encoding="utf-8"))
-    assert problem(path, records.get(str(path.relative_to(ROOT)))) is None, problem(path, records.get(str(path.relative_to(ROOT))))
+    assert problem(path, records.get(path.relative_to(ROOT).as_posix())) is None, problem(path, records.get(path.relative_to(ROOT).as_posix()))
 
 
 def test_check_catches_change_without_bump(tmp_path):
