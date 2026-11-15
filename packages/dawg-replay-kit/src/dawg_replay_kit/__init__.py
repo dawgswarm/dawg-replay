@@ -26,10 +26,12 @@ from __future__ import annotations
 import atexit
 import sys
 import threading
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit import cancel, stdio
+from dawg_replay_kit.ask import AskTimeout
 from dawg_replay_kit.browser import BrowserLimitReached, BrowserSession
 from dawg_replay_kit.dawg_api import BrowserError, BrowserLimitError
 from dawg_replay_kit.events import Log
@@ -41,6 +43,7 @@ __version__ = "1.2.0"  # мажор равен мажору контракта; 
 
 __all__ = [
     "SUPPORTED_CONTRACTS",
+    "AskTimeout",
     "BrowserError",
     "BrowserLimitError",
     "BrowserLimitReached",
@@ -50,6 +53,7 @@ __all__ = [
     "StartupError",
     "__version__",
     "artifact",
+    "ask",
     "browser",
     "init",
     "log",
@@ -122,6 +126,24 @@ def artifact(path: str | Path, label: str, mime: str | None = None) -> None:
 
 def result(status: str, summary: str) -> None:
     _runtime().events.result(status, summary)
+
+
+def ask(
+    question: str,
+    kind: str = "text",
+    choices: Sequence[str] | None = None,
+    secret: bool = False,
+    timeout_minutes: float = 30,
+) -> str | bool:
+    """Спросить человека посреди запуска и дождаться ответа.
+
+    kind: `text` (строка), `confirm` (True или False), `choice` (одна строка из `choices`).
+    `secret=True` для кодов и паролей: ответ не попадает в события и логи.
+    Нет ответа за `timeout_minutes`: `AskTimeout`. Время ожидания входит в общий
+    лимит времени запуска, минуты браузеров DAWG при этом тоже идут.
+    В автономном режиме вопрос задаётся в терминале.
+    """
+    return _runtime().asker.ask(question, kind, choices, secret, timeout_minutes)
 
 
 def browser(

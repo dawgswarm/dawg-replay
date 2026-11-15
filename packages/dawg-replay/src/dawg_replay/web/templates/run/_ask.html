@@ -1,0 +1,47 @@
+{# Вопрос скрипта посреди запуска (kit.ask). Атрибуты data-ask-* читает app.js для уведомления браузера. #}
+{% set q = s.question if running else None %}
+{% if q %}
+<section id="run-ask" class="card run-ask" aria-labelledby="ask-title" role="region"
+         data-ask-id="{{ run.id }}/{{ q.id }}" data-ask-title="{{ run.title or run.script }}" data-ask-text="{{ q.question }}">
+  <h2 id="ask-title">Скрипт ждёт ответа</h2>
+  <p class="ask-question">{{ q.question }}</p>
+  {% if ask_error %}<p class="notice notice-error" role="alert">{{ ask_error }}</p>{% endif %}
+  {% if q.kind == "text" %}
+  <form class="ask-form" hx-post="/runs/{{ run.id }}/answer" hx-target="#run-ask" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="ask_id" value="{{ q.id }}">
+    <label class="sr" for="ask-answer">Ответ</label>
+    <input id="ask-answer" name="answer" type="{{ 'password' if q.secret else 'text' }}" autocomplete="off" required autofocus>
+    <button>Ответить</button>
+  </form>
+  {% elif q.kind == "confirm" %}
+  <div class="ask-buttons">
+    {% for value, text in (("yes", "Да"), ("no", "Нет")) %}
+    <form hx-post="/runs/{{ run.id }}/answer" hx-target="#run-ask" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="ask_id" value="{{ q.id }}"><input type="hidden" name="answer" value="{{ value }}">
+      <button{% if value == "no" %} class="secondary"{% endif %}>{{ text }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% elif q.choices | length <= 6 %}
+  <div class="ask-buttons">
+    {% for c in q.choices %}
+    <form hx-post="/runs/{{ run.id }}/answer" hx-target="#run-ask" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="ask_id" value="{{ q.id }}"><input type="hidden" name="answer" value="{{ c }}">
+      <button class="secondary">{{ c }}</button>
+    </form>
+    {% endfor %}
+  </div>
+  {% else %}
+  <form class="ask-form" hx-post="/runs/{{ run.id }}/answer" hx-target="#run-ask" hx-swap="outerHTML" hx-disabled-elt="find button">
+    <input type="hidden" name="ask_id" value="{{ q.id }}">
+    <label class="sr" for="ask-answer">Вариант</label>
+    <select id="ask-answer" name="answer">{% for c in q.choices %}<option>{{ c }}</option>{% endfor %}</select>
+    <button>Ответить</button>
+  </form>
+  {% endif %}
+  <p class="hint">Ответить до {{ q.deadline | clock }}, потом скрипт перестанет ждать. Пока он ждёт, идёт общее время запуска{% if s.browsers.open %}, а открытый браузер DAWG тратит минуты{% endif %}. Ответить можно и из терминала: <code>dawg-replay answer {{ run.id }} …</code></p>
+  <p class="ask-notify" data-notify-offer hidden><button type="button" class="secondary small" data-notify-enable>Сообщать о вопросах уведомлением</button></p>
+</section>
+{% else %}
+<div id="run-ask">{% if ask_notice %}<p class="notice notice-ok" role="status">{{ ask_notice }}</p>{% endif %}</div>
+{% endif %}

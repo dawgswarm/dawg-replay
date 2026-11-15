@@ -64,6 +64,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dawg_replay import asks
+
 GRACE_SECONDS = 15.0
 DEFAULT_COMMAND: tuple[str, ...] = ("uv", "run")
 
@@ -75,6 +77,7 @@ ENV_OUTPUT_DIR = "DAWG_SCRIPT_OUTPUT_DIR"
 ENV_RUN_ID = "DAWG_SCRIPT_RUN_ID"
 ENV_STOP_FILE = "DAWG_SCRIPT_STOP_FILE"
 ENV_LOGINS_DIR = "DAWG_SCRIPT_LOGINS_DIR"
+ENV_ANSWERS_DIR = "DAWG_SCRIPT_ANSWERS_DIR"
 STOP_FILE = "stop"
 
 # Переменные, которые не наследуются от процесса приложения: их значения задаёт только раннер.
@@ -174,6 +177,7 @@ class ScriptRun:
         self.stderr_path = self.run_dir / "stderr.log"
         self.output_dir = self.run_dir / "output"
         self.stop_path = self.run_dir / STOP_FILE
+        self.answers_dir = self.run_dir / "answers"
         self._values = dict(values or {})
         self._secret_names = set(secret_names)
         self._api_key = api_key
@@ -279,6 +283,7 @@ class ScriptRun:
                 ENV_OUTPUT_DIR: str(self.output_dir.resolve()),
                 ENV_RUN_ID: self.run_id,
                 ENV_STOP_FILE: str(self.stop_path.resolve()),
+                ENV_ANSWERS_DIR: str(self.answers_dir.resolve()),
                 # Сырые логи пишутся сразу по ходу работы; кодировка не зависит от локали Windows.
                 "PYTHONUNBUFFERED": "1",
                 "PYTHONIOENCODING": "utf-8",
@@ -330,6 +335,7 @@ class ScriptRun:
             kill_tree(proc.pid, leader_alive=False)
         finally:
             self._remove_secret_params()
+            asks.drop_secret_answers(self.run_dir)
         outcome = RunOutcome(
             run_id=self.run_id,
             run_dir=self.run_dir,

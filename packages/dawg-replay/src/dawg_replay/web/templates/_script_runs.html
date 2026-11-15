@@ -1,4 +1,4 @@
-<div id="script-runs" hx-get="/scripts/{{ sname }}/_runs" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
+<div id="script-runs" hx-get="/scripts/{{ sname }}/_runs" hx-trigger="runs-changed from:body{% if runs | selectattr('status', 'equalto', 'running') | list %}, every 5s{% endif %}" hx-swap="outerHTML" data-live-runs>
 {% if runs %}
   <ul class="runs">
   {% for r in runs %}
@@ -6,6 +6,7 @@
     <li>
       <a class="run-link" href="/runs/{{ r.id }}">
         <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
+        {% if r.question %}<span class="status status-ask" title="{{ r.question.question }}">ждёт ответа</span>{% endif %}
         <span class="last-when">{{ r.created_at | when }}</span>
         {% if r.draft %}<span class="hint-inline">черновой</span>{% endif %}
         {% if r.trigger == "schedule" %}<span class="tag-plan">по расписанию{% if r.preset %}, «{{ r.preset }}»{% endif %}</span>{% elif r.preset %}<span class="hint-inline">«{{ r.preset }}»</span>{% endif %}
