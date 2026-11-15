@@ -109,7 +109,8 @@ def stale(app, write_script):
 
 def test_scheduled_run_failed_before_start_is_in_history(app, cli, stale, web):
     code, data = cli("run", "ozon-cards", "--preset", "daily", "--follow", "--schedule", stale.id)
-    assert code != 0 and data["error"]["code"] == "bad_params"
+    assert code != 0 and data["error"]["code"] == "preset_outdated"
+    assert "сохранён для другой версии скрипта: нет значения «Город»" in data["error"]["message"]
     with App(app.paths.home) as a:
         (rec,) = a.runs.list("ozon-cards")
     assert (rec.label, rec.trigger, rec.schedule_id, rec.preset, rec.script_version) == (

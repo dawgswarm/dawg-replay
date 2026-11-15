@@ -12,10 +12,14 @@
     {% endif %}
   </div>
 
-  {% if f.dropped %}
+  {% if f.preset and f.fields | selectattr("widget", "equalto", "table") | list %}
+  <p class="hint">Таблицу из пресета можно заменить файлом или ввести вручную: замена действует только на этот запуск. Пресет «{{ f.preset }}» изменится, только если сохранить его заново.</p>
+  {% endif %}
+  {% if f.dropped or f.missing %}
   <div class="notice notice-warn" role="alert">
-    <p>Пресет «{{ f.preset }}» сохранён для другой версии скрипта. Текущая версия не принимает {{ "значение" if f.dropped | length == 1 else "значения" }}, в форме вместо {{ "него" if f.dropped | length == 1 else "них" }} значения по умолчанию:</p>
-    <ul>{% for why in f.dropped_why %}<li>{{ why | ticks }}</li>{% endfor %}</ul>
+    <p>Пресет «{{ f.preset }}» сохранён для другой версии скрипта.{% if f.dropped %} Текущая версия не принимает {{ "значение" if f.dropped | length == 1 else "значения" }}, в форме вместо {{ "него" if f.dropped | length == 1 else "них" }} значения по умолчанию:{% endif %}</p>
+    {% if f.dropped %}<ul>{% for why in f.dropped_why %}<li>{{ why | ticks }}</li>{% endfor %}</ul>{% endif %}
+    {% if f.missing %}<p>В пресете нет {{ "обязательного значения" if f.missing | length == 1 else "обязательных значений" }} {% for t in f.missing %}«{{ t }}»{% if not loop.last %}, {% endif %}{% endfor %}: {{ "заполните его" if f.missing | length == 1 else "заполните их" }} в форме.</p>{% endif %}
     <p>Проверьте поля и сохраните пресет заново. Пока пресет не пересохранён, быстрый и регулярный запуск по нему не начинаются.</p>
   </div>
   {% endif %}
@@ -36,7 +40,7 @@
         <input id="preset-name" name="_preset_name" type="text" placeholder="например, ноутбуки по цене" value="{{ f.preset or '' }}">
         <button type="button" class="secondary" hx-post="/scripts/{{ f.name }}/presets" hx-include="#params-form" hx-target="#script-form" hx-swap="outerHTML" hx-disabled-elt="this">Сохранить пресет</button>
       </div>
-      <p class="hint">Секреты в пресет не попадают. Пресет с тем же именем перезаписывается.</p>
+      <p class="hint">Секреты (токены, ключи) в пресет не попадают, они в хранилище паролей. Секретная таблица сохраняется в пресете и видна только вам. Пресет с тем же именем перезаписывается.</p>
     </div>
     {% endif %}
   </form>
