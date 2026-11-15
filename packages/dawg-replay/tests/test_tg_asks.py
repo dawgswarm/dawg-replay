@@ -18,8 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from dawg_replay import asks, launch, tg_asks, tg_updates
-from dawg_replay.app import App
+from dawg_replay import asks, launch, telegram, tg_asks, tg_updates
 from dawg_replay.errors import ReplayError
 
 CHAT = 4242
@@ -570,39 +569,104 @@ kit.result("ok", "готово")
 '''
 
 
-def test_supervise_answers_from_telegram(cli, home, kr, tmp_path, server, fast, monkeypatch):
+@pytest.fixture
+def real_tg(app, kr):
+    """Настоящий telegram.py (connection, Bot по HTTP) против фейкового сервера Bot API."""
+    from fake_telegram import TOKEN, FakeTelegram
+
+    with FakeTelegram() as fake:
+        app.set_config("telegram_api_url", fake.url)
+        app.secrets.set_telegram_token(TOKEN)
+        telegram._save(app, telegram_chat_id=str(CHAT), telegram_chat_name="Иван", telegram_bot="replay_test_bot")
+        yield fake
+
+
+def test_supervise_answers_from_telegram(cli, home, kr, app, tmp_path, real_tg, fast, monkeypatch):
     monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
-    monkeypatch.setattr(tg_asks, "open_bot", lambda app: (FakeBot(server), CHAT))
     f = tmp_path / "tg-ask.py"
     f.write_text(SCRIPT, encoding="utf-8")
     code, _ = cli("add", str(f))
     assert code == 0
+    assert tg_asks.open_bot(app)[1] == CHAT
 
     def answer():
-        s1 = wait_for(lambda: server.sent() and server.sent()[0], 30)
-        assert s1[2].startswith("Вопрос в Telegram\n") and s1[3] is None
-        server.push(message("482913", mid=990, reply_to=s1[4]))
-        s2 = wait_for(lambda: len(server.sent()) >= 2 and server.sent()[1], 30)
-        server.push(callback(s2[4], f"a:{key_of(s2)}:y", cq_id="go"))
+        s1 = wait_for(lambda: real_tg.sent() and real_tg.sent()[0], 30)
+        assert s1["text"].startswith("Вопрос в Telegram\n") and "reply_markup" not in s1
+        real_tg.push_message("482913", chat_id=CHAT)  # единственный ждущий: простым сообщением
+        s2 = wait_for(lambda: len(real_tg.sent()) >= 2 and real_tg.sent()[1], 30)
+        data = s2["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+        mid = real_tg._message_id  # последний выданный id: сообщение со вторым вопросом
+        real_tg.push({"callback_query": {"id": "go", "data": data, "from": {"id": CHAT},
+                                         "message": {"message_id": mid, "chat": {"id": CHAT}}}})
 
     t = threading.Thread(target=answer, daemon=True)
     t.start()
-    with App(Path(home), keyring_backend=kr) as app:
-        prepared = launch.prepare(app, "tg-ask")
-        rec = launch.supervise(app, prepared.run.id, prepared.payload())
-        run_dir = app.paths.run_dir(rec.id)
+    prepared = launch.prepare(app, "tg-ask")
+    rec = launch.supervise(app, prepared.run.id, prepared.payload())
+    run_dir = app.paths.run_dir(rec.id)
     t.join(5)
     assert rec.label == "ok", (run_dir / "stderr.log").read_text(encoding="utf-8")
     events = (run_dir / "events.jsonl").read_text(encoding="utf-8")
     assert "код 6 знаков, подтверждение True" in events and "482913" not in events
-    assert ("delete", CHAT, 990) in server.sent("delete")
-    assert "482913" not in json.dumps([c for c in server.calls if c[0] != "delete"], ensure_ascii=False)
-    assert tg_asks.load_links(home) == [] and server.conflicts == 0
+    assert "Telegram:" not in events  # ошибок отправки не было
+    deleted = real_tg.sent("deleteMessage")
+    assert len(deleted) == 1 and deleted[0]["chat_id"] == CHAT
+    outward = [(m, p) for m, p in real_tg.calls if m != "deleteMessage"]
+    assert "482913" not in json.dumps(outward, ensure_ascii=False)
+    assert ("answerCallbackQuery", {"callback_query_id": "go", "text": tg_asks.T_ACCEPTED}) in real_tg.calls
+    edits = [p["text"] for p in real_tg.sent("editMessageText")]
+    assert any(e.endswith("Ответ принят") for e in edits) and any(e.endswith("Ответ принят: да") for e in edits)
+    assert tg_asks.load_links(home) == [] and telegram.last_error(app) is None
 
 
-def test_supervise_without_telegram_unchanged(cli, home, kr, tmp_path, monkeypatch):
-    called = []
-    monkeypatch.setattr(tg_asks, "RunAsks", lambda *a, **k: called.append(1))
-    with App(Path(home), keyring_backend=kr) as app:
-        assert tg_asks.open_bot(app) is None  # telegram не подключён (или ядра ещё нет)
-    assert called == []
+def test_send_error_goes_to_journal_and_settings(cli, home, app, tmp_path, real_tg, fast, monkeypatch):
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    real_tg.fail["sendMessage"] = (403, "Forbidden: bot was blocked by the user")
+    f = tmp_path / "tg-ask.py"
+    f.write_text(SCRIPT.replace("timeout_minutes=1)\nok", "timeout_minutes=0.02)\nok"), encoding="utf-8")
+    code, _ = cli("add", str(f))
+    prepared = launch.prepare(app, "tg-ask")
+    rec = launch.supervise(app, prepared.run.id, prepared.payload())
+    assert rec.status == "failed"  # не ответили до срока, Telegram на итог не влияет
+    events = (app.paths.run_dir(rec.id) / "events.jsonl").read_text(encoding="utf-8")
+    assert "Telegram: не удалось отправить вопрос в Telegram: бот не может написать в чат" in events
+    assert "бот не может написать" in telegram.last_error(app)["text"]
+
+
+def test_telegram_not_connected_means_no_questions(app):
+    assert tg_asks.open_bot(app) is None
+
+
+# --- привязка чата делит getUpdates с опросом ответов ------------------------------------------
+
+
+def test_pairing_waits_for_lock_and_shares_offset(app, kr, real_tg, monkeypatch):
+    from fake_telegram import TOKEN
+
+    monkeypatch.setattr(telegram._secrets, "token_urlsafe", lambda n: "fixedcode123")
+    pairing = telegram.start_pairing(app, TOKEN)
+    holder = tg_updates.UpdatesLock(app)
+    assert holder.acquire(0)  # опрос ответов держит getUpdates
+    real_tg.push_message("/start fixedcode123", chat_id=CHAT)
+    got = {}
+    t = threading.Thread(target=lambda: got.update(r=telegram.wait_pairing(app, pairing, seconds=10, poll=1)))
+    t.start()
+    time.sleep(0.5)
+    assert real_tg.polls == 0  # привязка не зовёт getUpdates, пока блокировка занята
+    holder.release()
+    t.join(15)
+    assert got["r"] == {"chat_id": str(CHAT), "chat_name": "Иван (@ivan)"}
+    assert tg_updates.load_offset(app) == real_tg._update_id + 1  # общий offset сдвинут
+    assert tg_updates.UpdatesLock(app).acquire(0)  # и отпущена
+
+
+def test_pairing_does_not_answer_questions(app, kr, real_tg, tmp_path, monkeypatch):
+    """Ответ, пришедший во время привязки, она не обрабатывает (описано в tg_updates)."""
+    from fake_telegram import TOKEN
+
+    monkeypatch.setattr(telegram._secrets, "token_urlsafe", lambda n: "fixedcode123")
+    pairing = telegram.start_pairing(app, TOKEN)
+    real_tg.push_message("какой-то ответ", chat_id=CHAT)
+    real_tg.push_message("/start fixedcode123", chat_id=CHAT)
+    assert telegram.wait_pairing(app, pairing, seconds=5, poll=1)["chat_id"] == str(CHAT)
+    assert [m for m, _ in real_tg.calls if m != "getMe"] == ["sendMessage"]  # только «Подключено»

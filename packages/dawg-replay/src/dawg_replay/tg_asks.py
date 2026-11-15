@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from dawg_replay import asks, diagnosis, procinfo, tg_updates
+from dawg_replay import asks, diagnosis, procinfo, telegram, tg_updates
 from dawg_replay.errors import ReplayError
 
 LINKS_DIR = "asks"
@@ -72,25 +72,14 @@ def wants_ask(app: Any, rec: Any) -> bool:
 
 def open_bot(app: Any) -> tuple[Any, int] | None:
     """Бот и привязанный чат, если Telegram подключён."""
-    try:
-        from dawg_replay import telegram  # type: ignore[attr-defined]
-    except ImportError:
-        return None
     conn = telegram.connection(app)
     if conn is None:
         return None
-    return telegram.Bot(conn.token, conn.api_url), int(conn.chat_id)
+    return conn.bot(), int(conn.chat_id)
 
 
 def record_error(app: Any, text: str) -> None:
-    try:
-        from dawg_replay import telegram  # type: ignore[attr-defined]
-    except ImportError:
-        return
-    try:
-        telegram.record_error(app, text)
-    except Exception:  # отметка ошибки не должна ломать запуск
-        pass
+    telegram.record_error(app, text)
 
 
 def _err(e: BaseException) -> str:

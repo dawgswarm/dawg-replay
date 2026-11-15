@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from dawg_replay import tg_updates
 from dawg_replay.errors import ReplayError
 
 if TYPE_CHECKING:
@@ -339,15 +340,27 @@ def wait_pairing(app: App, pairing: Pairing, *, seconds: float = PAIR_SECONDS, p
         raise ReplayError("telegram_not_connected", "токен бота не задан")
     bot = Bot(token, _api_url(app))
     deadline = time.monotonic() + seconds
-    offset: int | None = None
+    # Один getUpdates на установку: пока ответа ждут вопросы скриптов, обновления забирает
+    # их опрашивающий (tg_asks), привязка ждёт блокировку. Ответ на вопрос, пришедший во
+    # время привязки, привязка не обрабатывает (см. dawg_replay.tg_updates).
+    lock = tg_updates.UpdatesLock(app)
     try:
         while not stop():
             left = deadline - time.monotonic()
             if left <= 0:
                 return None
+            if not lock.acquire(0):
+                time.sleep(min(1.0, left))
+                continue
+            offset = tg_updates.load_offset(app)
             updates = bot.get_updates(offset, timeout=max(0, min(poll, int(left))))
+            if stop():
+                # Отменённая привязка не трогает полученное: его увидит новая привязка
+                # или опрос ответов (offset не сдвигается).
+                return None
             for u in updates:
                 offset = max(offset or 0, int(u.get("update_id", 0)) + 1)
+                tg_updates.save_offset(app, offset)
                 msg = u.get("message") or {}
                 chat = msg.get("chat") or {}
                 if chat.get("type") != "private" or not _secrets.compare_digest((_start_code(msg) or "").encode(), pairing.code.encode()):
@@ -362,6 +375,8 @@ def wait_pairing(app: App, pairing: Pairing, *, seconds: float = PAIR_SECONDS, p
                 return {"chat_id": chat_id, "chat_name": name}
     except TelegramError as e:
         raise ReplayError("telegram_error", mask_token(str(e), token)) from None
+    finally:
+        lock.release()
     return None
 
 
