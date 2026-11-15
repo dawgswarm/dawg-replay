@@ -6,7 +6,6 @@
 
 ```
 .claude-plugin/plugin.json        плагин Claude Code
-.claude-plugin/marketplace.json   маркетплейс из одного плагина
 .mcp.json                         сервер dawg-mcp (браузер DAWG для разведки)
 skills/dawg-replay-builder/       сам скилл: SKILL.md и справочные файлы
 ```
@@ -34,11 +33,11 @@ claude
 В сессии Claude Code:
 
 ```
-/plugin marketplace add dawgswarm/dawg-replay-builder
+/plugin marketplace add dawgswarm/dawg-replay
 /plugin install dawg-replay-builder@dawg-replay
 ```
 
-При установке откроется окно ввода ключа DAWG. Ключ хранится в системном хранилище паролей, в файлы настроек не попадает. То же из терминала: `claude plugin marketplace add dawgswarm/dawg-replay-builder` и `claude plugin install dawg-replay-builder@dawg-replay`, тогда ключ вводится в сессии командой `/plugin configure dawg-replay-builder`.
+При установке откроется окно ввода ключа DAWG. Ключ хранится в системном хранилище паролей, в файлы настроек не попадает. То же из терминала: `claude plugin marketplace add dawgswarm/dawg-replay` и `claude plugin install dawg-replay-builder@dawg-replay`, тогда ключ вводится в сессии командой `/plugin configure dawg-replay-builder`.
 
 Проверка: `/mcp` показывает сервер `dawg` плагина в статусе connected, `/plugin` показывает плагин без ошибок. Скилл срабатывает сам на просьбы вроде «собирай с сайта...», вызвать явно: `/dawg-replay-builder:dawg-replay-builder`.
 
@@ -53,15 +52,22 @@ claude
 
 ## Codex
 
-1. Скачайте плагин и скопируйте папку скилла в каталог скиллов пользователя:
+1. Скачайте репозиторий и скопируйте папку скилла в каталог скиллов пользователя:
 
    ```
-   git clone --depth 1 https://github.com/dawgswarm/dawg-replay-builder ~/dawg-replay-builder
+   git clone --depth 1 https://github.com/dawgswarm/dawg-replay ~/dawg-replay
    mkdir -p ~/.agents/skills
-   cp -R ~/dawg-replay-builder/skills/dawg-replay-builder ~/.agents/skills/
+   cp -R ~/dawg-replay/skill/skills/dawg-replay-builder ~/.agents/skills/
    ```
 
-   Без git: на странице https://github.com/dawgswarm/dawg-replay-builder нажмите Code, Download ZIP и скопируйте из архива папку `skills/dawg-replay-builder`. На Windows каталог скиллов: `%USERPROFILE%\.agents\skills`. Для одного проекта вместо этого: `<проект>/.agents/skills/dawg-replay-builder`.
+   Чтобы не качать весь репозиторий, можно взять только `skill/`:
+
+   ```
+   git clone --depth 1 --filter=blob:none --sparse https://github.com/dawgswarm/dawg-replay ~/dawg-replay
+   git -C ~/dawg-replay sparse-checkout set skill
+   ```
+
+   Без git: на странице https://github.com/dawgswarm/dawg-replay нажмите Code, Download ZIP и скопируйте из архива папку `skill/skills/dawg-replay-builder`. На Windows каталог скиллов: `%USERPROFILE%\.agents\skills`. Для одного проекта вместо этого: `<проект>/.agents/skills/dawg-replay-builder`.
 
 2. Подключите dawg-mcp в `~/.codex/config.toml`:
 
@@ -76,18 +82,21 @@ claude
 
 3. Перезапустите Codex. Проверка: `/skills` показывает `dawg-replay-builder`, `/mcp` показывает сервер `dawg`. Вызвать явно: `$dawg-replay-builder`.
 
-Обновление: `git -C ~/dawg-replay-builder pull` и снова команда `cp` из шага 1.
+Обновление: `git -C ~/dawg-replay pull` и снова команда `cp` из шага 1.
 
 ## Разработка
 
-Плагин живёт в папке `skill/` репозитория `dawgswarm/dawg-replay`. Проверка из рабочей копии, из корня репозитория:
+Плагин живёт в папке `skill/` репозитория `dawgswarm/dawg-replay`, маркетплейс `dawg-replay` описан в `.claude-plugin/marketplace.json` в корне репозитория. Проверка из рабочей копии, из корня репозитория:
 
 ```
+claude plugin validate .
 claude plugin validate ./skill
 claude --plugin-dir ./skill
 ```
 
-`skills/dawg-replay-builder/contract.md` это копия `docs/contract.md` из репозитория `dawg-replay`; тест `test_skill.py` следит, чтобы они совпадали. После правки контракта скопируйте файл заново.
+Любая правка в `skill/` поднимает `version` в `.claude-plugin/plugin.json`, иначе `/plugin marketplace update` не увидит изменений.
+
+`skills/dawg-replay-builder/contract.md` это копия `docs/contract.md`; тест `test_skill.py` следит, чтобы они совпадали. После правки контракта скопируйте файл заново.
 
 ## Лицензия
 

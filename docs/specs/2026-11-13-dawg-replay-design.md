@@ -91,7 +91,7 @@
 |---|---|---|---|
 | `dawg-replay` | Python-пакет: ядро, CLI, локальный веб-интерфейс | `dawgswarm/dawg-replay` | PyPI, `uv tool install dawg-replay` |
 | `dawg-replay-kit` | Маленькая библиотека для скриптов: параметры, события, браузеры DAWG | тот же репозиторий, второй пакет | PyPI, указывается в PEP 723-заголовке скрипта |
-| `dawg-replay-builder` | Скилл: `SKILL.md`, справочные файлы, шаблон скрипта | `dawgswarm/dawg-replay-builder` | Claude Code: плагин через marketplace (скилл и конфиг `dawg-mcp`). Codex: папка скилла копируется в каталог скиллов Codex, MCP настраивается по README `dawg-mcp` |
+| `dawg-replay-builder` | Скилл: `SKILL.md`, справочные файлы, шаблон скрипта | `dawgswarm/dawg-replay`, папка `skill/` | Claude Code: плагин через marketplace (скилл и конфиг `dawg-mcp`). Codex: папка скилла копируется в каталог скиллов Codex, MCP настраивается по README `dawg-mcp` |
 
 Контракт скрипта (раздел 5) связывает обе стороны. Он лежит в репозитории `dawg-replay` в `docs/contract.md`, имеет версию (`contract = 1`) и копируется в скилл как справочный файл. Скрипт с неизвестной мажорной версией контракта приложение не запускает и прямо пишет почему.
 

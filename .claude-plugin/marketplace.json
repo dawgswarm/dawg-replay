@@ -5,7 +5,7 @@
   "plugins": [
     {
       "name": "dawg-replay-builder",
-      "source": "./",
+      "source": "./skill",
       "description": "Агент собирает скрипты сбора данных для dawg-replay через браузер DAWG"
     }
   ]
