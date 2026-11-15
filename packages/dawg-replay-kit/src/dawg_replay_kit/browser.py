@@ -460,10 +460,11 @@ class BrowserSession:
         try:
             self._previous = self._store.load(self.login)
         except OSError as e:
-            self._m.events.log("warn", f"сохранённый вход не прочитан ({type(e).__name__}); скрипт войдёт заново")
+            self._m.events.log("warn", "сохранённый вход не прочитался, скрипт войдёт заново")
+            self._m.events.log("debug", f"чтение файла входа: {type(e).__name__}")
             return None
         if self._previous is None:
-            self._m.events.log("info", "сохранённого входа нет; после входа скрипт сохраняет его (b.save_login())")
+            self._m.events.log("info", "сохранённого входа пока нет, скрипт сохранит его после входа")
             return None
         return self._previous.state
 
@@ -483,11 +484,14 @@ class BrowserSession:
         self._m.events.log("info", "сохранённый вход загружен в браузер")
 
     def _restore_failed(self, e: Exception) -> None:
-        self._m.events.log("warn", f"сохранённый вход не загрузился в браузер ({type(e).__name__}); скрипт войдёт заново")
+        self._m.events.log("warn", "сохранённый вход не загрузился в браузер, скрипт войдёт заново")
+        self._m.events.log("debug", f"загрузка входа в браузер: {type(e).__name__}")
 
     def _note_unsaved(self) -> None:
         if self._store is not None and not self._save_login and not self._forgotten and self._restore_done:
-            self._m.events.log("info", "вход не сохранён: скрипт не подтвердил его (b.save_login() после входа)")
+            self._m.events.log("info", "вход не сохранён: скрипт не отметил, что вход удался")
+            # Подсказка для того, кто пишет скрипт (агента): человеку имя метода ни к чему.
+            self._m.events.log("debug", "новый вход сохраняется вызовом b.save_login() после успешного входа (контракт 6.1)")
 
     def _wants_save(self) -> bool:
         return self._store is not None and self._save_login and self._restore_done and self.context is not None
@@ -508,7 +512,8 @@ class BrowserSession:
             self._m.events.log("info", "вход сохранён для следующих запусков")
 
     def _save_failed(self, e: Exception) -> None:
-        self._m.events.log("warn", f"вход не сохранён ({type(e).__name__}): браузер уже закрыт или недоступен")
+        self._m.events.log("warn", "вход не сохранён: браузер уже закрыт или недоступен")
+        self._m.events.log("debug", f"сохранение входа: {type(e).__name__}")
 
     # --- общее ---
 

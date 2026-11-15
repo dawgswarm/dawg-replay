@@ -270,7 +270,8 @@ def test_save_failure_is_warning(fake, tmp_path):
     with BrowserSession(m, login="u"):
         pass  # вход восстановлен, при закрытии обновляется, а контекст недоступен
     assert LoginStore(tmp_path).get("u").state == STATE
-    assert any("вход не сохранён (RuntimeError)" in x for x in logs(sink))
+    assert "вход не сохранён: браузер уже закрыт или недоступен" in logs(sink)
+    assert "сохранение входа: RuntimeError" in logs(sink)  # класс ошибки только в debug
     assert fake.sessions == {}
 
 
@@ -284,7 +285,8 @@ def test_restore_failure_is_warning(fake, tmp_path, monkeypatch):
     monkeypatch.setattr(logins, "restore_sync", boom)
     with BrowserSession(m, login="u") as b:
         assert b.login_restored is False
-    assert any("не загрузился в браузер (RuntimeError)" in x for x in logs(sink))
+    assert "сохранённый вход не загрузился в браузер, скрипт войдёт заново" in logs(sink)
+    assert "загрузка входа в браузер: RuntimeError" in logs(sink)
     assert "cookie-secret" not in json.dumps(sink.events)
 
 
@@ -381,7 +383,8 @@ def test_save_login_failure_and_without_login(fake, tmp_path):
     m, sink, _ = make(fake, tmp_path, broken)
     with BrowserSession(m, login="u") as b:
         assert b.save_login() is False
-    assert any("вход не сохранён (RuntimeError)" in x for x in logs(sink))
+    assert "вход не сохранён: браузер уже закрыт или недоступен" in logs(sink)
+    assert "сохранение входа: RuntimeError" in logs(sink)  # класс ошибки только в debug
     m2, _, _ = make(fake, tmp_path)
     with BrowserSession(m2) as b, pytest.raises(BrowserError, match="без login"):
         b.save_login()
@@ -407,7 +410,7 @@ def test_fresh_login_without_save_login_is_not_created(fake, tmp_path):
     with BrowserSession(m, login="admin") as b:
         b.context.cookies = [{"name": "sid", "value": "anon", "domain": "x.ru", "path": "/"}]  # вход не удался
     assert LoginStore(tmp_path).list() == []
-    assert "вход не сохранён: скрипт не подтвердил его (b.save_login() после входа)" in logs(sink)
+    assert "вход не сохранён: скрипт не отметил, что вход удался" in logs(sink)
 
 
 def test_cancel_before_login_does_not_create_login(fake, tmp_path):
@@ -463,3 +466,26 @@ def test_close_right_after_save_login_logs_once(fake, tmp_path):
     assert logs(sink2).count("вход сохранён для следующих запусков") == 1
     assert [e["level"] for e in sink2.events if e["t"] == "log" and e["msg"] == "вход обновлён при закрытии браузера"] == ["debug"]
     assert [c["name"] for c in LoginStore(tmp_path).get("u").state["cookies"]][-1] == "late"
+
+
+
+def test_human_log_lines_have_no_code_names(fake, tmp_path):
+    # dr-95: в строках info и выше нет имён методов и классов ошибок; подсказки для агента в debug.
+    import re
+
+    def broken():
+        c = FakeContext()
+        c.fail_state = True
+        return c
+
+    LoginStore(tmp_path).save("u", STATE)
+    m, sink, _ = make(fake, tmp_path, broken)
+    with BrowserSession(m, login="u"):
+        pass
+    m2, sink2, _ = make(fake, tmp_path / "other")
+    with BrowserSession(m2, login="new"):
+        pass
+    human = [e["msg"] for e in sink.events + sink2.events if e["t"] == "log" and e["level"] != "debug"]
+    assert human and not [x for x in human if re.search(r"\w\(|\b[A-Z][a-z]+Error\b|\bb\.\w+", x)], human
+    debug = [e["msg"] for e in sink2.events if e["t"] == "log" and e["level"] == "debug"]
+    assert any("b.save_login()" in x for x in debug)
