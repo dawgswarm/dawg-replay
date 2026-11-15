@@ -232,6 +232,7 @@ def test_first_run_saves_then_next_run_restores(fake, tmp_path):
         assert b.login_restored is False and b.login == "a@b.ru"
         b.context.cookies = list(STATE["cookies"])  # скрипт вошёл
         b.context.storage = {"https://example.com": {"token": "ls-secret-456"}}
+        assert b.save_login() is True  # новый вход появляется только так
     saved = LoginStore(tmp_path).get("a@b.ru")
     assert saved.state == STATE
     assert fake.sessions == {}
@@ -264,10 +265,11 @@ def test_save_failure_is_warning(fake, tmp_path):
         c.fail_state = True
         return c
 
+    LoginStore(tmp_path).save("u", STATE)
     m, sink, _ = make(fake, tmp_path, broken)
     with BrowserSession(m, login="u"):
-        pass
-    assert LoginStore(tmp_path).get("u") is None
+        pass  # вход восстановлен, при закрытии обновляется, а контекст недоступен
+    assert LoginStore(tmp_path).get("u").state == STATE
     assert any("вход не сохранён (RuntimeError)" in x for x in logs(sink))
     assert fake.sessions == {}
 
@@ -395,3 +397,51 @@ def test_save_login_async(fake, tmp_path):
             assert LoginStore(tmp_path).get("u").state["cookies"][0]["name"] == "n"
 
     asyncio.run(main())
+
+
+# --- новый вход только по save_login (dr-73) ---
+
+
+def test_fresh_login_without_save_login_is_not_created(fake, tmp_path):
+    m, sink, _ = make(fake, tmp_path)
+    with BrowserSession(m, login="admin") as b:
+        b.context.cookies = [{"name": "sid", "value": "anon", "domain": "x.ru", "path": "/"}]  # вход не удался
+    assert LoginStore(tmp_path).list() == []
+    assert "вход не сохранён: скрипт не подтвердил его (b.save_login() после входа)" in logs(sink)
+
+
+def test_cancel_before_login_does_not_create_login(fake, tmp_path):
+    # Приёмка M3: отмена на вопросе с кодом, до отправки формы входа.
+    m, _, _ = make(fake, tmp_path)
+    with pytest.raises(SystemExit), BrowserSession(m, login="tomsmith") as b:
+        b.context.cookies = [{"name": "sid", "value": "anon", "domain": "x.ru", "path": "/"}]
+        raise SystemExit(143)
+    assert LoginStore(tmp_path).list() == []
+
+
+def test_cancel_keeps_restored_login_fresh(fake, tmp_path):
+    LoginStore(tmp_path).save("u", STATE)
+    m, _, _ = make(fake, tmp_path)
+    with pytest.raises(SystemExit), BrowserSession(m, login="u") as b:
+        b.context.cookies.append({"name": "new", "value": "1", "domain": "x.ru", "path": "/"})
+        raise SystemExit(143)
+    assert [c["name"] for c in LoginStore(tmp_path).get("u").state["cookies"]] == ["sid", "new"]
+
+
+def test_cancel_after_save_login_keeps_login(fake, tmp_path):
+    m, _, _ = make(fake, tmp_path)
+    with pytest.raises(SystemExit), BrowserSession(m, login="u") as b:
+        b.context.cookies = list(STATE["cookies"])
+        b.save_login()
+        b.context.cookies.append({"name": "later", "value": "1", "domain": "x.ru", "path": "/"})
+        raise SystemExit(143)
+    assert [c["name"] for c in LoginStore(tmp_path).get("u").state["cookies"]] == ["sid", "later"]
+
+
+def test_forget_then_close_is_quiet(fake, tmp_path):
+    LoginStore(tmp_path).save("u", STATE)
+    m, sink, _ = make(fake, tmp_path)
+    with BrowserSession(m, login="u") as b:
+        b.forget_login()
+    assert LoginStore(tmp_path).list() == []
+    assert not any("не подтвердил" in x for x in logs(sink))
