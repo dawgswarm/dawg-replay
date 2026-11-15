@@ -46,6 +46,7 @@ BACKGROUND_ATTEMPTS = 3
 RETRY_PAUSE = 2.0
 MAX_DOCUMENT = 50 * 1024 * 1024  # предел Bot API для sendDocument
 LOG_SOURCE = "dawg-replay"
+UNSENT_MARK = "telegram-unsent"  # в каталоге запуска: строка «не отправлено» уже в журнале
 
 
 # --- обращения к ядру Telegram (dawg_replay.telegram), тесты подменяют ---------------
@@ -280,7 +281,8 @@ class Outgoing:
     conn: Any
     message: Message
     db_path: Path
-    errors: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)  # неудачные попытки отправить текст
+    document_error: str | None = None
 
 
 def _prepare(app: App, rec: Run) -> Outgoing | None:
@@ -322,7 +324,7 @@ def _deliver(app: App, out: Outgoing, attempts: int) -> bool:
         try:
             bot.send_document(chat, out.message.document)
         except Exception as e:  # noqa: BLE001
-            out.errors.append(f"файл {out.message.document.name} не отправлен: {_error_text(e, out.conn)}")
+            out.document_error = f"файл {out.message.document.name} не отправлен: {_error_text(e, out.conn)}"
     return True
 
 
@@ -345,16 +347,35 @@ def _finish(app: App, out: Outgoing, attempts: int, db: Any | None = None) -> bo
     finally:
         if own:
             db.close()
+    # В журнал запуска одна строка на исход: попытки и досылки следующими процессами её не повторяют.
+    marker = out.run_dir / UNSENT_MARK
     if ok:
-        _log(out.run_dir, "info", "Сообщение об итоге отправлено в Telegram.")
-    for err in out.errors:
-        what = "Telegram" if ok else "Сообщение об итоге в Telegram не отправлено"
-        _log(out.run_dir, "warn", f"{what}: {err}")
+        _log(out.run_dir, "info", "Сообщение об итоге отправлено в Telegram."
+             + (" Раньше отправить не получалось." if marker.exists() else ""))
+        _unlink(marker)
+        if out.document_error:
+            _log(out.run_dir, "warn", f"Telegram: {out.document_error}")
+    elif out.errors and out.run_dir.is_dir() and not marker.exists():
+        _log(out.run_dir, "warn", f"Сообщение об итоге в Telegram не отправлено: {out.errors[-1].rstrip('.')}. "
+             "Приложение попробует ещё раз в течение суток.")
         try:
-            _record_error(app, err)
+            marker.touch()
+        except OSError:
+            pass
+    last = out.document_error if ok else (out.errors[-1] if out.errors else None)
+    if last:
+        try:
+            _record_error(app, last)
         except Exception:  # noqa: BLE001
             pass
     return ok
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def after_finish(app: App, run_id: str, background: bool = True) -> threading.Thread | bool | None:
@@ -371,7 +392,10 @@ def after_finish(app: App, run_id: str, background: bool = True) -> threading.Th
             out = _prepare(app, app.runs.get(run_id))
         except Exception as e:  # noqa: BLE001
             _mark(app.db, run_id, FAILED)
-            _log(app.paths.run_dir(run_id), "warn", f"Сообщение об итоге в Telegram не подготовлено: {e}")
+            run_dir = app.paths.run_dir(run_id)
+            if run_dir.is_dir() and not (run_dir / UNSENT_MARK).exists():
+                _log(run_dir, "warn", f"Сообщение об итоге в Telegram не подготовлено: {e}")
+                (run_dir / UNSENT_MARK).touch()
             return False
         if out is None:
             _mark(app.db, run_id, NONE)
