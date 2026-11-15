@@ -2,6 +2,8 @@ import json
 import os
 import shlex
 import shutil
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -245,7 +247,37 @@ def test_schtasks_wrapper_escapes_percent(tmp_path):
     plan = schedules.TaskPlan(id="abcd1234", spec=Spec.daily("08:00"), argv=["C:\\a b\\dawg-replay.exe", "run", "x", "--preset", "50%"],
                               path_dirs=["C:\\uv"], env={}, log=tmp_path / "l.log")
     body = Schtasks.wrapper(plan)
-    assert '"50%%"' in body and 'set "PATH=C:\\uv;%PATH%"' in body
+    assert ' 50%% >> ' in body and 'set "PATH=C:\\uv;%PATH%"' in body
+    assert body.splitlines()[-1].startswith('"C:\\a b\\dawg-replay.exe" run x --preset 50%% >> ')
+
+
+@pytest.mark.parametrize("arg, line", [
+    ("macbook m5 max", '^"macbook m5 max^"'),
+    ("Москва (центр)", '^"Москва ^(центр^)^"'),
+    ("a&b|c<d>e^f", "a^&b^|c^<d^>e^^f"),
+    ('say "hi"', '^"say \\^"hi\\^"^"'),
+    ("dir\\", "dir\\"),
+    ("dir \\", '^"dir \\\\^"'),
+    ("", '^"^"'),
+])
+def test_schtasks_cmd_arg(arg, line):
+    assert schedules._cmd_arg(arg) == line
+
+
+WIN_NAMES = ["macbook m5 max", "Москва (центр)", '50% & "скидки" ^ <a|b>', "dir \\"]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="нужен cmd.exe")
+def test_schtasks_wrapper_passes_args_through_real_cmd(tmp_path):
+    echo = tmp_path / "echo.py"
+    echo.write_text("import json, sys; print(json.dumps(sys.argv[1:]))", encoding="utf-8")
+    plan = schedules.TaskPlan(id="abcd1234", spec=Spec.daily("08:00"), argv=[sys.executable, str(echo), *WIN_NAMES],
+                              path_dirs=[str(tmp_path)], env={"DAWG_REPLAY_HOME": str(tmp_path / "дом 100%")},
+                              log=tmp_path / "журнал (1).log")
+    wrapper = tmp_path / "w.cmd"
+    wrapper.write_text(Schtasks.wrapper(plan), encoding="utf-8", newline="")
+    subprocess.run(["cmd.exe", "/c", str(wrapper)], check=True, timeout=60)
+    assert json.loads(plan.log.read_text(encoding="utf-8").strip().splitlines()[-1]) == WIN_NAMES
 
 
 # --- удаление скрипта и пресета, плановые запуски ---

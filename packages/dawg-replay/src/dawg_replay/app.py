@@ -216,7 +216,7 @@ class App:
     def delete_preset(self, script: str, preset: str) -> list[str]:
         """Удаляет пресет и снимает его расписания. Возвращает id снятых расписаний."""
         self.registry.get(script)
-        self.presets.get(script, preset, self.registry.manifest(script))
+        preset = self.presets.get(script, preset, self.registry.manifest(script)).name
         removed = self.schedules.remove_for(script, preset) if self.schedules.all(script) else []
         self.presets.delete(script, preset)
         return removed

@@ -47,6 +47,7 @@ from dawg_replay_kit.parameters import ParamsError, resolve
 
 from dawg_replay import devkit, hooks, insurance, procinfo
 from dawg_replay.errors import ReplayError
+from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
 from dawg_replay.runner import (
     DEFAULT_COMMAND,
@@ -216,6 +217,7 @@ def prepare(
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
     `wait`: при занятом лимите ждать слота (`wait_slot_minutes`), а не отказывать. Плановый запуск ждёт всегда."""
     recover_lost(app)
+    preset = normalize_preset(preset) or None  # имя пресета хранится без пробелов по краям
     if schedule_id is not None:
         _check_schedule(app, schedule_id, target, preset)
     manifest, script_path, draft, version = _target(app, target)
