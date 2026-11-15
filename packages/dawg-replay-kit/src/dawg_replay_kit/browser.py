@@ -294,6 +294,7 @@ class BrowserSession:
         self._save_login = False
         self._forgotten = False
         self.login_restored = False
+        self._last_saved: dict[str, Any] | None = None  # что сохранено в этом браузере последним
         self._restore_done = False  # отмена посреди восстановления: неполный вход не сохраняется
         self._async = False
         self._payload = build_payload(proxy, geo)
@@ -446,6 +447,7 @@ class BrowserSession:
         if self._store is None:
             raise BrowserError("браузер открыт без login=, забывать нечего", created=False)
         removed = self._store.forget(self.login)
+        self._last_saved = None
         self._previous = None
         self._save_login = False
         self._forgotten = True
@@ -491,6 +493,9 @@ class BrowserSession:
 
     def _store_state(self, state: dict[str, Any]) -> None:
         assert self._store is not None and self.login is not None
+        if state == self._last_saved:
+            return  # закрытие сразу после save_login: то же состояние, второй записи и строки в журнале не нужно
+        self._last_saved = state
         # Следующее сохранение (при закрытии) сливается уже с этим: localStorage прежних источников не теряется.
         self._previous = self._store.save(self.login, state, self._previous)
         self._m.events.log("info", "вход сохранён для следующих запусков")

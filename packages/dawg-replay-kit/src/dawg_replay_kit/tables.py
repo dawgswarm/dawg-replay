@@ -65,6 +65,32 @@ def parse_table(data: bytes, name: str, *, sheet: str | int | None = None) -> li
     raise TableError(f"{name}: нужна таблица {KINDS} (.csv, .tsv, .xlsx, .json)")
 
 
+def split_sheet(arg: str) -> tuple[str, str | int | None]:
+    """`книга.xlsx#Заказы` или `книга.xlsx#2` в (путь, лист). Без `#` или не у XLSX лист None."""
+    path, sep, sheet = str(arg).rpartition("#")
+    if not sep or not path.lower().endswith(".xlsx") or not sheet:
+        return str(arg), None
+    return path, int(sheet) if sheet.isdigit() else sheet
+
+
+def read_table_arg(arg: str, declared: str | int | None = None) -> list[dict[str, Any]]:
+    """Таблица из аргумента командной строки: путь, у XLSX лист через `#`, если скрипт не объявил
+    `sheet`. Пустой выбранный лист при нескольких листах объясняется, а не превращается в «не задано»."""
+    path, chosen = split_sheet(arg)
+    if chosen is not None and declared is not None:
+        raise TableError(f"лист задан скриптом («{declared}»), `#{chosen}` в имени файла не нужен")
+    sheet = declared if declared is not None else chosen
+    rows = read_table(Path(path).expanduser(), sheet=sheet)
+    if not rows and Path(path).suffix.lower() == ".xlsx":
+        p = Path(path).expanduser()
+        names = sheet_names(p.read_bytes(), p.name)
+        if len(names) > 1:
+            which = f"«{sheet}»" if isinstance(sheet, str) else (f"номер {sheet}" if sheet else f"«{names[0]}» (первом)")
+            listed = ", ".join(f"«{n}»" for n in names)
+            raise TableError(f"{p.name}: на листе {which} нет строк. Листы: {listed}; выберите нужный: {p.name}#{names[-1]}")
+    return rows
+
+
 def sheet_names(data: bytes, name: str) -> list[str]:
     """Листы XLSX по порядку: форма предлагает выбрать, если их несколько, а `sheet` не задан."""
     wb = _open_xlsx(data, name)

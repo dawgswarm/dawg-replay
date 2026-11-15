@@ -8,7 +8,7 @@
   {% if main_item %}
   {% set kind = main_item.mime | preview_kind %}
   <ul class="files" aria-label="Главный файл результата">
-    <li><a class="button" href="/runs/{{ run.id }}/{{ 'view' if kind else 'files' }}/{{ main_item.path | urlencode }}"{% if kind %} target="_blank" rel="noopener"{% else %} download{% endif %}>{{ icon("download", "ico ico-s") }}Открыть результат</a>
+    <li><a class="button" href="/runs/{{ run.id }}/{{ 'view' if kind else 'files' }}/{{ main_item.path | urlencode }}"{% if kind %} target="_blank" rel="noopener" title="Откроется в новой вкладке"{% else %} download title="Скачать"{% endif %}>{{ icon("external" if kind else "download", "ico ico-s") }}Открыть результат</a>
       <span class="file-meta">{{ main_item.label }}, {{ main_item.size | size }}</span></li>
   </ul>
   {% endif %}

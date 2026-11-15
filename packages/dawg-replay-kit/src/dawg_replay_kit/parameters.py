@@ -281,7 +281,7 @@ def build_arg_parser(manifest: Manifest, prog: str | None = None) -> argparse.Ar
             kwargs["metavar"] = "{" + ",".join(p.choices or ()) + "}"
         elif p.type == "table":
             kwargs["metavar"] = "FILE"
-            kwargs["help"] = help_text + ". Файл .csv или .xlsx, первая строка шапка"
+            kwargs["help"] = help_text + ". Файл .csv, .tsv, .xlsx или .json, первая строка шапка; лист XLSX: книга.xlsx#Лист"
         elif p.type == "file":
             kwargs["metavar"] = "PATH"
             if p.multiple:
@@ -360,9 +360,9 @@ def _by_title(p: Param, raw: str) -> str:
 
 
 def _read_table_arg(p: Param, path: str) -> list[dict[str, Any]]:
-    from dawg_replay_kit.tables import TableError, convert_types, read_table
+    from dawg_replay_kit.tables import TableError, convert_types, read_table_arg
 
     try:
-        return convert_types(read_table(path, sheet=p.sheet), p.types)
+        return convert_types(read_table_arg(path, p.sheet), p.types)
     except TableError as e:
         raise ParamsError(f"параметры не подходят ({CLI_SOURCE}):\n  `{p.name}`: {e}") from None

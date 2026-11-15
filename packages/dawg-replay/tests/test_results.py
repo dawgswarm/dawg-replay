@@ -235,3 +235,27 @@ def test_limits_bounds_and_settings(client, secrets_, home):
     with App(home) as app:
         assert (app.config.rows_preview_limit, app.config.log_limit) == (200, 500)
     assert 'id="log_limit"' in client.get("/settings").text
+
+
+def test_main_button_icon_by_kind_and_report_buttons_together(client, make_run):
+    # dr-91: «Открыть результат» со значком новой вкладки, если файл открывается для просмотра; иначе скачать.
+    make_run([ev("artifact", path="shot.png", label="Скриншот", mime="image/png"),
+              ev("item", key="a", status="ok", row=2),
+              ev("result", status="ok", summary="готово", main="shot.png")],
+             files={"shot.png": PNG}, finish={"status": "ok", "reason": None, "summary": "готово"})
+    h = client.get(f"/runs/{RUN_ID}").text
+    main = h[h.index('aria-label="Главный файл результата"'):]
+    main = main[:main.index("</a>")]
+    assert 'target="_blank"' in main and 'title="Откроется в новой вкладке"' in main and "M11 4h5v5" in main
+    tools = h[h.index('class="items-download"'):]
+    tools = tools[:tools.index("</span>\n  </div>")]
+    assert "Скачать отчёт:" in tools and "items.csv" in tools and "items.xlsx" in tools
+
+
+def test_main_button_downloads_non_preview(client, make_run):
+    make_run([ev("artifact", path="cards.csv", label="CSV"), ev("result", status="ok", summary="готово", main="cards.csv")],
+             files={"cards.csv": b"a\n"}, finish={"status": "ok", "reason": None, "summary": "готово"}, run_id=RUN_ID)
+    h = client.get(f"/runs/{RUN_ID}").text
+    main = h[h.index('aria-label="Главный файл результата"'):]
+    main = main[:main.index("</a>")]
+    assert " download" in main and 'title="Скачать"' in main and "M10 3.5v9" in main

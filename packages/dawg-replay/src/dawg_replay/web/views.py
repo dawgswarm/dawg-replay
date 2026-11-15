@@ -461,12 +461,12 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             try:
                 form = await request.form(max_files=1, max_fields=4)
             except (MultiPartException, HTTPException):
-                problem = "Загрузите один файл .csv или .xlsx"
+                problem = "Загрузите один файл таблицы: .csv, .tsv, .xlsx или .json"
             else:
                 try:
                     files = [v for v in form.getlist("_table_file") if isinstance(v, UploadFile)]
                     if len(files) != 1:
-                        problem = "Загрузите один файл .csv или .xlsx"
+                        problem = "Загрузите один файл таблицы: .csv, .tsv, .xlsx или .json"
                     else:
                         data = await files[0].read(uploads.MAX_BYTES + 1)
                         filename = files[0].filename or ""
