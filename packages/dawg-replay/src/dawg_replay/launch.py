@@ -178,6 +178,26 @@ def merge_values(
     return values
 
 
+# Отказы, после которых плановый запуск не пишется в историю: запись уже есть
+# (пропущен или отменён в очереди) или задача сирота (расписания в приложении нет).
+_NOT_RECORDED = ("run_skipped", "run_cancelled", "schedule_not_found")
+
+
+def record_not_started(app: App, schedule_id: str, target: str, preset: str | None, error: ReplayError) -> Run | None:
+    """Плановый запуск упал до создания запуска: запись `failed (not_started)` в истории скрипта,
+    чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`."""
+    if error.code in _NOT_RECORDED:
+        return None
+    try:
+        version = app.registry.version(target)
+    except ReplayError:
+        return None  # скрипта нет: показывать негде
+    return app.runs.record_not_started(
+        run_id=new_run_id(), script_name=target, script_version=version.version, script_path=str(version.path),
+        preset=normalize_preset(preset) or None, schedule_id=schedule_id, error=error.message,
+    )
+
+
 def _wait_policy(cfg: Any, on_wait: Callable[[dict[str, Any]], None] | None) -> WaitPolicy:
     pid = os.getpid()
     return WaitPolicy(seconds=cfg.wait_slot_minutes * 60, on_wait=on_wait, pid=pid, pid_started=procinfo.start_time(pid))

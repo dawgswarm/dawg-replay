@@ -168,6 +168,8 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
             schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args),
         )
     except ReplayError as e:
+        if args.schedule and e.code != "run_skipped":
+            launch.record_not_started(app, args.schedule, args.target, args.preset, e)
         if e.code != "run_skipped":
             raise
         # Не дождались слота: запуск записан в историю как пропущенный.

@@ -1,0 +1,14 @@
+{
+  "examples/ozon-search-cards/script.py": {
+    "version": 5,
+    "sha256": "0ebcf43ad455363eb3ae9bf518a40dce83c9b49de274b0b9a897c5142750a183"
+  },
+  "examples/the-internet-actions/script.py": {
+    "version": 2,
+    "sha256": "b889ee2cf1a402d22a8966f77a9ab007acab1d8d76e7f471e542057d5f39706d"
+  },
+  "examples/wb-search-cards/script.py": {
+    "version": 5,
+    "sha256": "5a54d2ef782eeff8e842023b55975dc605b6c8e5953fcaaebbe8b68aef6242cf"
+  }
+}

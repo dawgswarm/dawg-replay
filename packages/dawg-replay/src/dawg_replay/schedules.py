@@ -333,6 +333,33 @@ def _cmd_arg(arg: str) -> str:
     return "".join("^" + c if c in _CMD_META else "%%" if c == "%" else c for c in "".join(out))
 
 
+def secret_table_gap(manifest: Any) -> str | None:
+    """Обязательная секретная таблица: регулярный запуск такого скрипта невозможен ни с каким пресетом."""
+    tables = [p for p in manifest.params if p.type == "table" and p.secret and p.required]
+    if not tables:
+        return None
+    names = ", ".join(f"«{p.title}»" for p in tables)
+    return (f"у скрипта обязательная секретная таблица {names}: она не сохраняется в пресетах, поэтому "
+            "запуск по расписанию её не получит. Запускайте скрипт вручную и загружайте таблицу в форме")
+
+
+def preset_gap(manifest: Any, preset: Any) -> str | None:
+    """Почему плановый запуск по этому пресету не начнётся, или None.
+
+    Секретная таблица в пресетах не хранится, а других источников у планового запуска
+    нет. Обязательное значение без `default`, которого нет в пресете, тоже не придёт.
+    Секреты (`secret`) берутся из хранилища паролей и здесь не проверяются."""
+    gap = secret_table_gap(manifest)
+    if gap:
+        return gap
+    missing = [p for p in manifest.params
+               if p.required and p.type != "secret" and p.name not in preset.params and p.default is None]
+    if missing:
+        names = ", ".join(f"«{p.title}»" for p in missing)
+        return f"в пресете «{preset.name}» нет обязательных значений: {names}. Сохраните пресет заново с ними"
+    return None
+
+
 class CronTab:
     """crontab пользователя. Читается целиком, свои строки меняются, чужие остаются как были."""
 
@@ -521,7 +548,11 @@ class Schedules:
 
     def add(self, script: str, preset: str, spec: Spec) -> Schedule:
         self.app.registry.get(script)
-        preset = self.app.get_preset(script, preset).name  # пресет должен быть
+        p = self.app.get_preset(script, preset)  # пресет должен быть
+        preset = p.name
+        problem = preset_gap(self.app.registry.manifest(script), p)
+        if problem:
+            raise ReplayError("schedule_impossible", problem)
         if self.backend.kind == "schtasks":
             Schtasks.schedule_args(spec)  # cron на Windows: отказ до записи
         sid = secrets.token_hex(4)

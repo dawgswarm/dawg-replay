@@ -24,6 +24,19 @@ def normalize(name: str | None) -> str:
     return (name or "").replace("\u00a0", " ").replace("\u202f", " ").strip()
 
 
+def secret_tables_note(manifest: Manifest) -> str | None:
+    """Что сказать при сохранении пресета, если у скрипта есть секретные таблицы: они в пресет не входят."""
+    tables = [p for p in manifest.params if p.type == "table" and p.secret]
+    if not tables:
+        return None
+    names = ", ".join(f"«{p.title}»" for p in tables)
+    word = "Секретная таблица" if len(tables) == 1 else "Секретные таблицы"
+    verb = "не сохраняется" if len(tables) == 1 else "не сохраняются"
+    return (f"{word} {names} в пресет {verb}: загружайте её при каждом запуске. "
+            "Поэтому регулярный запуск по такому пресету недоступен.") if any(p.required for p in tables) else (
+            f"{word} {names} в пресет {verb}: загружайте её при каждом запуске.")
+
+
 def clean_name(name: str) -> str:
     """Имя пресета без пробелов по краям. Любые печатные символы, включая пробелы и
     кириллицу. Нельзя: пустое, длиннее 64, управляющие символы, `-` в начале

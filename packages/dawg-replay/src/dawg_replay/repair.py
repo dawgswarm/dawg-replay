@@ -58,7 +58,7 @@ PROMPT_ERRORS = 5
 ERROR_CHARS = 500
 
 SKILL = "dawg-replay-builder"
-NOT_SCRIPT_FAULT = ("cancelled", "skipped")
+NOT_SCRIPT_FAULT = ("cancelled", "skipped", "not_started")
 
 REASONS = {
     "cancelled": "запуск отменили",

@@ -10,7 +10,7 @@
 # description = "Демо действий по таблице на the-internet.herokuapp.com: вход, сохранённый вход, вопрос человеку, отчёт по строкам."
 # site = "the-internet"
 # tags = ["Демо", "Кабинет"]
-# version = 1
+# version = 2
 # timeout_minutes = 30
 #
 # [[params]]

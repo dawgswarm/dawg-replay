@@ -11,6 +11,7 @@ from typing import Any
 
 from dawg_replay.app import App
 from dawg_replay.errors import ReplayError
+from dawg_replay.presets import secret_tables_note
 from dawg_replay.values import brief, parse_set_args, read_params_file, table_files
 
 EXIT_OK = 0
@@ -198,7 +199,13 @@ def _preset_save(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     values = _collect_values(app, args.script, args)
     files = table_files(app.registry.manifest(args.script), args.set or [])
     p = app.save_preset(args.script, args.preset, values, files)
-    return {"preset": p.to_dict()}, f"пресет `{p.name}` сохранён: {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
+    text = f"пресет `{p.name}` сохранён: {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
+    note = secret_tables_note(app.registry.manifest(args.script))
+    data: dict = {"preset": p.to_dict()}
+    if note:
+        data["note"] = note
+        text += f"\n{note[:1].lower() + note[1:]}"
+    return data, text
 
 
 def _preset_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
