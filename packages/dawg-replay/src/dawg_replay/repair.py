@@ -355,6 +355,26 @@ def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 TABLES_FILE = "tables.json"
 
 
+RELATIVE_FILE = "relative.json"
+
+
+def write_relative(run_dir: Path, exprs: dict[str, str]) -> None:
+    """`relative.json`: из какого выражения взята дата запуска (`{"since": "today-1"}`)."""
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / RELATIVE_FILE).write_text(json.dumps(exprs, ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def read_relative(run_dir: Path) -> dict[str, str]:
+    try:
+        data = json.loads((run_dir / RELATIVE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str)} if isinstance(data, dict) else {}
+
+
 def write_table_sizes(run_dir: Path, sizes: dict[str, int]) -> None:
     """`tables.json` в каталоге запуска: число строк каждой таблицы-параметра. Только числа,
     поэтому годится и для секретной таблицы, которой нет в истории."""
@@ -365,6 +385,14 @@ def write_table_sizes(run_dir: Path, sizes: dict[str, int]) -> None:
         (run_dir / TABLES_FILE).write_text(json.dumps(sizes), encoding="utf-8")
     except OSError:
         pass
+
+
+def read_table_sizes(run_dir: Path) -> dict[str, int]:
+    try:
+        sizes = json.loads((run_dir / TABLES_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {k: v for k, v in sizes.items() if isinstance(v, int)} if isinstance(sizes, dict) else {}
 
 
 def table_size(run_dir: Path, params: dict[str, Any] | None = None) -> int | None:

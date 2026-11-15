@@ -34,7 +34,7 @@
       <div class="moment" data-moment>
         <select id="{{ fid }}-rel" name="{{ fl.name }}__rel" aria-label="{{ fl.title }}: точная или относительная дата">
           <option value="" {% if not fl.relative %}selected{% endif %}>{{ "точная дата" if fl.widget == "date" else "точные дата и время" }}</option>
-          {% for o in fl.rel_options %}<option value="{{ o.value }}" {% if fl.relative == o.value %}selected{% endif %}>{{ o.title }} (сегодня это {{ o.today | ru_date }})</option>{% endfor %}
+          {% for o in fl.rel_options %}<option value="{{ o.value }}" {% if fl.relative == o.value %}selected{% endif %}>{{ o.title }}: {{ o.today | ru_date }}</option>{% endfor %}
         </select>
         <input id="{{ fid }}" name="{{ fl.name }}" type="{{ 'date' if fl.widget == 'date' else 'datetime-local' }}" value="{{ fl.value }}" data-exact{% if fl.relative %} hidden{% endif %}
                {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>

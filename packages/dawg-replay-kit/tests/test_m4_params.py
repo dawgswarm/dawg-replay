@@ -190,3 +190,11 @@ def test_from_cli():
         from_cli(m, ["--stores", "msk,nsk"], {})
     with pytest.raises(ParamsError, match="max_items"):
         from_cli(m, ["--stores", "msk,kzn,spb"], {})
+
+
+def test_from_cli_accepts_titles():
+    m = parse_manifest(manifest(PARAMS))
+    p = from_cli(m, ["--sort", "дешевле", "--stores", "Москва,Казань"], {})
+    assert p.sort == "price" and p.stores == ["msk", "kzn"]
+    with pytest.raises(ParamsError, match=r"popular \(Популярные\), price \(Дешевле\), rating"):
+        from_cli(m, ["--sort", "дорогие"], {})
