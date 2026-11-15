@@ -44,6 +44,22 @@
         {% endif %}
       </div>
       <p class="hint">Относительная дата считается в момент каждого запуска, по расписанию тоже: «вчера» в пресете всегда значит вчерашний день.{% if fl.widget == "datetime" %} Время рядом с ней: без него 00:00.{% endif %}</p>
+    {% elif fl.widget == "file" %}
+      {# Параметр file (контракт 1.3): файлы уходят отдельным запросом, в форме id загрузок через запятую. #}
+      {% set fi = fl.table if fl.table and not fl.table.failed else none %}
+      <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">
+      {% if fi %}
+      <ul class="file-loaded">
+        {% for f in fi.files %}<li><strong>{{ f.name }}</strong>, {{ f.size | size }}</li>{% endfor %}
+      </ul>
+      {% if fi.secret %}<p class="hint">Файл секретный: скрипт получит его копию на время запуска, в историю запусков он не попадает; в пресете хранится отдельно и виден только вам.</p>{% endif %}
+      {% endif %}
+      <input id="{{ fid }}" class="file-input" name="_file_upload" type="file"{% if fl.multiple %} multiple{% endif %}{% if fl.accept %} accept="{{ fl.accept | join(',') }}"{% endif %}
+             hx-post="/scripts/{{ script }}/_file/{{ fl.name }}" hx-encoding="multipart/form-data" hx-trigger="change"
+             hx-params="_file_upload" hx-disabled-elt="this" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+      <label class="file-button" for="{{ fid }}">{{ ("Заменить файлы" if fl.multiple else "Заменить файл") if fi else ("Выбрать файлы" if fl.multiple else "Выбрать файл") }}</label>
+      <span class="file-busy hint-inline">Загружаем…</span>
+      <p class="hint">{% if fl.accept %}Подходит: {{ fl.accept | join(", ") }}. {% endif %}Не больше {{ fl.max_mb | value }} МБ{% if fl.multiple %} каждый{% if fl.max_items %}, файлов не больше {{ fl.max_items }}{% endif %}{% endif %}.</p>
     {% elif fl.widget == "table" %}
       {% set t = fl.table if fl.table and not fl.table.failed else none %}
       <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">

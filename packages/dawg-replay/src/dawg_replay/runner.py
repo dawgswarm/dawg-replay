@@ -169,6 +169,7 @@ class ScriptRun:
         after_exit: Iterable[AfterExit] = (),
         secrets_dir: str | Path | None = None,
         logins_dir: str | Path | None = None,
+        secret_files: Collection[str] = (),
     ):
         self.script = Path(script).resolve()
         self.run_id = run_id
@@ -182,6 +183,7 @@ class ScriptRun:
         self.answers_dir = self.run_dir / "answers"
         self._values = dict(values or {})
         self._secret_names = set(secret_names)
+        self._secret_files = set(secret_files)  # параметры file с secret: копия во временный каталог секретов
         self._api_key = api_key
         self._base_url = base_url
         self._timeout = timeout
@@ -309,10 +311,18 @@ class ScriptRun:
             tempfile.mkdtemp(prefix=f"{self.run_id}-" if self._secrets_base else f"dawg-replay-{self.run_id}-",
                              dir=self._secrets_base)
         )
+        values = dict(self._values)
+        if self._secret_files:
+            from dawg_replay.launch import copy_files_into
+
+            for name in self._secret_files:
+                if values.get(name) not in (None, []):
+                    # Копия рядом с params.json: каталог 0700 удаляется после выхода процесса.
+                    values[name] = copy_files_into(self._secret_dir / "files" / name, values[name])
         path = self._secret_dir / "params.json"
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(self._values, f, ensure_ascii=False)
+            json.dump(values, f, ensure_ascii=False)
         return path
 
     def _remove_secret_params(self) -> None:

@@ -486,6 +486,55 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         return await run_in_threadpool(work)
 
+    async def script_file_upload(request: Request) -> Response:
+        """Файлы в поле параметра file (контракт 1.3): проверка и сохранение, в ответ поле с именами."""
+        name, param = request.path_params["name"], request.path_params["param"]
+
+        def limits() -> tuple[int, int]:
+            with _ui(request).open_app() as app:
+                try:
+                    p = app.registry.manifest(name).param(param)
+                except (ReplayError, KeyError):
+                    return 0, 0
+            if p.type != "file":
+                return 0, 0
+            return p.size_limit, (p.max_items or 50) if p.multiple else 1
+
+        per_file, count = await run_in_threadpool(limits)
+        files: list[tuple[str, bytes]] = []
+        problem = None
+        if not per_file:
+            return Response("Такого поля файла нет.", status_code=404, media_type="text/plain; charset=utf-8")
+        try:
+            length = int(request.headers.get("content-length", ""))
+        except ValueError:
+            length, problem = 0, "Браузер не сообщил размер файла, выберите файл заново"
+        if problem is None and length > per_file * count + 64 * 1024 * count:
+            problem = f"файлы больше {per_file // 1024 // 1024} МБ каждый" if count > 1 else f"файл больше {per_file // 1024 // 1024} МБ"
+        if problem is None:
+            try:
+                form = await request.form(max_files=count, max_fields=4)
+            except (MultiPartException, HTTPException):
+                problem = "здесь нужен один файл" if count == 1 else f"файлов не больше {count}"
+            else:
+                try:
+                    for v in form.getlist("_file_upload"):
+                        if isinstance(v, UploadFile):
+                            data = await v.read(per_file + 1)
+                            files.append((v.filename or "файл", data))
+                finally:
+                    await form.close()
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    out = forms.upload_file(app, name, param, files, problem=problem)
+                except ReplayError as e:
+                    return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            return fragment(request, "_table_field.html", fl=out["field"], script=name)
+
+        return await run_in_threadpool(work)
+
     async def script_table_sheet(request: Request) -> Response:
         """Другой лист загруженного XLSX (скрипт не объявил `sheet`, листов несколько)."""
         name, param = request.path_params["name"], request.path_params["param"]
@@ -869,6 +918,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}", script_table_upload, methods=["POST"]),
+        Route("/scripts/{name}/_file/{param}", script_file_upload, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}/manual", script_table_manual, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}/sheet", script_table_sheet, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),

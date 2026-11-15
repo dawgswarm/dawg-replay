@@ -46,6 +46,8 @@ def _convert(p: Param, raw: str) -> Any:
         return [x.strip() for x in raw.split(",") if x.strip()]
     if t == "table":
         return _table_value(p, raw)
+    if t == "file":
+        return _file_value(p, raw)
     if t == "bool":
         low = raw.strip().lower()
         if low in ("true", "1", "yes", "да"):
@@ -72,6 +74,19 @@ def _convert(p: Param, raw: str) -> Any:
             return value
         return [raw]
     raise ValueError(f"неизвестный тип {t}")
+
+
+def _file_value(p: Param, raw: str) -> Any:
+    """`@путь` к файлу: {"path", "name", "size"}; у `multiple` список, повтор `--set` добавляет файл."""
+    from dawg_replay_kit.parameters import ParamsError, file_record
+
+    if not raw.startswith("@") or len(raw) < 2:
+        raise ValueError("файл задаётся путём: имя=@путь/к/файлу")
+    try:
+        rec = file_record(raw[1:])
+    except ParamsError as e:
+        raise ValueError(str(e)) from None
+    return [rec] if p.multiple else rec
 
 
 def _table_value(p: Param, raw: str) -> list[dict[str, Any]]:
@@ -203,7 +218,7 @@ def parse_set_args(manifest: Manifest, items: Iterable[str]) -> dict[str, Any]:
         except ValueError as e:
             problems.append(f"`{name}`: {e}")
             continue
-        if (p.type in LIST_TYPES or p.type == "multi_enum") and isinstance(out.get(name), list) and isinstance(value, list):
+        if (p.type in LIST_TYPES or p.type == "multi_enum" or p.type == "file") and isinstance(out.get(name), list) and isinstance(value, list):
             out[name] = out[name] + value
         else:
             out[name] = value
@@ -276,11 +291,23 @@ def brief(values: Mapping[str, Any], files: Mapping[str, str] | None = None) -> 
     files = files or {}
     out: dict[str, Any] = {}
     for k, v in values.items():
-        if isinstance(v, list) and v and all(isinstance(r, dict) for r in v):
+        if _is_file_value(v):
+            names = [f["name"] for f in (v if isinstance(v, list) else [v])]
+            out[k] = ("файл " if len(names) == 1 else "файлы ") + ", ".join(f"«{n}»" for n in names)
+        elif isinstance(v, list) and v and all(isinstance(r, dict) for r in v):
             out[k] = (f"{files[k]}, " if k in files else "таблица, ") + rows_word(len(v))
         else:
             out[k] = v
     return out
+
+
+def _is_file_value(v: Any) -> bool:
+    """Значение параметра file (контракт 1.3): {"path", "name", "size"}, в истории секретного только {"name"}."""
+    items = v if isinstance(v, list) else [v]
+    return bool(items) and all(
+        isinstance(f, dict) and isinstance(f.get("name"), str) and set(f) <= {"path", "name", "size"} and "_row" not in f
+        for f in items
+    )
 
 
 def rows_word(n: int) -> str:

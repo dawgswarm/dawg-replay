@@ -133,7 +133,7 @@ def test_every_param_type(param, default):
 
 
 def test_all_types_covered():
-    covered = {"string", "text", "int", "float", "bool", "enum", "url", "url_list", "string_list", "secret", "date", "table", "time", "datetime", "multi_enum"}
+    covered = {"string", "text", "int", "float", "bool", "enum", "url", "url_list", "string_list", "secret", "date", "table", "time", "datetime", "multi_enum", "file"}
     assert covered == set(PARAM_TYPES)
 
 
