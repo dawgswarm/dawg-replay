@@ -91,8 +91,6 @@ class App:
             "rows_preview_limit": cfg.rows_preview_limit,
             "log_limit": cfg.log_limit,
             "base_url": cfg.base_url,
-            # Правила уведомлений для блока Telegram (шаблон _telegram_rules.html); None, пока чат не привязан.
-            "telegram_rules": tg_rules.form_ctx(self, "general") if tg_rules.connected(self) else None,
         }
 
     def set_api_key(self, value: str, check: bool = True) -> account.Usage | None:

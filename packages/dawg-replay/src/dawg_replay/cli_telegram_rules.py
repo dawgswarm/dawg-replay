@@ -56,7 +56,8 @@ def _set(app: App, args: argparse.Namespace) -> tuple[dict[str, Any], str]:
     lines = [f"Telegram, {where}:"]
     for r in rows:
         mark = "" if owner is None else (" (своё)" if r["own"] is not None else " (наследуется)")
-        lines.append(f"  {r['key']:<15} {_value_text(r['key'], r['value'])}{mark}    {r['title']}")
+        value = _value_text(r["key"], r["value"]) + mark
+        lines.append(f"  {r['key']:<15} {value:<34} {r['title']}")
     lines.append("Значения: on|off; done_manual: always|long|never; long_minutes: число минут; "
                  "у скрипта и расписания inherit снимает своё значение.")
     data = {"scope": owner[0] if owner else "general", "name": owner[1] if owner else None,

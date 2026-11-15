@@ -235,7 +235,7 @@ def started_local(rec: Run) -> datetime | None:
 # --- форма для экранов --------------------------------------------------------------
 
 
-MANUAL_CHOICES = (("always", "всегда"), ("long", "если шёл дольше порога"), ("never", "никогда"))
+MANUAL_CHOICES = (("always", "всегда"), ("long", "если дольше порога"), ("never", "никогда"))
 
 
 def value_text(key: str, value: Any) -> str:
@@ -248,7 +248,7 @@ def value_text(key: str, value: Any) -> str:
 
 def connected(app: App) -> bool:
     """Чат привязан. Токен не читается: блоки правил показываются без обращения к хранилищу паролей."""
-    return bool(getattr(app.config, "telegram_chat_id", ""))
+    return bool(app.config.telegram_chat_id)
 
 
 def form_ctx(app: App, scope: str, name: str | None = None, script: str | None = None, **extra: Any) -> dict[str, Any]:

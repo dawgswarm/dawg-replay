@@ -61,11 +61,14 @@ def test_general_rules_form(c, secrets_, home, kr):
         assert a.config.telegram_done_manual == "always"  # ошибка: ничего не сохранено
 
 
-def test_settings_view_has_rules_only_when_connected(home, kr, connected):
+def test_settings_block_has_rules_only_when_connected(c, home, kr):
+    assert 'id="tg-rules"' not in c.get("/settings").text
     with App(home, keyring_backend=kr) as a:
-        assert a.settings_view()["telegram_rules"]["scope"] == "general"
-        connected["on"] = False
-        assert a.settings_view()["telegram_rules"] is None
+        a.secrets.set_telegram_token("123456:" + "A" * 30)
+        a.set_config("telegram_chat_id", "777")
+        a.set_config("telegram_bot", "my_bot")
+    page = c.get("/settings").text
+    assert 'id="tg-rules"' in page and 'hx-post="/settings/telegram/rules"' in page and "О чём писать" in page
 
 
 def test_script_block_and_overrides(c, secrets_, home, kr, connected):

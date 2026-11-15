@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Any
 
-from dawg_replay import telegram
+from dawg_replay import cli_telegram_rules, telegram
 from dawg_replay.app import App
 from dawg_replay.cli_store import _read_secret, run_handler
 from dawg_replay.errors import ReplayError
@@ -104,3 +104,4 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.set_defaults(func=lambda args: run_handler(_disconnect, args))
 
     # Сюда другие модули добавляют свои действия telegram (например, `telegram set`): f(tg_sub, common).
+    cli_telegram_rules.add_set(tg_sub, common)

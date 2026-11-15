@@ -11,7 +11,7 @@ from starlette.responses import Response
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import telegram
+from dawg_replay import telegram, tg_rules
 from dawg_replay.errors import ReplayError
 
 
@@ -28,6 +28,8 @@ def view(app: Any, job: telegram.PairingJob | None) -> dict[str, Any]:
                         "until": until.strftime("%H:%M"), "chat_name": (job.result or {}).get("chat_name")}
     else:
         v["pairing"] = None
+    # Правила «о чём писать» (_telegram_rules.html), только при привязанном чате
+    v["rules"] = tg_rules.form_ctx(app, "general") if v["connected"] else None
     return v
 
 

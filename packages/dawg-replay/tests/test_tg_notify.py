@@ -418,3 +418,21 @@ def test_cli_run_notify_flags(cli, app, wb, tg):
             t.join(10)
     assert code == 0 and data["run"]["notify"] == "always"
     assert len(tg.bot.messages) == 1
+
+
+def test_telegram_set_is_in_main_cli(cli, home):
+    code, data = cli("telegram", "set", "attach_main", "on")
+    assert code == 0 and data["rules"]["attach_main"] is True
+
+
+def test_real_connection_feeds_bot(app, wb, monkeypatch):
+    """Без подмены _connection: токен из хранилища паролей, чат из config, запрос уходит в Bot."""
+    from dawg_replay import telegram
+
+    sent = []
+    monkeypatch.setattr(telegram.Bot, "send_message", lambda self, chat, text, reply_markup=None: sent.append((self.token, chat)) or 1)
+    app.secrets.set_telegram_token(TOKEN)
+    app.set_config("telegram_chat_id", "555")
+    rec = fake_run(app, status="failed", reason="timeout")
+    assert tg_notify.after_finish(app, rec.id, background=False) is True
+    assert sent == [(TOKEN, "555")]

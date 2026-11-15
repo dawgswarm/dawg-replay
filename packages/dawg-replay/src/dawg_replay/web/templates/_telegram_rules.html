@@ -1,5 +1,5 @@
-{# Правила уведомлений в Telegram. Контекст tr: tg_rules.form_ctx, в Настройках s.telegram_rules. scope: general (Настройки), script, schedule. #}
-{% if tr is not defined %}{% set tr = s.telegram_rules if s is defined and s.telegram_rules is defined else none %}{% endif %}
+{# Правила уведомлений в Telegram. Контекст tr: tg_rules.form_ctx, в Настройках tg.rules (web/telegram_view.view). scope: general (Настройки), script, schedule. #}
+{% if tr is not defined %}{% set tr = tg.rules if tg is defined and tg.rules is defined else none %}{% endif %}
 {% if tr %}
 <form id="{{ tr.dom_id }}" class="tg-rules" hx-post="{{ tr.action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button">
   {% if tr.error %}<p class="notice notice-error" role="alert">{{ tr.error }}</p>{% endif %}

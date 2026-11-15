@@ -52,17 +52,13 @@ LOG_SOURCE = "dawg-replay"
 
 
 def _connection(app: App) -> Any:
-    try:
-        from dawg_replay import telegram
-    except ImportError:  # TODO(dr-97): убрать после мержа ядра
-        return None
+    from dawg_replay import telegram
+
     return telegram.connection(app)
 
 
 def _bot(conn: Any) -> Any:
-    from dawg_replay import telegram
-
-    return telegram.Bot(conn.token, conn.api_url)
+    return conn.bot()
 
 
 def _record_error(app: App, text: str) -> None:
