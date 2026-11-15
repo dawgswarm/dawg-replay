@@ -11,7 +11,7 @@ from dawg_replay_kit.manifest import Manifest
 
 from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
-from dawg_replay.values import check_partial, filter_known
+from dawg_replay.values import check_partial, filter_explained
 
 NAME_MAX = 64
 # Имена файлов таблиц хранятся рядом со значениями. Имя параметра не начинается с `_`,
@@ -62,6 +62,15 @@ class Preset:
     created_at: str
     updated_at: str
     files: dict[str, str] = field(default_factory=dict)  # параметр table -> имя исходного файла
+    dropped_why: dict[str, str] = field(default_factory=dict)  # отброшенное -> почему
+
+    def outdated(self) -> str | None:
+        """Текст для человека, если часть значений пресета не подходит текущей версии скрипта."""
+        if not self.dropped:
+            return None
+        reasons = "; ".join(self.dropped_why.get(n, f"`{n}`") for n in self.dropped)
+        return (f"пресет «{self.name}» сохранён для другой версии скрипта, текущая не принимает: {reasons}. "
+                "Откройте пресет в форме запуска, поправьте значения и сохраните его заново")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -69,6 +78,7 @@ class Preset:
             "name": self.name,
             "params": self.params,
             "dropped": self.dropped,
+            "dropped_why": self.dropped_why,
             "files": self.files,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -126,6 +136,7 @@ class Presets:
     def _preset(row: sqlite3.Row, manifest: Manifest) -> Preset:
         stored = json.loads(row["params_json"])
         files = stored.pop(FILES_KEY, None)
-        kept, dropped = filter_known(manifest, stored)
+        kept, why = filter_explained(manifest, stored)
+        dropped = list(why)
         files = {k: v for k, v in files.items() if k in kept and isinstance(v, str)} if isinstance(files, dict) else {}
-        return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files)
+        return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files, why)

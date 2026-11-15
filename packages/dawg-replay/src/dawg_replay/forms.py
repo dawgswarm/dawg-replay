@@ -198,10 +198,12 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
     manifest = app.registry.manifest(script)
     values: dict[str, Any] = {}
     dropped: list[str] = []
+    dropped_why: list[str] = []
     tables: dict[str, dict[str, Any]] = {}
     if preset:
         p = app.get_preset(script, preset)
         values, dropped = dict(p.params), list(p.dropped)
+        dropped_why = [p.dropped_why.get(n, f"`{n}`") for n in p.dropped]
         # Таблица пресета кладётся в загрузки: форма дальше работает с ней как с загруженной.
         store = Uploads(app.paths.uploads)
         for param in manifest.params:
@@ -214,6 +216,7 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
         "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script), tables=tables),
         "preset": preset,
         "dropped": dropped,
+        "dropped_why": dropped_why,
     }
 
 

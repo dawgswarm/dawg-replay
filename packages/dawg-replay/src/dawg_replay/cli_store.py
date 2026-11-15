@@ -220,7 +220,8 @@ def _preset_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     for p in presets:
         line = f"{p.name}  {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
         if p.dropped:
-            line += f"  (текущая версия не принимает: {', '.join(p.dropped)})"
+            line += f"\n  текущая версия не принимает: {'; '.join(p.dropped_why.get(n, n) for n in p.dropped)}"
+            line += "\n  пока пресет не пересохранён, регулярные запуски по нему не начинаются"
         lines.append(line)
     return {"presets": [p.to_dict() for p in presets]}, "\n".join(lines) or "пресетов нет"
 

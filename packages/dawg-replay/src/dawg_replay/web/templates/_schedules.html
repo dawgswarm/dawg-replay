@@ -11,6 +11,9 @@
       <div class="schedule-text">
         <span class="schedule-when">{{ s.when | capitalize_first }}</span>
         <span class="hint-inline">пресет «{{ s.preset }}»{% if s.next_run %}, следующий {{ s.next_text }}{% endif %}</span>
+        {% if s.outdated %}
+        <p class="field-error schedule-warn">{{ (s.outdated | ticks)[:1] | upper }}{{ (s.outdated | ticks)[1:] }}. До этого плановые запуски по нему не начинаются.</p>
+        {% endif %}
         {% if s.state == "missing" %}
         <p class="field-error schedule-warn">Задачи нет в планировщике, запуск не состоится. Удалите расписание и создайте заново или выполните <code>dawg-replay schedule sync</code>.</p>
         {% endif %}
