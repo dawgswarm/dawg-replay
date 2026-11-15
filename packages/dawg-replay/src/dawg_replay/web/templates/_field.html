@@ -31,16 +31,16 @@
       <input id="{{ fid }}" name="{{ fl.name }}" type="password" autocomplete="new-password" spellcheck="false"
              placeholder="{{ 'задан, оставьте пустым, чтобы не менять' if fl.secret_set else 'введите значение' }}"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
     {% elif fl.widget in ("date", "datetime") %}
-      <div class="moment">
+      <div class="moment" data-moment>
         <select id="{{ fid }}-rel" name="{{ fl.name }}__rel" aria-label="{{ fl.title }}: точная или относительная дата">
-          <option value="" {% if not fl.relative %}selected{% endif %}>точная дата</option>
+          <option value="" {% if not fl.relative %}selected{% endif %}>{{ "точная дата" if fl.widget == "date" else "точные дата и время" }}</option>
           {% for o in fl.rel_options %}<option value="{{ o.value }}" {% if fl.relative == o.value %}selected{% endif %}>{{ o.title }} (сегодня это {{ o.today | ru_date }})</option>{% endfor %}
         </select>
-        <input id="{{ fid }}" name="{{ fl.name }}" type="{{ 'date' if fl.widget == 'date' else 'datetime-local' }}" value="{{ fl.value }}"
+        <input id="{{ fid }}" name="{{ fl.name }}" type="{{ 'date' if fl.widget == 'date' else 'datetime-local' }}" value="{{ fl.value }}" data-exact{% if fl.relative %} hidden{% endif %}
                {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
         {% if fl.widget == "datetime" %}
         <label class="sr" for="{{ fid }}-reltime">Время для относительной даты</label>
-        <input id="{{ fid }}-reltime" name="{{ fl.name }}__reltime" type="time" value="{{ fl.rel_time }}" title="Время для относительной даты">
+        <input id="{{ fid }}-reltime" name="{{ fl.name }}__reltime" type="time" value="{{ fl.rel_time }}" title="Время для относительной даты" data-relative{% if not fl.relative %} hidden{% endif %}>
         {% endif %}
       </div>
       <p class="hint">Относительная дата считается в момент каждого запуска, по расписанию тоже: «вчера» в пресете всегда значит вчерашний день.{% if fl.widget == "datetime" %} Время рядом с ней: без него 00:00.{% endif %}</p>
