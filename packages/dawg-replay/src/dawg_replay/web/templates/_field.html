@@ -26,7 +26,7 @@
       <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">
       {% if t %}
       <div class="table-loaded">
-        <p class="table-file"><strong>{{ t.file }}</strong>, {{ t.count | rows_word }}{% if t.secret %}. Таблица секретная: содержимое не показывается и не сохраняется в пресет и историю{% endif %}</p>
+        <p class="table-file"><strong>{{ t.file }}</strong>, {{ t.count | rows_word }}{% if t.secret %}. Таблица секретная: содержимое не показывается и не попадает в историю запусков; в пресете она хранится отдельно и видна только вам{% endif %}</p>
         {% if t.preview %}
         <div class="table-preview" tabindex="0" role="region" aria-label="Первые строки таблицы {{ t.file }}">
           <table>

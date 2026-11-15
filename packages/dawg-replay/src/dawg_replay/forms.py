@@ -206,10 +206,12 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
         dropped_why = [p.dropped_why.get(n, f"`{n}`") for n in p.dropped]
         # Таблица пресета кладётся в загрузки: форма дальше работает с ней как с загруженной.
         store = Uploads(app.paths.uploads)
+        secret_rows = app.presets.secret_rows(p)  # секретные таблицы лежат отдельно от значений
         for param in manifest.params:
-            rows = values.get(param.name)
+            rows = secret_rows.get(param.name) if param.secret else values.get(param.name)
             if param.type == "table" and isinstance(rows, list):
-                file = p.files.get(param.name) or "таблица пресета"
+                saved = p.secret_tables.get(param.name, {}).get("file") if param.secret else p.files.get(param.name)
+                file = saved or "таблица пресета"
                 uid = store.put(param.name, file, rows, secret=param.secret)
                 tables[param.name] = table_info(param, uid, file, rows)
     return {

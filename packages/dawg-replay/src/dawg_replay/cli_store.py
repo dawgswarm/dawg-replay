@@ -12,7 +12,7 @@ from typing import Any
 from dawg_replay.app import App
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import secret_tables_note
-from dawg_replay.values import brief, parse_set_args, read_params_file, table_files
+from dawg_replay.values import brief, parse_set_args, read_params_file, rows_word, table_files
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -206,7 +206,7 @@ def _preset_save(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     files = table_files(app.registry.manifest(args.script), args.set or [])
     p = app.save_preset(args.script, args.preset, values, files)
     text = f"пресет `{p.name}` сохранён: {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
-    note = secret_tables_note(app.registry.manifest(args.script))
+    note = secret_tables_note(app.registry.manifest(args.script), p)
     data: dict = {"preset": p.to_dict()}
     if note:
         data["note"] = note
@@ -219,6 +219,8 @@ def _preset_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     lines = []
     for p in presets:
         line = f"{p.name}  {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
+        for k, t in p.secret_tables.items():
+            line += f"\n  секретная таблица {k}: {t['file']}, {rows_word(t['count'])} (содержимое не показывается)"
         if p.dropped:
             line += f"\n  текущая версия не принимает: {'; '.join(p.dropped_why.get(n, n) for n in p.dropped)}"
             line += "\n  пока пресет не пересохранён, регулярные запуски по нему не начинаются"
