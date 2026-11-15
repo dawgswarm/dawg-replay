@@ -1,7 +1,9 @@
 import json
 import os
 import shlex
+import shutil
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -93,8 +95,9 @@ def test_crontab_keeps_foreign_lines(ready, crontab_file):
     assert ours.startswith("0 9 * * * PATH=") and ours.endswith(f"# dawg-replay:{s.id}")
     args = shlex.split(ours.split(" # dawg-replay:")[0])
     assert args[0] == "0" and args[5].startswith("PATH=")
-    path_dirs = args[5][len("PATH="):].split(":")
-    assert os.path.isfile(os.path.join(path_dirs[0], "uv")) or os.path.isfile(os.path.join(path_dirs[0], "uv.exe"))
+    # первым в PATH идёт каталог uv; путь сравниваем целиком, а не делим по ":" (на Windows есть "C:")
+    uv_dir = str(Path(shutil.which("uv")).absolute().parent)
+    assert args[5].startswith(f"PATH={uv_dir}:")
     assert args[6] == f"DAWG_REPLAY_HOME={ready.paths.home.absolute()}"
     cmd = args[7:]
     assert os.path.isabs(cmd[0])
