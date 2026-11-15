@@ -39,7 +39,7 @@ from dawg_replay_kit.logins import LoginError
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
 
-__version__ = "1.2.0"  # мажор равен мажору контракта; версия задаётся только здесь
+__version__ = "1.3.0"  # мажор равен мажору контракта; версия задаётся только здесь
 
 __all__ = [
     "SUPPORTED_CONTRACTS",

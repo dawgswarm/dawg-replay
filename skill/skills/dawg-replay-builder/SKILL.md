@@ -4,7 +4,7 @@ description: Use when a client wants data collected from a website on a regular 
 license: MIT
 compatibility: Requires the dawg-replay app (uv tool install dawg-replay), uv, and the dawg-mcp server connected to the agent.
 metadata:
-  contract: "1.2"
+  contract: "1.3"
 ---
 
 # dawg-replay-builder
@@ -26,7 +26,7 @@ metadata:
 ## 0. Проверка окружения (всегда первым шагом)
 
 1. Инструменты браузера DAWG: среди твоих инструментов есть `browser_provision`, `browser_navigate`, `browser_snapshot`, `browser_release` с любым префиксом сервера (`mcp__dawg__browser_provision`, `mcp__plugin_..._dawg__browser_provision` и так далее). Нет таких инструментов: `dawg-mcp` не подключён.
-2. Приложение: `dawg-replay --version --json`. В `contract_versions` должна быть `1.2`. Команда не найдена, поля нет или там другая версия: приложение не установлено или старое (`uv tool upgrade dawg-replay`).
+2. Приложение: `dawg-replay --version --json`. В `contract_versions` должна быть `1.3`. Команда не найдена, поля нет или там другая версия: приложение не установлено или старое (`uv tool upgrade dawg-replay`).
 3. Ключ: `dawg-replay --json config show`, поле `api_key_set`. `false`: попроси клиента выполнить `dawg-replay config set-key` (или ввести ключ в UI на экране Настройки). Ключ сам не вводи и не проси прислать его в чат.
 
 Если 1 или 2 не выполнены, объясни клиенту, что поставить, и дальше не иди:
