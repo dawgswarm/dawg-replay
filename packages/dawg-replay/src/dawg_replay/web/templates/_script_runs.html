@@ -8,6 +8,7 @@
         <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
         {% if r.question %}<span class="status status-ask" title="{{ r.question.question }}">ждёт ответа</span>{% endif %}
         <span class="last-when">{{ r.created_at | when }}</span>
+        {% if r["items"] %}<span class="items-count{% if r['items'].failed %} has-failed{% endif %}">{{ r["items"] | items_text }}</span>{% endif %}
         {% if r.draft %}<span class="hint-inline">черновой</span>{% endif %}
         {% if r.trigger == "schedule" %}<span class="tag-plan">по расписанию{% if r.preset %}, «{{ r.preset }}»{% endif %}</span>{% elif r.preset %}<span class="hint-inline">«{{ r.preset }}»</span>{% endif %}
       </a>

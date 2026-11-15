@@ -18,6 +18,8 @@ from typing import Any, Protocol, TextIO
 LOG_LEVELS = ("debug", "info", "warn", "error")
 RESULT_STATUSES = ("ok", "partial", "failed")
 SESSION_ACTIONS = ("provisioning", "open", "close", "failed")
+ITEM_STATUSES = ("ok", "failed", "skipped")
+ITEM_MSG_MAX = 1000  # длинный текст исключения обрезается: строка отчёта, не трейсбек
 THROTTLE_SECONDS = 0.25  # не чаще 4 раз в секунду на id
 MASK = "***"
 
@@ -89,6 +91,10 @@ class ConsoleSink:
         elif t == "artifact":
             where = self._output_dir / e["path"] if self._output_dir else e["path"]
             body = f"файл «{e['label']}»: {where}"
+        elif t == "item":
+            row = f" (строка {e['row']})" if e.get("row") is not None else ""
+            msg = f": {e['msg']}" if e.get("msg") else ""
+            body = f"{e['status']:7} {e['key']}{row}{msg}"
         elif t == "session":
             sid = f" {e['session_id']}" if e.get("session_id") else ""
             body = f"браузер {e['action']}{sid}"
@@ -324,6 +330,20 @@ class Emitter:
             raise ValueError(f"статус {status!r}, допустимы: {', '.join(RESULT_STATUSES)}")
         self.flush()
         self.emit("result", status=status, summary=str(summary))
+
+    def item(self, key: str | int, status: str, msg: Any = None, row: int | None = None) -> None:
+        if isinstance(key, bool) or not isinstance(key, (str, int)):
+            raise TypeError(f"item: key должен быть строкой или числом, получено {type(key).__name__}")
+        if isinstance(key, str) and not key.strip():
+            raise ValueError("item: key пустой")
+        if status not in ITEM_STATUSES:
+            raise ValueError(f"item: статус {status!r}, допустимы: {', '.join(ITEM_STATUSES)}")
+        if row is not None and (isinstance(row, bool) or not isinstance(row, int)):
+            raise TypeError(f"item: row должен быть целым (поле _row строки таблицы), получено {type(row).__name__}")
+        text = None if msg is None else str(msg)
+        if text is not None and len(text) > ITEM_MSG_MAX:
+            text = text[: ITEM_MSG_MAX - 1] + "…"
+        self.emit("item", key=key, status=status, msg=text or None, row=row)
 
     def session(self, action: str, session_id: str | None = None, browser_id: str | None = None) -> None:
         if action not in SESSION_ACTIONS:

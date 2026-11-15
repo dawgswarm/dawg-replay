@@ -24,6 +24,11 @@
   попадают в ленту как `level = "raw"`, состояние от них не ломается.
 - `artifacts`: путь проверяется: внутри каталога `output` и файл существует;
   путь наружу отклоняется записью в ленте.
+- `item` (контракт 1.2): отчёт по строкам входа. Повторный `item` той же строки
+  заменяет прежний и остаётся на своём месте. Строка это `row`, если он есть, иначе
+  `key` (1 и "1" одно и то же): у секретной таблицы kit маскирует ключи в `***`,
+  и без `row` все строки слились бы в одну.
+  Хранятся все строки (таблица на входе ограничена `max_rows`), счётчики по статусам.
 - браузеры: `open` открывает, `close` закрывает, `failed` закрывает
   `provisioning`; `browsers.open` показывает, сколько открыто сейчас.
 - вопросы (`ask`, `ask_closed`, dawg_replay.asks): в снимке `asks` все вопросы
@@ -51,6 +56,16 @@ from dawg_replay import asks
 SOURCE_APP = "dawg-replay"
 LOG_LEVELS = ("debug", "info", "warn", "error")
 RESULT_STATUSES = ("ok", "partial", "failed")
+ITEM_STATUSES = ("ok", "failed", "skipped")
+
+
+def item_id(key: Any, row: Any = None) -> str | None:
+    """Чем строка отчёта отличается от других: `row`, иначе `key`. None: ключ не подходит."""
+    if isinstance(key, bool) or not isinstance(key, (str, int)):
+        return None
+    if isinstance(row, int) and not isinstance(row, bool):
+        return f"row:{row}"
+    return f"key:{key}"
 DEFAULT_ROWS_LIMIT = 500
 DEFAULT_LOG_LIMIT = 2000
 DEFAULT_HISTORY = 5000
@@ -63,7 +78,7 @@ RunInfo = Callable[[], "dict[str, Any] | None"]
 @dataclass
 class Change:
     seq: int
-    kind: str  # stage, progress, metric, rows, log, artifact, browsers, result, ask, run, reset
+    kind: str  # stage, progress, metric, rows, item, log, artifact, browsers, result, ask, run, reset
     data: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -123,6 +138,8 @@ class RunView:
         self.progress: dict[str, dict[str, Any]] = {}
         self.metrics: dict[str, dict[str, Any]] = {}
         self.tables: dict[str, dict[str, Any]] = {}
+        self.items: dict[str, dict[str, Any]] = {}  # item_id -> строка отчёта, в порядке первого появления
+        self.item_counts: dict[str, int] = dict.fromkeys(ITEM_STATUSES, 0)
         self.log: deque[dict[str, Any]] = deque(maxlen=self.log_limit)
         self.log_total = 0
         self.artifacts: list[dict[str, Any]] = []
@@ -154,6 +171,7 @@ class RunView:
                 "progress": dict(self.progress),
                 "metrics": dict(self.metrics),
                 "tables": {name: self._table_view(t) for name, t in self.tables.items()},
+                "items": self._items_view(),
                 "log": list(self.log),
                 "log_total": self.log_total,
                 "artifacts": list(self.artifacts),
@@ -309,6 +327,38 @@ class RunView:
             out["rows"] = list(t["rows"])
         return out
 
+    def _on_item(self, e: dict[str, Any]) -> None:
+        key = e["key"]
+        if isinstance(key, bool) or not isinstance(key, (str, int)):
+            raise ValueError("key не строка и не число")
+        status = e["status"]
+        if status not in ITEM_STATUSES:
+            raise ValueError(f"статус {status!r}")
+        row = e.get("row")
+        item = {
+            "key": key,
+            "status": status,
+            "msg": None if e.get("msg") is None else str(e["msg"]),
+            "row": row if isinstance(row, int) and not isinstance(row, bool) else None,
+            "ts": e.get("ts"),
+        }
+        ident = item_id(key, item["row"])
+        assert ident is not None
+        old = self.items.get(ident)
+        if old is not None:
+            self.item_counts[old["status"]] -= 1
+        self.item_counts[status] += 1
+        self.items[ident] = item
+        self._emit("item", {"item": item, "counts": self._item_counts()})
+
+    def _item_counts(self) -> dict[str, int]:
+        return {**self.item_counts, "total": len(self.items)}
+
+    def _items_view(self) -> dict[str, Any] | None:
+        if not self.items:
+            return None
+        return {"counts": self._item_counts(), "rows": list(self.items.values())}
+
     def _on_artifact(self, e: dict[str, Any]) -> None:
         rel = str(e["path"])
         out = self.output_dir.resolve()
@@ -462,6 +512,7 @@ _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {
     "progress": RunView._on_progress,
     "metric": RunView._on_metric,
     "rows": RunView._on_rows,
+    "item": RunView._on_item,
     "artifact": RunView._on_artifact,
     "session": RunView._on_session,
     "result": RunView._on_result,
