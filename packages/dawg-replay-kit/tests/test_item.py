@@ -66,3 +66,14 @@ def test_kit_item_is_exported():
     import dawg_replay_kit as kit
 
     assert "item" in kit.__all__ and callable(kit.item)
+
+
+def test_console_item_label_without_repeated_row():
+    import io
+
+    from dawg_replay_kit.events import ConsoleSink
+
+    sink = ConsoleSink(io.StringIO())
+    assert sink.format({"t": "item", "ts": "", "key": 2, "status": "ok", "row": 2, "msg": "готово"}).endswith("ok      строка 2: готово")
+    assert sink.format({"t": "item", "ts": "", "key": "a@b.ru", "status": "ok", "row": 4}).endswith("ok      a@b.ru (строка 4)")
+    assert sink.format({"t": "item", "ts": "", "key": "a@b.ru", "status": "ok"}).endswith("ok      a@b.ru")

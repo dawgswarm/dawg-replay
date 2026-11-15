@@ -227,12 +227,16 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         tail.poll()
     args._exit_code = EXIT_RUN_FAILED if rec.status == "failed" else 0
     lines = [f"итог: {rec.label}" + (f", {rec.summary}" if rec.summary else "")]
-    if rec.exit_code not in (0, None):
+    dg = diagnosis.diagnose(app, rec)
+    if dg and dg.get("ask_timeout"):
+        # Не поломка скрипта: на вопрос не ответили. Как на экране запуска, без трейсбека.
+        lines.append(f"{dg['summary']} Скрипт ждал до срока и завершился. Сам скрипт исправен: "
+                     "запустите его снова и ответьте на вопрос (здесь же, в интерфейсе или dawg-replay answer).")
+    elif rec.exit_code not in (0, None):
         lines.append(f"код выхода {rec.exit_code}; stderr: dawg-replay logs {run_id}")
     if rec.error:
         lines.append(rec.error)
-    dg = diagnosis.diagnose(app, rec)
-    if dg:
+    if dg and not dg.get("ask_timeout"):
         lines.append("скрипт ничего не сообщил; последние строки stderr:")
         lines += [f"  {line}" for line in dg["tail"]]
         if dg["hint"]:

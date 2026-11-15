@@ -430,3 +430,43 @@ def test_table_upload_disables_itself_not_a_missing_submit(client, home, tmp_pat
     h = client.get("/scripts/acts").text
     tags = re.findall(r'<input[^>]*name="_table_file"[^>]*>', h, re.S)
     assert len(tags) == 2 and all('hx-disabled-elt="this"' in tag for tag in tags)
+
+
+# --- терминал и «не начат» (dr-74) ----------------------------------------------
+
+
+def test_cli_follow_ask_timeout_is_clear(home, kr, tmp_path, monkeypatch, capsys):
+    import sys as _sys
+
+    from dawg_replay import launch
+    from dawg_replay.cli import main
+
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([_sys.executable]))
+    f = tmp_path / "ask.py"
+    f.write_text(MANIFEST.replace('name = "ask-test"', 'name = "ask-cli"') +
+                 'import dawg_replay_kit as kit\nkit.ask("Отправить?", kind="confirm", timeout_minutes=0.01)\n',
+                 encoding="utf-8")
+    assert main(["run", str(f), "--follow"]) == 3
+    out = capsys.readouterr().out
+    assert "Не дождались ответа на вопрос «Отправить?». Скрипт ждал до срока и завершился." in out
+    assert "ничего не сообщил" not in out and "Traceback" not in out and "код выхода" not in out
+    assert main(["--json", "run", str(f), "--follow"]) == 3
+    data = json.loads(capsys.readouterr().out)
+    assert data["diagnosis"]["ask_timeout"] == "Отправить?"
+
+
+def test_not_started_screen_without_backticks_and_with_preset_link(client, home, write_script):
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+    from dawg_replay import launch
+    from dawg_replay.errors import ReplayError
+
+    with App(home) as app:
+        rec = launch.record_not_started(app, "sch1", "ozon-cards", "склады", ReplayError(
+            "bad_params", "параметры не подходят (приложение): `warehouse`: обязательный параметр «Склад» не задан"))
+    h = client.get(f"/runs/{rec.id}").text
+    assert "«warehouse»" in h and "`warehouse`" not in h
+    assert "Поправить пресет" in h and "?preset=%D1%81%D0%BA%D0%BB%D0%B0%D0%B4%D1%8B#launch" in h
+    assert "/again" not in h
+    live = client.get("/home/_live").text
+    assert "«warehouse»" in live and "Поправить пресет" in live and f"/runs/{rec.id}/again" not in live

@@ -24,6 +24,8 @@
         <button class="secondary danger" hx-post="/runs/{{ run.id }}/cancel" hx-target="#run-head" hx-swap="outerHTML"
                 hx-confirm="Остановить запуск? Скрипт сохранит собранное и закроет браузеры.">Остановить</button>
       {% endif %}
+    {% elif run.reason == 'not_started' %}
+      <a class="button button-secondary" href="/scripts/{{ run.script | urlencode }}{% if run.preset %}?preset={{ run.preset | urlencode }}{% endif %}#launch">{% if run.preset %}Поправить пресет{% else %}Открыть форму запуска{% endif %}</a>
     {% elif not run.draft %}
       <button class="secondary" hx-post="/runs/{{ run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
     {% endif %}
