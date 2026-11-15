@@ -112,6 +112,7 @@ def process(row: dict[str, str], code_asked: list[bool]) -> str:
             except RowFailed:
                 b.forget_login()  # неудачный вход не сохраняем
                 raise
+            b.save_login()  # сразу после входа: не потеряется, даже если запуск убьют дальше
             page.goto(SECURE_URL, timeout=PAGE_TIMEOUT_MS)
         title = page.locator("h2").inner_text(timeout=STEP_TIMEOUT_MS).strip()
         if title != "Secure Area":

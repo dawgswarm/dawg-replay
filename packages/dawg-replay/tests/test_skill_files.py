@@ -266,6 +266,13 @@ def actions_kit(tpl, site, rows, tmp_path, answers, **params):
             events.append(("forget", self.login))
             self.forgotten = True
 
+        def save_login(self):
+            events.append(("save", self.login))
+            if self.page.state == "in":
+                site.sessions.add(self.login)
+            self.forgotten = False
+            return True
+
         def __exit__(self, *exc):
             if self.page.state == "in" and not getattr(self, "forgotten", False):
                 site.sessions.add(self.login)

@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import signal
 import sys
 import textwrap
 import time
@@ -290,6 +291,36 @@ def test_soft_cancel_runs_finally_atexit_and_flushes_pending_events(script, runs
     assert "SystemExit не должен ловиться как Exception" not in msgs
     assert msgs[-1] == "запуск остановлен приложением (отмена или таймаут)"
     assert [e["done"] for e in evs if e["t"] == "progress"] == [1, 42]
+
+
+def test_soft_cancel_keeps_children_alive_until_script_cleanup(script, runs_dir):
+    # dr-68: дочерний процесс скрипта (как драйвер Playwright) не получает сигнал отмены
+    # и жив, пока скрипт убирается (сохраняет вход, закрывает браузер). Потом его добивают.
+    path = script('''
+        import subprocess, sys, time
+        import dawg_replay_kit as kit
+        kit.init()
+        driver = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+        (kit.output_dir / "driver").write_text(str(driver.pid))
+        try:
+            (kit.output_dir / "started").write_text("1")
+            time.sleep(60)
+        finally:
+            time.sleep(0.3)  # сигнал группе к этому моменту уже убил бы драйвер
+            (kit.output_dir / "driver-at-cleanup").write_text("alive" if driver.poll() is None else "dead")
+    ''')
+    run = make_run(path, runs_dir, grace=10)
+    run.start()
+    assert wait_for(lambda: (run.output_dir / "started").exists())
+    run.cancel()
+    outcome = run.wait(15)
+    assert (outcome.label, outcome.killed, outcome.exit_code) == ("failed (cancelled)", False, 143)
+    assert (run.output_dir / "driver-at-cleanup").read_text() == "alive"
+    driver = int((run.output_dir / "driver").read_text())
+    if POSIX:  # на Windows taskkill нужен живой корень дерева: остатки там убирает страховка приложения
+        assert wait_for(lambda: not alive(driver), 5)
+    else:
+        os.kill(driver, signal.SIGTERM)
 
 
 @pytest.mark.skipif(not POSIX, reason="порядок сигналов проверяется на POSIX")

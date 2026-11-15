@@ -161,6 +161,7 @@ def process(row: dict[str, str], p: Any, allowed: Any) -> tuple[str, str]:
             except RowFailed:
                 b.forget_login()  # неудачный вход не сохраняем, в списке входов его не будет
                 raise
+            b.save_login()  # сразу после входа: вход не потеряется, даже если запуск убьют дальше
         if already_done(page, row):
             return "skipped", ALREADY
         if p.check_only:
