@@ -62,12 +62,10 @@ T_NONE = "Сейчас скрипты ничего не спрашивают."
 
 
 def wants_ask(app: Any, rec: Any) -> bool:
-    """Правило «ask» для запуска. Заглушка до правил уведомлений (tg_rules.wants_ask)."""
-    try:
-        from dawg_replay import tg_rules  # type: ignore[attr-defined]
-    except ImportError:
-        return not rec.draft
-    return bool(tg_rules.wants_ask(app, rec))
+    """Правило «ask» для запуска: общие настройки, скрипт, расписание (dawg_replay.tg_rules)."""
+    from dawg_replay import tg_rules
+
+    return tg_rules.wants_ask(app, rec)
 
 
 def open_bot(app: Any) -> tuple[Any, int] | None:

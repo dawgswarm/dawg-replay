@@ -166,7 +166,7 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         rows = row_values(app, args.target, args.row, args.set)
         prepared = launch.prepare(
             app, args.target, preset=args.preset, params_file=args.params, sets=args.set, values=rows or None,
-            schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args),
+            schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args), notify=args.notify,
         )
     except ReplayError as e:
         if args.schedule and e.code != "run_skipped":
@@ -384,6 +384,11 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика); ждёт слота, как --wait")
     p.add_argument("--wait", action="store_true",
                    help="если лимит параллельных запусков занят, ждать слота (до wait_slot_minutes, по умолчанию 30 мин)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--notify", dest="notify", action="store_const", const="always",
+                   help="написать в Telegram, когда запуск закончится, даже если по настройкам не нужно")
+    g.add_argument("--no-notify", dest="notify", action="store_const", const="never",
+                   help="не писать в Telegram об успешном итоге этого запуска (о падении пишет по настройкам)")
 
     p = add("runs", _runs, "история запусков")
     p.add_argument("name", nargs="?", help="только запуски этого скрипта")

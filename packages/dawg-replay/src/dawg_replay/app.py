@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from dawg_replay import account, logins
+from dawg_replay import account, logins, tg_rules
 from dawg_replay.config import Config, coerce, load_config, save_config, set_config_value
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
@@ -206,6 +206,7 @@ class App:
             self.secrets.delete_secret(name, param)
         logins_deleted = logins.remove_dir(self.paths, name)
         PresetTables(self.paths).remove_script(name)  # секретные таблицы пресетов
+        tg_rules.drop(self, "script", name)  # свои правила уведомлений в Telegram
         return {
             "name": name,
             "versions": [v.version for v in versions],

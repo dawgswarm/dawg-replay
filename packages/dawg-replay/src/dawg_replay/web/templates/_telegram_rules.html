@@ -1,0 +1,59 @@
+{# Правила уведомлений в Telegram. Контекст tr: tg_rules.form_ctx, в Настройках tg.rules (web/telegram_view.view). scope: general (Настройки), script, schedule. #}
+{% if tr is not defined %}{% set tr = tg.rules if tg is defined and tg.rules is defined else none %}{% endif %}
+{% if tr %}
+<form id="{{ tr.dom_id }}" class="tg-rules" hx-post="{{ tr.action }}" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {% if tr.error %}<p class="notice notice-error" role="alert">{{ tr.error }}</p>{% endif %}
+  {% if tr.saved %}<p class="notice notice-ok" role="status">{{ tr.saved }}</p>{% endif %}
+  {% if tr.scope == "general" %}
+  <fieldset class="tg-events">
+    <legend>О чём писать</legend>
+    {% for r in tr.rows %}
+      {% if r.key == "done_manual" %}
+      <div class="field tg-manual">
+        <label for="{{ tr.dom_id }}-done_manual">{{ r.title }}</label>
+        <div class="row">
+          <select id="{{ tr.dom_id }}-done_manual" name="done_manual">
+            {% for value, title in tr.manual %}<option value="{{ value }}"{% if r.value == value %} selected{% endif %}>{{ title }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+      {% elif r.key == "long_minutes" %}
+      <div class="field tg-long">
+        <label for="{{ tr.dom_id }}-long_minutes">Долгим считается ручной запуск дольше, минут</label>
+        <input id="{{ tr.dom_id }}-long_minutes" name="long_minutes" type="number" min="1" max="1440" inputmode="numeric" value="{{ r.value }}" required>
+      </div>
+      {% else %}
+      <label class="check">
+        <input type="checkbox" name="{{ r.key }}" value="on"{% if r.value %} checked{% endif %}>
+        <span>{{ r.title }}<span class="hint-inline">, {{ r.hint }}</span></span>
+      </label>
+      {% endif %}
+    {% endfor %}
+  </fieldset>
+  <p class="hint">Отмена запуска и черновые запуски агента сообщений не дают. У скрипта и расписания можно задать свои правила на их странице.</p>
+  {% else %}
+  <div class="tg-overrides">
+    {% for r in tr.rows %}
+    <div class="field tg-override">
+      <label for="{{ tr.dom_id }}-{{ r.key }}">{{ r.title }}</label>
+      {% if r.key == "long_minutes" %}
+        <input id="{{ tr.dom_id }}-{{ r.key }}" name="{{ r.key }}" type="number" min="1" max="1440" inputmode="numeric"
+               value="{{ r.own if r.own is not none else '' }}" placeholder="{{ tr.inherit_word }}: {{ r.inherited }}">
+      {% else %}
+        <select id="{{ tr.dom_id }}-{{ r.key }}" name="{{ r.key }}">
+          <option value="inherit"{% if r.own is none %} selected{% endif %}>{{ tr.inherit_word }}: {{ r.inherited_text }}</option>
+          {% if r.key == "done_manual" %}
+            {% for value, title in tr.manual %}<option value="{{ value }}"{% if r.own == value %} selected{% endif %}>{{ title }}</option>{% endfor %}
+          {% else %}
+            <option value="on"{% if r.own is true %} selected{% endif %}>писать</option>
+            <option value="off"{% if r.own is false %} selected{% endif %}>не писать</option>
+          {% endif %}
+        </select>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+  <button type="submit" class="secondary">Сохранить</button>
+</form>
+{% endif %}

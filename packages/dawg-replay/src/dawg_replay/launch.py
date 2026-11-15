@@ -46,7 +46,7 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair, tg_asks
+from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair, tg_asks, tg_notify, tg_rules
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -240,10 +240,12 @@ def record_not_started(app: App, schedule_id: str, target: str, preset: str | No
         version = app.registry.version(target)
     except ReplayError:
         return None  # скрипта нет: показывать негде
-    return app.runs.record_not_started(
+    rec = app.runs.record_not_started(
         run_id=new_run_id(), script_name=target, script_version=version.version, script_path=str(version.path),
         preset=normalize_preset(preset) or None, schedule_id=schedule_id, error=error.message,
     )
+    tg_notify.after_finish(app, rec.id, background=False)
+    return rec
 
 
 def _wait_policy(cfg: Any, on_wait: Callable[[dict[str, Any]], None] | None) -> WaitPolicy:
@@ -281,6 +283,7 @@ def prepare(
     wait: bool = False,
     on_wait: Callable[[dict[str, Any]], None] | None = None,
     strict_preset: bool = False,
+    notify: str | None = None,
 ) -> Prepared:
     """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
@@ -288,7 +291,10 @@ def prepare(
     `strict_preset`: пресет с значениями, которые текущая версия скрипта не принимает, запуск не начинает
     (`preset_outdated`). Так всегда для планового запуска: без человека нельзя молча подставить `default`,
     а у скриптов действий на сайтах это может изменить не то. Без флага такие значения пропускаются
-    с предупреждением в `warnings`."""
+    с предупреждением в `warnings`.
+    `notify`: выбор у запуска для сообщения в Telegram об успешном итоге: None по настройкам, always, never."""
+    if notify not in (None, *tg_rules.RUN_CHOICES):
+        raise ReplayError("bad_notify", f"notify: always, never или ничего, получено {notify!r}")
     recover_lost(app)
     preset = normalize_preset(preset) or None  # имя пресета хранится без пробелов по краям
     if schedule_id is not None:
@@ -369,10 +375,13 @@ def prepare(
             limit=cfg.max_parallel_runs,
             schedule_id=schedule_id,
             wait=_wait_policy(cfg, on_wait) if (wait or schedule_id) else None,
+            notify=notify,
         )
     except ReplayError as e:
         if e.code not in ("run_skipped", "run_cancelled"):  # пропущенный запуск остаётся в истории
             shutil.rmtree(run_dir, ignore_errors=True)
+        if e.code == "run_skipped":
+            tg_notify.after_finish(app, e.details["run"], background=False)
         raise
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)
@@ -505,6 +514,7 @@ def supervise(
     except RunnerError as e:
         store.finish(run_id, status="failed", reason=REASON_START_ERROR, error=str(e))
         _append(run.stderr_path, f"dawg-replay: {e}\n")
+        tg_notify.after_finish(app, run_id)
         return store.get(run_id)
     store.set_started(run_id, run.pid, procinfo.start_time(run.pid))
     # Вопросы скрипта в Telegram: сеть в своих потоках, цикл её не ждёт.
@@ -543,6 +553,8 @@ def supervise(
     )
     if telegram is not None:
         _telegram_errors(app, run.run_dir, telegram.close())
+    # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
+    tg_notify.after_finish(app, run_id)
     return store.get(run_id)
 
 
@@ -590,6 +602,7 @@ def spawn_supervisor(app: App, prepared: Prepared) -> int:
             )
     except OSError as e:
         app.runs.finish(run_id, status="failed", reason=REASON_START_ERROR, error=f"супервизор не запустился: {e}")
+        tg_notify.after_finish(app, run_id, background=False)
         raise ReplayError("start_failed", f"не удалось запустить супервизор: {e}") from None
     assert proc.stdin is not None
     try:
@@ -689,6 +702,10 @@ def recover_lost(app: App) -> list[Run]:
         if _close_lost(app, rec, reason=REASON_LOST, killed=killed):
             lost.append(app.runs.get(rec.id))
     _sweep_secret_dirs(app)
+    # Закрыли мы: сообщаем сразу, процесс может быть короткой командой CLI. Потом то, что не ушло раньше.
+    for r in lost:
+        tg_notify.after_finish(app, r.id, background=False)
+    tg_notify.retry_pending(app)
     return lost
 
 
