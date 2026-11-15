@@ -133,7 +133,7 @@ def test_every_param_type(param, default):
 
 
 def test_all_types_covered():
-    covered = {"string", "text", "int", "float", "bool", "enum", "url", "url_list", "string_list", "secret"}
+    covered = {"string", "text", "int", "float", "bool", "enum", "url", "url_list", "string_list", "secret", "date", "table"}
     assert covered == set(PARAM_TYPES)
 
 
@@ -253,7 +253,7 @@ def test_bad_script_block_dependencies():
         ('name = "max-pages"\ntype = "string"\ntitle = "x"', "bad_param_name", "params[0].name"),
         ('name = "query\\n"\ntype = "string"\ntitle = "x"', "bad_param_name", "params[0].name"),
         ('name = "params"\ntype = "string"\ntitle = "x"', "reserved_param_name", "params[0].name"),
-        ('name = "q"\ntype = "date"\ntitle = "x"', "bad_type", "params[0](q).type"),
+        ('name = "q"\ntype = "datetime"\ntitle = "x"', "bad_type", "params[0](q).type"),
         ('name = "q"\ntype = "string"\ntitle = "x"\nrequired = "yes"', "bad_value", "params[0](q).required"),
         ('name = "q"\ntype = "string"\ntitle = "x"\nlabel = "y"', "unknown_field", "params[0](q).label"),
         ('name = "q"\ntype = "string"\ntitle = "x"\nmin = 1', "field_not_allowed", "params[0](q).min"),
@@ -441,4 +441,4 @@ def test_tags_at_limits():
 def test_contract_versions():
     from dawg_replay_kit.manifest import contract_versions
 
-    assert contract_versions() == ["1.1"]
+    assert contract_versions() == ["1.2"]

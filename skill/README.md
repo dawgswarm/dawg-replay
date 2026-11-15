@@ -13,7 +13,7 @@ skills/dawg-replay-builder/       сам скилл: SKILL.md и справоч�
 ## Что нужно заранее
 
 1. `uv`: https://docs.astral.sh/uv/getting-started/installation/
-2. Приложение: `uv tool install dawg-replay`, затем `dawg-replay config set-key` (ключ DAWG в системное хранилище паролей). Проверка: `dawg-replay --version --json` показывает `"contract_versions": ["1.1"]`.
+2. Приложение: `uv tool install dawg-replay`, затем `dawg-replay config set-key` (ключ DAWG в системное хранилище паролей). Проверка: `dawg-replay --version --json` показывает `"contract_versions": ["1.2"]`.
 3. Ключ DAWG из личного кабинета https://dawgswarm.ru.
 
 ## Рабочая папка

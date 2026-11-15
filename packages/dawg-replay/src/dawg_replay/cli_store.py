@@ -11,7 +11,7 @@ from typing import Any
 
 from dawg_replay.app import App
 from dawg_replay.errors import ReplayError
-from dawg_replay.values import parse_set_args, read_params_file
+from dawg_replay.values import brief, parse_set_args, read_params_file, table_files
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -196,15 +196,16 @@ def _collect_values(app: App, script: str, args: argparse.Namespace) -> dict[str
 
 def _preset_save(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     values = _collect_values(app, args.script, args)
-    p = app.save_preset(args.script, args.preset, values)
-    return {"preset": p.to_dict()}, f"пресет `{p.name}` сохранён: {json.dumps(p.params, ensure_ascii=False)}"
+    files = table_files(app.registry.manifest(args.script), args.set or [])
+    p = app.save_preset(args.script, args.preset, values, files)
+    return {"preset": p.to_dict()}, f"пресет `{p.name}` сохранён: {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
 
 
 def _preset_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     presets = app.list_presets(args.script)
     lines = []
     for p in presets:
-        line = f"{p.name}  {json.dumps(p.params, ensure_ascii=False)}"
+        line = f"{p.name}  {json.dumps(brief(p.params, p.files), ensure_ascii=False)}"
         if p.dropped:
             line += f"  (текущая версия не принимает: {', '.join(p.dropped)})"
         lines.append(line)
@@ -268,7 +269,8 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("script")
     p.add_argument("preset")
     p.add_argument("--params", metavar="FILE", help="JSON со значениями")
-    p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
+    p.add_argument("--set", "--param", dest="set", action="append", metavar="K=V",
+                   help="значение параметра, можно повторять; таблица из файла: имя=@файл.xlsx")
     p = add(pre, "list", _preset_list, "пресеты скрипта")
     p.add_argument("script")
     p = add(pre, "delete", _preset_delete, "удалить пресет и его регулярные запуски")

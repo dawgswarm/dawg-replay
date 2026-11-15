@@ -21,10 +21,12 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms, imports, minutes, repair, schedules, uistate
+from dawg_replay import forms, imports, minutes, repair, schedules, uistate, uploads
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.runs import parse_ts
+from dawg_replay.uploads import Uploads
+from dawg_replay.values import rows_word
 from dawg_replay.web import home as home_data
 from dawg_replay.web import run_screen
 from dawg_replay.web.security import Secrets
@@ -137,6 +139,8 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["number"] = number
     env.filters["plural"] = plural
     env.filters["minutes"] = minutes.fmt
+    env.filters["rows_word"] = rows_word
+    env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
@@ -301,8 +305,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         def work() -> Response:
             with _ui(request).open_app() as app:
                 if not preset_name:
-                    sub = forms.parse(app.registry.manifest(name), form, require=False)
-                    sub.fields = forms.fields_for(app.registry.manifest(name), raw=sub.raw, secret_status=app.secret_status(name))
+                    sub = forms.parse(app.registry.manifest(name), form, require=False, uploads=Uploads(app.paths.uploads))
+                    sub.fields = forms.fields_for(app.registry.manifest(name), raw=sub.raw, secret_status=app.secret_status(name),
+                                                  tables=sub.tables)
                     ctx = _script_ctx(app, name, None, sub)
                     ctx["form_error"] = "Введите имя пресета."
                     return fragment(request, "_script_form.html", f=ctx)
@@ -312,6 +317,46 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 if sub.ok:
                     resp.headers["HX-Trigger"] = "presets-changed"  # блок «Регулярный запуск» видит новый пресет
                 return resp
+
+        return await run_in_threadpool(work)
+
+    async def script_table_upload(request: Request) -> Response:
+        """Файл в поле таблицы: разбор и проверка сразу, в ответ поле с превью или ошибкой."""
+        name, param = request.path_params["name"], request.path_params["param"]
+        data, filename, problem = b"", "", None
+        limit = f"Файл больше {uploads.MAX_BYTES // 1_000_000} МБ, разбейте таблицу на части"
+        try:
+            length = int(request.headers.get("content-length", ""))
+        except ValueError:
+            length, problem = 0, "Браузер не сообщил размер файла, выберите файл заново"
+        if problem is None and length > uploads.MAX_BYTES + 32 * 1024:
+            problem = limit
+        if problem is None:
+            try:
+                form = await request.form(max_files=1, max_fields=4)
+            except (MultiPartException, HTTPException):
+                problem = "Загрузите один файл .csv или .xlsx"
+            else:
+                try:
+                    files = [v for v in form.getlist("_table_file") if isinstance(v, UploadFile)]
+                    if len(files) != 1:
+                        problem = "Загрузите один файл .csv или .xlsx"
+                    else:
+                        data = await files[0].read(uploads.MAX_BYTES + 1)
+                        filename = files[0].filename or ""
+                        if len(data) > uploads.MAX_BYTES:
+                            problem, data = limit, b""
+                finally:
+                    await form.close()
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                    out = forms.upload_table(app, name, param, data, filename, problem=problem)
+                except ReplayError as e:
+                    return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            return fragment(request, "_table_field.html", fl=out["field"], script=name)
 
         return await run_in_threadpool(work)
 
@@ -656,6 +701,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/_runs", script_runs),
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
+        Route("/scripts/{name}/_table/{param}", script_table_upload, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
         Route("/scripts/{name}/_schedules", script_schedules),
         Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),

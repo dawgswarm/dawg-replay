@@ -269,7 +269,8 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     )
     p.add_argument("target", metavar="name|file", help="имя скрипта или путь к script.py")
     p.add_argument("--params", metavar="FILE", help="JSON со значениями")
-    p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
+    p.add_argument("--set", "--param", dest="set", action="append", metavar="K=V",
+                   help="значение параметра, можно повторять; таблица из файла: имя=@файл.xlsx")
     p.add_argument("--preset", help="пресет скрипта")
     p.add_argument("--follow", action="store_true", help="показывать события и ждать конца; Ctrl+C отменяет")
     p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика); ждёт слота, как --wait")

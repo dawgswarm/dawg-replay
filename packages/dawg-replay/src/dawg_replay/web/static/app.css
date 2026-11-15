@@ -429,7 +429,7 @@ button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem; b
 
 label { display: block; margin-bottom: 0.35rem; font-weight: 560; font-size: 0.93rem; }
 
-input[type="password"], input[type="text"], input[type="number"], input[type="url"], input[type="time"], textarea, select {
+input[type="password"], input[type="text"], input[type="number"], input[type="url"], input[type="time"], input[type="date"], textarea, select {
   width: 100%;
   min-height: 2.6rem;
   padding: 0.5rem 0.75rem;
@@ -449,6 +449,7 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 input::placeholder, textarea::placeholder { color: var(--ink-faint); opacity: 1; }
 input[type="number"] { max-width: 10rem; }
+input[type="date"] { max-width: 12rem; }
 textarea { resize: vertical; min-height: 5.5rem; line-height: 1.5; }
 select { cursor: pointer; }
 
@@ -457,6 +458,31 @@ select { cursor: pointer; }
 
 .field { margin-bottom: 1.3rem; }
 .field:last-child { margin-bottom: 0; }
+
+/* поле таблицы: файл, затем что загружено */
+.field-table { position: relative; }
+.file-input { position: absolute; left: 0; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.file-button {
+  display: inline-flex; align-items: center; min-height: 2.4rem; margin: 0; padding: 0.45rem 0.9rem;
+  border: 1px solid var(--line-strong); border-radius: var(--r-control);
+  background: var(--surface); color: var(--ink); font-weight: 560; cursor: pointer;
+}
+.file-button:hover { border-color: var(--ink-faint); }
+.file-input:focus-visible + .file-button { border-color: var(--focus); box-shadow: 0 0 0 4px var(--focus-halo); }
+.file-busy { display: none; margin-left: 0.6rem; }
+.field-table.htmx-request .file-busy { display: inline; }
+.field-table.htmx-request .file-button { opacity: 0.6; pointer-events: none; }
+.table-loaded { margin-bottom: 0.6rem; }
+.table-file { margin: 0 0 0.45rem; overflow-wrap: anywhere; }
+.table-preview { max-width: 100%; overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r-control); }
+.table-preview:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--focus-halo); }
+.table-preview table { border-collapse: collapse; width: 100%; font-size: 0.88rem; }
+.table-preview th, .table-preview td {
+  padding: 0.35rem 0.6rem; text-align: left; white-space: nowrap; max-width: 16rem;
+  overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line);
+}
+.table-preview th { background: var(--surface-2); font-weight: 600; }
+.table-preview tbody tr:last-child td { border-bottom: 0; }
 
 .req {
   display: inline-block;

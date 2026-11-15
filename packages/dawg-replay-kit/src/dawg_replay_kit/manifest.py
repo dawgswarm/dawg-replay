@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 import sys
 from dataclasses import dataclass, field, replace
@@ -21,12 +22,12 @@ else:
 SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
 """Мажорные версии контракта, которые понимает эта версия kit."""
 
-CONTRACT_MINORS: dict[int, int] = {1: 1}
+CONTRACT_MINORS: dict[int, int] = {1: 2}
 """Последняя минорная версия каждого мажора, которую знает эта версия kit."""
 
 
 def contract_versions() -> list[str]:
-    """Полные версии для `dawg-replay --version`: ["1.1"]."""
+    """Полные версии для `dawg-replay --version`: ["1.2"]."""
     return [f"{major}.{CONTRACT_MINORS[major]}" for major in SUPPORTED_CONTRACTS]
 
 
@@ -46,6 +47,8 @@ PARAM_TYPES: tuple[str, ...] = (
     "url_list",
     "string_list",
     "secret",
+    "date",
+    "table",
 )
 NUMBER_TYPES = ("int", "float")
 LIST_TYPES = ("url_list", "string_list")
@@ -68,11 +71,19 @@ _TOML_LINE_RE = re.compile(r"line (\d+)")
 _TOP_KEYS = ("contract", "name", "title", "description", "site", "tags", "version", "timeout_minutes", "params")
 # Поля, появившиеся в минорных версиях: поле -> (мажор, минор).
 _FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
+# Типы параметров, появившиеся в минорных версиях.
+_TYPE_SINCE: dict[str, tuple[int, int]] = {"date": (1, 2), "table": (1, 2)}
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+DEFAULT_MAX_ROWS = 10000
+ROW_KEY = "_row"
 
 SITE_MAX = 40
 TAGS_MAX = 5
 TAG_MAX = 24
-_PARAM_KEYS = ("name", "type", "title", "description", "required", "default", "min", "max", "max_items", "choices")
+_PARAM_KEYS = (
+    "name", "type", "title", "description", "required", "default", "min", "max", "max_items", "choices",
+    "columns", "max_rows", "secret",
+)
 
 
 @dataclass(frozen=True)
@@ -116,19 +127,35 @@ class Param:
     max: int | float | None = None
     max_items: int | None = None
     choices: tuple[str, ...] | None = None
+    columns: tuple[str, ...] | None = None  # table: колонки, которые обязаны быть в шапке
+    max_rows: int | None = None  # table: предел строк, без поля DEFAULT_MAX_ROWS
+    secret: bool = False  # table: таблица целиком секрет
 
     @property
     def has_default(self) -> bool:
         return self.default is not None
 
+    @property
+    def is_secret(self) -> bool:
+        """Значение не хранится и не показывается: `secret` или `table` с `secret = true`."""
+        return self.type == "secret" or (self.type == "table" and self.secret)
+
+    @property
+    def row_limit(self) -> int:
+        return self.max_rows if self.max_rows is not None else DEFAULT_MAX_ROWS
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"name": self.name, "type": self.type, "title": self.title, "required": self.required}
-        for key in ("description", "default", "min", "max", "max_items"):
+        for key in ("description", "default", "min", "max", "max_items", "max_rows"):
             value = getattr(self, key)
             if value is not None:
                 d[key] = value
         if self.choices is not None:
             d["choices"] = list(self.choices)
+        if self.columns is not None:
+            d["columns"] = list(self.columns)
+        if self.secret:
+            d["secret"] = True
         return d
 
 
@@ -253,7 +280,7 @@ def _type_name(v: Any) -> str:
         float: "дробное",
         str: "строка",
         list: "список",
-        dict: "таблица",
+        dict: "объект",
     }.get(type(v), type(v).__name__)
 
 
@@ -288,6 +315,17 @@ def check_value(param: Param, value: Any) -> str | None:
         return None
     if t == "url":
         return None if _is_url(value) else f"ожидается адрес http(s)://..., получено {value!r}"
+    if t == "date":
+        problem = _date_problem(value)
+        if problem:
+            return problem
+        if param.min is not None and value < param.min:
+            return f"дата {value} раньше min = {param.min}"
+        if param.max is not None and value > param.max:
+            return f"дата {value} позже max = {param.max}"
+        return None
+    if t == "table":
+        return _table_problem(param, value)
     if t in LIST_TYPES:
         if not isinstance(value, list):
             return f"ожидается список, получено {_type_name(value)}"
@@ -300,6 +338,40 @@ def check_value(param: Param, value: Any) -> str | None:
             return f"элементов {len(value)}, а max_items = {param.max_items}"
         return None
     return f"неизвестный тип `{t}`"
+
+
+def _date_problem(value: Any) -> str | None:
+    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
+        return f"ожидается дата ГГГГ-ММ-ДД, получено {value!r}"
+    try:
+        dt.date.fromisoformat(value)
+    except ValueError:
+        return f"такой даты нет: {value}"
+    return None
+
+
+def _table_problem(param: Param, value: Any) -> str | None:
+    """Таблица: список строк-объектов со строковыми значениями и номером `_row`."""
+    if not isinstance(value, list):
+        return f"ожидается таблица (список строк), получено {_type_name(value)}"
+    if not value:
+        return "в таблице нет строк"
+    if len(value) > param.row_limit:
+        return f"строк {len(value)}, а max_rows = {param.row_limit}"
+    for i, row in enumerate(value):
+        if not isinstance(row, dict):
+            return f"строка {i}: ожидается объект, получено {_type_name(row)}"
+        n = row.get(ROW_KEY)
+        if not _is_int(n) or n < 2:
+            return f"строка {i}: нет номера `{ROW_KEY}` (целое, шапка это строка 1)"
+        for key, cell in row.items():
+            if key != ROW_KEY and not isinstance(cell, str):
+                return f"строка {n}, колонка «{key}»: ожидается строка, получено {_type_name(cell)}"
+    if param.columns:
+        missing = [c for c in param.columns if c not in value[0]]
+        if missing:
+            return "в шапке нет колонок: " + ", ".join(f"«{c}»" for c in missing)
+    return None
 
 
 def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Param | None:
@@ -355,14 +427,49 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
     for key, v in (("min", lo), ("max", hi)):
         if v is None:
             continue
-        if t is not None and t not in NUMBER_TYPES:
-            err("field_not_allowed", key, f"`{key}` бывает только у int и float")
+        if t is not None and t not in (*NUMBER_TYPES, "date"):
+            err("field_not_allowed", key, f"`{key}` бывает только у int, float и date")
+        elif t == "date":
+            problem = _date_problem(v)
+            if problem:
+                err("bad_value", key, f"`{key}` у date: {problem}")
         elif t == "int" and not _is_int(v):
             err("bad_value", key, f"`{key}` у int должен быть целым")
         elif not _is_number(v):
             err("bad_value", key, f"`{key}` должен быть числом")
-    if _is_number(lo) and _is_number(hi) and lo > hi:
+    if t == "date":
+        if isinstance(lo, str) and isinstance(hi, str) and not _date_problem(lo) and not _date_problem(hi) and lo > hi:
+            err("bad_range", "min", f"min = {lo} позже max = {hi}")
+    elif _is_number(lo) and _is_number(hi) and lo > hi:
         err("bad_range", "min", f"min = {lo} больше max = {hi}")
+
+    columns = raw.get("columns")
+    if columns is not None:
+        if t is not None and t != "table":
+            err("field_not_allowed", "columns", "`columns` бывает только у table")
+        elif (
+            not isinstance(columns, list)
+            or not all(isinstance(c, str) and c.strip() and c == c.strip() for c in columns)
+        ):
+            err("bad_value", "columns", "`columns` должен быть списком непустых названий колонок")
+        elif len(set(columns)) != len(columns):
+            err("bad_value", "columns", "в `columns` есть повторы")
+        elif ROW_KEY in columns:
+            err("bad_value", "columns", f"`{ROW_KEY}` не колонка, это номер строки")
+
+    max_rows = raw.get("max_rows")
+    if max_rows is not None:
+        if t is not None and t != "table":
+            err("field_not_allowed", "max_rows", "`max_rows` бывает только у table")
+        elif not _is_int(max_rows) or max_rows < 1:
+            err("bad_value", "max_rows", "`max_rows` должен быть целым не меньше 1")
+
+    secret = raw.get("secret", False)
+    if "secret" in raw:
+        if t is not None and t != "table":
+            err("field_not_allowed", "secret", "`secret` бывает только у table; для секретной строки есть тип secret")
+        elif not isinstance(secret, bool):
+            err("bad_value", "secret", "`secret` должен быть true или false")
 
     max_items = raw.get("max_items")
     if max_items is not None:
@@ -390,6 +497,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
     if default is not None and t == "secret":
         err("field_not_allowed", "default", "у secret не бывает `default`: секрет не хранится в скрипте")
         default = None
+    elif default is not None and t == "table":
+        err("field_not_allowed", "default", "у table не бывает `default`: таблица приходит из файла")
+        default = None
 
     if len(issues) > n_before:
         return None
@@ -405,6 +515,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
         max=hi,
         max_items=max_items,
         choices=tuple(choices) if choices is not None else None,
+        columns=tuple(columns) if columns is not None else None,
+        max_rows=max_rows,
+        secret=bool(secret),
     )
     if default is not None:
         problem = check_value(param, default)
@@ -463,6 +576,15 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
                         key,
                         f"поле `{key}` есть в контракте с версии {v}: укажите contract = \"{v}\"",
                     )
+                )
+        raw_params = data.get("params")
+        for i, raw in enumerate(raw_params if isinstance(raw_params, list) else []):
+            t = raw.get("type") if isinstance(raw, dict) else None
+            since = _TYPE_SINCE.get(t) if isinstance(t, str) else None
+            if since and declared < since:
+                v = f"{since[0]}.{since[1]}"
+                issues.append(
+                    Issue("type_needs_minor", f"params[{i}].type", f"тип `{t}` есть в контракте с версии {v}: укажите contract = \"{v}\"")
                 )
 
     name = data.get("name")
