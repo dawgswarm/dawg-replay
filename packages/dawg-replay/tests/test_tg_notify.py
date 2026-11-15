@@ -280,20 +280,30 @@ def test_failure_is_logged_and_retried_by_next_process(app, wb, tg):
     rec = run_follow(app, wb, notify="always")
     assert rec.status == "ok"  # Telegram на итог не влияет
     assert app.runs.get(rec.id).notify_state == "failed"
-    assert len(tg.errors) == tg_notify.BACKGROUND_ATTEMPTS and TOKEN not in "".join(tg.errors)
-    log = (app.paths.run_dir(rec.id) / "events.jsonl").read_text(encoding="utf-8")
-    assert "Сообщение об итоге в Telegram не отправлено" in log and TOKEN not in log
+    assert tg.errors and TOKEN not in "".join(tg.errors)
+    events = app.paths.run_dir(rec.id) / "events.jsonl"
+    unsent = "Сообщение об итоге в Telegram не отправлено"
+    sent = "Сообщение об итоге отправлено в Telegram"
+    count = lambda text: events.read_text(encoding="utf-8").count(text)  # noqa: E731
+    # три попытки в фоне дают одну строку журнала
+    assert count(unsent) == 1 and TOKEN not in events.read_text(encoding="utf-8")
+    # досылки следующими процессами, пока Telegram недоступен, строку не повторяют
+    for _ in range(3):
+        assert tg_notify.after_finish(app, rec.id, background=False) is False
+    assert count(unsent) == 1 and app.runs.get(rec.id).notify_state == "failed"
     tg.bot.fail = 0
     launch.recover_lost(app)  # любая следующая команда
     assert app.runs.get(rec.id).notify_state == "sent" and len(tg.bot.messages) == 1
     launch.recover_lost(app)
     assert len(tg.bot.messages) == 1
+    assert (count(unsent), count(sent)) == (1, 1)
+    assert "Раньше отправить не получалось" in events.read_text(encoding="utf-8")
 
 
 def test_permanent_error_is_not_retried_in_place(app, wb, tg):
     tg.bot.fail, tg.bot.code = 10, 403
     run_follow(app, wb, notify="always")
-    assert len(tg.errors) == 1
+    assert tg.bot.fail == 9  # одна попытка, без повторов на месте
 
 
 def test_retry_rules_age_and_claims(app, wb, tg):
