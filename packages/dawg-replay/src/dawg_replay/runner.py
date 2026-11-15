@@ -19,6 +19,10 @@
     output/          DAWG_SCRIPT_OUTPUT_DIR
     stop             появляется при отмене (DAWG_SCRIPT_STOP_FILE)
 
+Сохранённые входы (`kit.browser(login=...)`) лежат вне каталога запуска: в
+`DAWG_SCRIPT_LOGINS_DIR` передаётся каталог `logins_dir` (`<home>/logins/<script>/`),
+так они не попадают в историю запусков.
+
 Секреты. `params.json` в каталоге запуска лежит без секретов (ТЗ 6.2). Если у
 запуска есть секреты, скрипт получает в `DAWG_SCRIPT_PARAMS` отдельный файл
 с подставленными значениями: он создаётся в личном временном каталоге (0700),
@@ -70,6 +74,7 @@ ENV_EVENTS = "DAWG_SCRIPT_EVENTS"
 ENV_OUTPUT_DIR = "DAWG_SCRIPT_OUTPUT_DIR"
 ENV_RUN_ID = "DAWG_SCRIPT_RUN_ID"
 ENV_STOP_FILE = "DAWG_SCRIPT_STOP_FILE"
+ENV_LOGINS_DIR = "DAWG_SCRIPT_LOGINS_DIR"
 STOP_FILE = "stop"
 
 # Переменные, которые не наследуются от процесса приложения: их значения задаёт только раннер.
@@ -136,7 +141,8 @@ class ScriptRun:
     `values` содержит проверенные значения параметров вместе с секретами,
     `secret_names` перечисляет параметры типа `secret`. `timeout` в секундах,
     None без ограничения. `command` задаёт, чем запускать файл (по умолчанию
-    `uv run`), тесты подставляют интерпретатор. `env` дописывается поверх
+    `uv run`), тесты подставляют интерпретатор. `logins_dir`: каталог сохранённых
+    входов скрипта (`DAWG_SCRIPT_LOGINS_DIR`), создаёт его kit при первом сохранении. `env` дописывается поверх
     окружения процесса приложения. `secrets_dir` задаёт, где создавать временный
     каталог с файлом секретов (по умолчанию системный временный каталог).
     """
@@ -157,6 +163,7 @@ class ScriptRun:
         env: Mapping[str, str] | None = None,
         after_exit: Iterable[AfterExit] = (),
         secrets_dir: str | Path | None = None,
+        logins_dir: str | Path | None = None,
     ):
         self.script = Path(script).resolve()
         self.run_id = run_id
@@ -177,6 +184,7 @@ class ScriptRun:
         self._extra_env = dict(env or {})
         self._after_exit = list(after_exit)
         self._secrets_base = Path(secrets_dir) if secrets_dir is not None else None
+        self._logins_dir = Path(logins_dir).resolve() if logins_dir is not None else None
 
         self._proc: subprocess.Popen[bytes] | None = None
         self._secret_dir: Path | None = None
@@ -280,6 +288,8 @@ class ScriptRun:
             env[ENV_API_KEY] = self._api_key
         if self._base_url:
             env[ENV_BASE_URL] = self._base_url
+        if self._logins_dir is not None:
+            env[ENV_LOGINS_DIR] = str(self._logins_dir)
         env.update(self._extra_env)
         return env
 

@@ -151,14 +151,35 @@ def _remove(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         versions = [v.version for v in app.registry.versions(args.name)]
         raise ReplayError(
             "confirmation_required",
-            f"будут удалены скрипт `{args.name}`, версии {versions}, его пресеты, секреты и регулярные запуски. "
+            f"будут удалены скрипт `{args.name}`, версии {versions}, его пресеты, секреты, сохранённые входы и регулярные запуски. "
             "История запусков останется. Повторите с --yes",
         )
     r = app.remove(args.name)
     text = f"скрипт `{args.name}` удалён"
     if r["schedules_removed"]:
         text += f"; сняты регулярные запуски: {', '.join(r['schedules_removed'])}"
+    if r.get("logins_deleted"):
+        text += f"; стёрто сохранённых входов: {r['logins_deleted']}"
     return r, text
+
+
+# --- сохранённые входы ---
+
+
+def _logins_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    items = app.list_logins(args.script)
+    lines = [f"{i['name']}  сохранён {i['saved_at'] or '—'}, использован {i['used_at'] or '—'}" for i in items]
+    return {"script": args.script, "logins": items}, "\n".join(lines) or "сохранённых входов нет"
+
+
+def _logins_forget(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    if args.all == (args.login is not None):
+        raise ReplayError("bad_arguments", "укажите имя входа или --all")
+    if args.all:
+        n = app.forget_logins(args.script)
+        return {"script": args.script, "forgotten": n}, f"стёрто сохранённых входов: {n}"
+    app.forget_login(args.script, args.login)
+    return {"script": args.script, "forgotten": 1, "name": args.login}, f"вход «{args.login}» стёрт"
 
 
 # --- пресеты ---
@@ -238,7 +259,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add(sub, "rollback", _rollback, "сделать текущей другую версию")
     p.add_argument("name")
     p.add_argument("target_version", metavar="version", type=int)
-    p = add(sub, "remove", _remove, "удалить скрипт со всеми версиями, пресетами, секретами и расписаниями")
+    p = add(sub, "remove", _remove, "удалить скрипт со всеми версиями, пресетами, секретами, входами и расписаниями")
     p.add_argument("name")
     p.add_argument("--yes", action="store_true", help="подтвердить удаление")
 
@@ -253,6 +274,14 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add(pre, "delete", _preset_delete, "удалить пресет и его регулярные запуски")
     p.add_argument("script")
     p.add_argument("preset")
+
+    lg = group("logins", "сохранённые входы скриптов (kit.browser(login=...))")
+    p = add(lg, "list", _logins_list, "сохранённые входы скрипта: имя, когда сохранён и использован")
+    p.add_argument("script")
+    p = add(lg, "forget", _logins_forget, "стереть сохранённый вход или все входы скрипта")
+    p.add_argument("script")
+    p.add_argument("login", nargs="?", metavar="name", help="имя входа")
+    p.add_argument("--all", action="store_true", help="стереть все входы скрипта")
 
     sec = group("secret", "секреты скриптов")
     p = add(sec, "set", _secret_set, "сохранить секрет в системное хранилище паролей (ввод с терминала или из stdin)")

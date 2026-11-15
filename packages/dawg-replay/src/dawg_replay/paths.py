@@ -60,6 +60,14 @@ class Paths:
         return self.home / "tmp"
 
     @property
+    def logins(self) -> Path:
+        """Сохранённые входы скриптов (cookies, localStorage), по каталогу на скрипт. 0700."""
+        return self.home / "logins"
+
+    def login_dir(self, name: str) -> Path:
+        return self.logins / _part(name)
+
+    @property
     def imports(self) -> Path:
         """Файлы, загруженные через интерфейс и ещё не добавленные (импорт скрипта)."""
         return self.home / "imports"
