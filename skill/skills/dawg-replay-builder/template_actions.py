@@ -1,10 +1,10 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1.2,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.3,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = "1.2"
+# contract = "1.3"
 # name = "example-cabinet-actions"
 # title = "Пример: действие в кабинете по списку аккаунтов"
 # description = "Для каждой строки таблицы входит в кабинет, проверяет, сделано ли действие, и делает его."
@@ -23,6 +23,9 @@
 # max_rows = 500
 # # Пароли в таблице: вся таблица секретная, в историю не попадает, в пресете хранится отдельно
 # secret = true
+# # Как клиент задаёт строки: файл на запуск, одна-две строки руками, таблица в пресете для расписания.
+# # Оставь только договорённые способы; без "preset" расписание по таблице невозможно.
+# input = ["file", "manual", "preset"]
 #
 # [[params]]
 # name = "confirm_first"
@@ -166,9 +169,24 @@ def process(row: dict[str, str], p: Any, allowed: Any) -> tuple[str, str]:
             return "skipped", "нужно сделать (режим проверки, ничего не менялось)"
         if not allowed():
             return "skipped", "не подтверждено"
-        do_action(page, row)
-        verify(page, row)
+        try:
+            do_action(page, row)
+            verify(page, row)
+        except Exception:
+            error_shot(page, row)
+            raise
         return "ok", "сделано"
+
+
+def error_shot(page: Any, row: dict[str, str]) -> None:
+    """Скриншот страницы, на которой строка упала: клиент видит его на экране запуска.
+    Снимается только у упавших строк, чтобы не плодить сотни картинок."""
+    path = kit.output_dir / f"row-{row['_row']}-error.png"
+    try:
+        page.screenshot(path=str(path), full_page=True)
+    except Exception:
+        return  # браузер уже недоступен: строка и так помечена упавшей
+    kit.artifact(path, f"Скриншот: строка {row['_row']} не получилась", "image/png")
 
 
 def summary(counts: dict[str, int], total: int) -> str:
@@ -226,9 +244,9 @@ def main() -> None:
         kit.result("failed", f"изменения не подтверждены. {text}")
         raise SystemExit(1)
     if not counts.get("failed"):
-        kit.result("ok", text)
+        kit.result("ok", text, count=counts.get("ok", 0))
     elif counts["failed"] < total:
-        kit.result("partial", text)
+        kit.result("partial", text, count=counts.get("ok", 0))
     else:
         kit.result("failed", text)
         raise SystemExit(1)

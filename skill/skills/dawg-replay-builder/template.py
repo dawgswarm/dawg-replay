@@ -1,10 +1,10 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1.1,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.3,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = "1.1"
+# contract = "1.3"
 # name = "example-search-cards"
 # title = "Пример: карточки по поисковому запросу"
 # description = "Обходит выдачу сайта по запросу и собирает название, цену, рейтинг и ссылку."
@@ -32,8 +32,11 @@
 # name = "sort"
 # type = "enum"
 # title = "Сортировка"
-# description = "popular: популярные, price: дешевле, rating: с высоким рейтингом"
-# choices = ["popular", "price", "rating"]
+# choices = [
+#   { value = "popular", title = "Популярные" },
+#   { value = "price", title = "Сначала дешевле" },
+#   { value = "rating", title = "С высоким рейтингом" },
+# ]
 # default = "popular"
 #
 # [[params]]
@@ -300,9 +303,9 @@ def main() -> None:
 
     summary = f"«{query}»: {collector.count} карточек, страниц выдачи: {pages_done}"
     if error is None:
-        kit.result("ok", summary)
+        kit.result("ok", summary, count=collector.count, main="cards.csv")
     elif collector.count:
-        kit.result("partial", f"{summary}. Остановились на ошибке: {error}")
+        kit.result("partial", f"{summary}. Остановились на ошибке: {error}", count=collector.count, main="cards.csv")
     else:
         kit.result("failed", f"«{query}»: ничего не собрано. Ошибка: {error}")
         raise SystemExit(1)
