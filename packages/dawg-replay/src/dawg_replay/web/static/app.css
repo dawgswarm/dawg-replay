@@ -1019,3 +1019,6 @@ a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem;
 main { min-width: 0; }
 code, .hint, .hint-inline, .notice { overflow-wrap: anywhere; }
 pre { max-width: 100%; overflow-x: auto; }
+
+/* Подвал: версии приложения, kit и контракта */
+.foot { margin: 0 auto; padding: 24px 16px 32px; color: var(--muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }

@@ -172,10 +172,20 @@ def runs_active(request: Request) -> bool:
         return False
 
 
+def _versions() -> dict[str, str]:
+    """Версии в подвале каждой страницы: какое приложение и kit сейчас запущены."""
+    import dawg_replay
+    import dawg_replay_kit
+    from dawg_replay_kit.manifest import contract_versions
+
+    return {"app": dawg_replay.__version__, "kit": dawg_replay_kit.__version__, "contract": ", ".join(contract_versions())}
+
+
 def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env = templates.env
     env.globals["csrf_token"] = secrets_.csrf
     env.globals["runs_active"] = runs_active
+    env.globals["versions"] = _versions()
     env.filters["when"] = when
     env.filters["when_next"] = when_next
     env.filters["status"] = status_view
