@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from dawg_replay import account
+from dawg_replay import account, logins
 from dawg_replay.config import Config, coerce, load_config, save_config, set_config_value
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
@@ -170,7 +170,7 @@ class App:
         }
 
     def remove(self, name: str) -> dict[str, Any]:
-        """Удаляет скрипт, версии, пресеты, секреты и расписания; история запусков остаётся.
+        """Удаляет скрипт, версии, пресеты, секреты, сохранённые входы и расписания; история запусков остаётся.
         Пока идёт запуск этого скрипта, удалять нельзя: его файл и секреты ещё нужны.
         Расписания снимаются из планировщика первыми: если это не удалось, скрипт остаётся."""
         from dawg_replay import launch  # launch импортирует app
@@ -195,12 +195,28 @@ class App:
         versions = self.registry.remove(name)
         for param in sorted(secret_params):
             self.secrets.delete_secret(name, param)
+        logins_deleted = logins.remove_dir(self.paths, name)
         return {
             "name": name,
             "versions": [v.version for v in versions],
             "secrets_deleted": sorted(secret_params),
             "schedules_removed": schedules,
+            "logins_deleted": logins_deleted,
         }
+
+    # --- сохранённые входы ---
+
+    def list_logins(self, script: str) -> list[dict[str, Any]]:
+        self.registry.get(script)
+        return logins.list_logins(self.paths, script)
+
+    def forget_login(self, script: str, name: str) -> None:
+        self.registry.get(script)
+        logins.forget(self.paths, script, name)
+
+    def forget_logins(self, script: str) -> int:
+        self.registry.get(script)
+        return logins.forget_all(self.paths, script)
 
     # --- пресеты ---
 

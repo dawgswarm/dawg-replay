@@ -33,6 +33,7 @@ from dawg_replay_kit import cancel, stdio
 from dawg_replay_kit.browser import BrowserLimitReached, BrowserSession
 from dawg_replay_kit.dawg_api import BrowserError, BrowserLimitError
 from dawg_replay_kit.events import Log
+from dawg_replay_kit.logins import LoginError
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
 
@@ -45,6 +46,7 @@ __all__ = [
     "BrowserLimitReached",
     "BrowserSession",
     "Kit",
+    "LoginError",
     "StartupError",
     "__version__",
     "artifact",
@@ -126,14 +128,20 @@ def browser(
     proxy: str | None = None,
     geo: str | tuple[float, float] | None = None,
     ready_timeout: float = 120.0,
+    login: str | None = None,
 ) -> BrowserSession:
     """Браузер DAWG для `with` или `async with`.
 
     proxy: `socks5://user:pass@host:port` и подобное; geo: slug города (`moskva`)
     или координаты `"55.75,37.61"`. Внутри доступны `.page`, `.context`, `.browser`,
     `.session_id`.
+
+    login: имя сохранённого входа (`row["email"]`, `"кабинет"`). Kit загружает его cookies
+    и localStorage перед работой и сохраняет при закрытии; `.login_restored` говорит,
+    было ли что загружать, `.forget_login()` стирает вход. Залогинен ли браузер,
+    скрипт проверяет сам.
     """
-    return BrowserSession(_runtime().browsers, proxy, geo, ready_timeout)
+    return BrowserSession(_runtime().browsers, proxy, geo, ready_timeout, login=login)
 
 
 def set_browser_limit(n: int) -> None:

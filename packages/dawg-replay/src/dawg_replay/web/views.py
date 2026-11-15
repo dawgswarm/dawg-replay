@@ -248,9 +248,10 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 repair.annotate(app, view["runs"])  # тихая поломка в истории скрипта
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
+            lg = _logins_ctx(app, name)
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
         view["tags"] = list(meta["tags"])
-        return page(request, "script.html", active="scripts", v=view, f=ctx)
+        return page(request, "script.html", active="scripts", v=view, f=ctx, lg=lg)
 
     def script_form(request: Request) -> Response:
         """Форма заново: выбор пресета подставляет его значения."""
@@ -454,6 +455,37 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     msg = e.message[:1].upper() + e.message[1:]
                     return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, error=msg))
                 return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, notice="Регулярный запуск снят."))
+
+        return await run_in_threadpool(work)
+
+    # --- Сохранённые входы ---
+
+    def _logins_ctx(app: Any, name: str, notice: str | None = None, error: str | None = None) -> dict[str, Any]:
+        try:
+            items = app.list_logins(name)
+        except (ReplayError, OSError):
+            items = []
+        return {"name": name, "items": items, "notice": notice, "error": error, "open": bool(notice or error)}
+
+    async def script_logins_forget(request: Request) -> Response:
+        """«Забыть» один вход (_login) или все (_all=1). Отвечает блоком входов."""
+        name = request.path_params["name"]
+        form = await _form(request)
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    if form.get("_all"):
+                        n = app.forget_logins(name)
+                        notice = f"Стёрто входов: {n}. Скрипт войдёт заново при следующем запуске."
+                    else:
+                        login = str(form.get("_login", ""))
+                        app.forget_login(name, login)
+                        notice = f"Вход «{login}» стёрт. Скрипт войдёт заново при следующем запуске."
+                except ReplayError as e:
+                    msg = e.message[:1].upper() + e.message[1:]
+                    return fragment(request, "_logins.html", lg=_logins_ctx(app, name, error=msg))
+                return fragment(request, "_logins.html", lg=_logins_ctx(app, name, notice=notice))
 
         return await run_in_threadpool(work)
 
@@ -674,6 +706,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/_schedules", script_schedules),
         Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),
         Route("/scripts/{name}/schedules/{sid}/delete", script_schedule_delete, methods=["POST"]),
+        Route("/scripts/{name}/logins/forget", script_logins_forget, methods=["POST"]),
         *run_screen.routes(templates),
         Route("/events/runs", runs_events),
         Route("/events/active", runs_active_count),

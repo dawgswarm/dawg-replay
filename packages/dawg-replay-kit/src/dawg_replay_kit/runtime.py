@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from dawg_replay_kit import cancel, parameters
+from dawg_replay_kit import cancel, logins, parameters
 from dawg_replay_kit.browser import Browsers
 from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL
 from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink, Sink
@@ -93,7 +93,8 @@ class Kit:
         api_key = environ.get(ENV_API_KEY) or None
         secrets = params.secret_values() + ([api_key] if api_key else [])
         events = Emitter(sink, secrets=secrets, output_dir=output_dir)
-        browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL)
+        browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL,
+                            logins_dir=logins.default_dir(environ, autonomous, cwd or Path.cwd()))
         return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous, browsers)
 
     def close(self) -> None:
