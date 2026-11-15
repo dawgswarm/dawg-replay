@@ -12,6 +12,7 @@ from typing import Any
 
 from dawg_replay import asks, diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
+from dawg_replay.runview import again_note
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
 ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)", "failed (skipped)", "failed (not_started)")
@@ -144,7 +145,9 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
         if rec.label in ATTENTION_LABELS or sus:
             title, cov = _title(app, rec, titles)
             attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
-                              "suspicion": sus, "repair": repair.needs_repair(app, rec) is not None})
+                              "suspicion": sus, "repair": repair.needs_repair(app, rec) is not None,
+                              # дата из выражения: повтор возьмёт ту же дату, кнопка предупреждает (как на экране запуска)
+                              "again_note": again_note(app, rec, app.paths.run_dir(rec.id))})
 
     suspects = []
     for rec in recent_recs:

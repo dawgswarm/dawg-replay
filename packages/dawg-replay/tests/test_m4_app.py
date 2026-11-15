@@ -188,3 +188,17 @@ def test_cli_accepts_choice_titles(m4, cli):
     assert data["preset"]["params"]["sort"] == "price" and data["preset"]["params"]["stores"] == ["msk", "kzn"]
     code, data = cli("preset", "save", "m4", "п2", "--set", "sort=Дорогие")
     assert code != 0 and "нет в choices: popular (Популярные), price (Дешевле)" in data["error"]["message"]
+
+
+def test_home_attention_again_confirms_relative_date(app, tmp_path, cli, web):
+    f = tmp_path / "fail.py"
+    f.write_text(SCRIPT.replace('# name = "m4"', '# name = "m4-fail"').replace(
+        'kit.result("ok", "готово")', 'kit.result("failed", "сайт не ответил")\nraise SystemExit(1)'), encoding="utf-8")
+    app.registry.add(f)
+    code, data = cli("run", "m4-fail", "--follow")
+    assert code != 0 and data["run"]["label"] == "failed"
+    c, _ = web
+    home = c.get("/").text
+    y = (TODAY - dt.timedelta(days=1)).strftime("%d.%m.%Y")
+    assert "Требует внимания" in home
+    assert f'hx-confirm="Повтор возьмёт те же значения: «С даты» {y} из выражения «вчера»' in home
