@@ -33,7 +33,7 @@ from dawg_replay.runs import parse_ts
 from dawg_replay.uploads import Uploads
 from dawg_replay.values import rows_word
 from dawg_replay.web import home as home_data
-from dawg_replay.web import run_screen
+from dawg_replay.web import run_screen, telegram_view
 from dawg_replay.web.security import Secrets
 
 # Тело запроса загрузки: файл и поля multipart. Меньше порога SpooledTemporaryFile Starlette
@@ -819,7 +819,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def settings(request: Request) -> Response:
         with _ui(request).open_app() as app:
             view = app.settings_view()
-        return page(request, "settings.html", active="settings", s=view)
+            tg = telegram_view.view(app, getattr(_ui(request), "telegram_pairing", None))
+        return page(request, "settings.html", active="settings", s=view, tg=tg)
 
     async def settings_key(request: Request) -> Response:
         form = await _form(request)
@@ -934,6 +935,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/settings/key/check", settings_key_check, methods=["POST"]),
         Route("/settings/usage", settings_usage),
         Route("/settings/limits", settings_limits, methods=["POST"]),
+        *telegram_view.routes(templates, _form),
     ]
 
 

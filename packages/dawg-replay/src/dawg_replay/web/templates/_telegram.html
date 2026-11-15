@@ -1,0 +1,54 @@
+{% set p = tg.pairing %}
+<div id="telegram-panel"{% if p and p.state == "waiting" %} hx-get="/settings/telegram" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  {% if error %}<p class="notice notice-error" role="alert">{{ error }}</p>{% endif %}
+  {% if tested %}<p class="notice notice-ok" role="status">Проверочное сообщение отправлено, посмотрите в Telegram.</p>{% endif %}
+  {% if disconnected %}<p class="notice notice-ok" role="status">Telegram отключён, токен бота стёрт из хранилища паролей.</p>{% endif %}
+
+  {% if tg.keyring_error %}
+    <p class="key-state"><span class="status status-failed">хранилище паролей недоступно</span> {{ tg.keyring_error }}</p>
+
+  {% elif p and p.state == "waiting" %}
+    <p>Бот @{{ p.bot }} найден. Откройте его в Telegram и нажмите «Start»: так приложение узнает, куда писать.</p>
+    <p class="actions">
+      <a class="button" href="{{ p.link }}" target="_blank" rel="noopener noreferrer">Открыть в Telegram</a>
+      <button class="secondary" hx-post="/settings/telegram/cancel" hx-target="#telegram-panel" hx-swap="outerHTML">Отменить</button>
+    </p>
+    <p class="hint">Если ссылка не открывается, отправьте боту сообщение <code>{{ p.command }}</code>. Жду до {{ p.until }}.</p>
+
+  {% else %}
+    {% if p and p.state == "done" %}<p class="notice notice-ok" role="status">Подключено: бот пишет в чат «{{ p.chat_name }}», там уже есть сообщение «Подключено к dawg-replay».</p>{% endif %}
+    {% if p and p.state == "expired" %}<p class="notice notice-error" role="alert">Сообщение <code>{{ p.command }}</code> не пришло за 5 минут. Привяжите чат ещё раз.</p>{% endif %}
+    {% if p and p.state == "error" %}<p class="notice notice-error" role="alert">Чат не привязан: {{ p.error }}</p>{% endif %}
+
+    {% if tg.connected %}
+      <p class="key-state">Подключено: бот @{{ tg.bot }}, чат «{{ tg.chat_name }}».{% if tg.api_url_custom %} Адрес Bot API: {{ tg.api_url }}.{% endif %}</p>
+      {% if tg.last_error %}
+        <p class="notice notice-error">Последняя ошибка отправки, {{ tg.last_error.at | when }}: {{ tg.last_error.text }}</p>
+      {% endif %}
+      <p class="actions">
+        <button class="secondary" hx-post="/settings/telegram/test" hx-target="#telegram-panel" hx-swap="outerHTML" hx-disabled-elt="this">Отправить проверочное</button>
+        <button class="secondary danger" hx-post="/settings/telegram/disconnect" hx-target="#telegram-panel" hx-swap="outerHTML"
+                hx-confirm="Отключить Telegram? Токен бота сотрётся, сообщения о запусках приходить перестанут." hx-disabled-elt="this">Отключить</button>
+      </p>
+      {% include "_telegram_rules.html" ignore missing %}
+    {% elif tg.token_set %}
+      <p class="key-state">Бот @{{ tg.bot }} сохранён, чат ещё не привязан.</p>
+      <p class="actions">
+        <button hx-post="/settings/telegram/connect" hx-target="#telegram-panel" hx-swap="outerHTML" hx-disabled-elt="this">Привязать чат</button>
+        <button class="secondary danger" hx-post="/settings/telegram/disconnect" hx-target="#telegram-panel" hx-swap="outerHTML" hx-disabled-elt="this">Стереть токен</button>
+      </p>
+    {% else %}
+      <p class="hint">Создайте своего бота у @BotFather в Telegram (команда <code>/newbot</code>) и вставьте сюда токен, который он пришлёт. Сообщения будут приходить вам в личку от этого бота.</p>
+    {% endif %}
+
+    {% if not tg.connected %}
+    <form class="key-form" hx-post="/settings/telegram/connect" hx-target="#telegram-panel" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <label for="telegram_token">{% if tg.token_set %}Другой бот: токен{% else %}Токен бота{% endif %}</label>
+      <div class="row">
+        <input id="telegram_token" name="token" type="password" autocomplete="off" spellcheck="false" required>
+        <button type="submit">Проверить и привязать чат</button>
+      </div>
+    </form>
+    {% endif %}
+  {% endif %}
+</div>

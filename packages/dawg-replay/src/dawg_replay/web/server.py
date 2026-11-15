@@ -46,6 +46,7 @@ class State:
         self.runs = UiRuns(home, app_factory=self.open_app)
         self.stopping = asyncio.Event()
         self.loop: asyncio.AbstractEventLoop | None = None  # цикл сервера, ставится при старте
+        self.telegram_pairing = None  # telegram.PairingJob, пока в Настройках ждём /start <код>
 
     def stop_soon(self) -> None:
         """Сообщить потокам SSE об остановке. Безопасно из обработчика сигнала и другого потока."""
@@ -84,6 +85,8 @@ def create_app(
             yield
         finally:
             state.stopping.set()
+            if state.telegram_pairing is not None:
+                state.telegram_pairing.cancel()
             active = state.runs.active()
             if active:
                 log(f"останавливаю запуски ({len(active)}): мягкий сигнал, потом страховка браузеров")

@@ -27,6 +27,11 @@ class Config:
     log_limit: int = 2000  # последних записей журнала на экране запуска
     # Только для разработки: путь к packages/dawg-replay-kit, см. dawg_replay.devkit.
     dev_kit_source: str = ""
+    # Telegram (dawg_replay.telegram): привязанный чат, имя бота и адрес Bot API. Токен в keyring.
+    telegram_chat_id: str = ""
+    telegram_chat_name: str = ""
+    telegram_bot: str = ""
+    telegram_api_url: str = ""  # пусто: https://api.telegram.org
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -63,8 +68,8 @@ def _coerce(key: str, raw: Any, strict: bool = True) -> Any:
         return value
     if not isinstance(raw, str):
         raise ReplayError("bad_config_value", f"`{key}` должен быть строкой")
-    if key == "base_url" and raw and not raw.startswith(("http://", "https://")):
-        raise ReplayError("bad_config_value", "`base_url` должен начинаться с http:// или https://")
+    if key in ("base_url", "telegram_api_url") and raw and not raw.startswith(("http://", "https://")):
+        raise ReplayError("bad_config_value", f"`{key}` должен начинаться с http:// или https://")
     return raw
 
 

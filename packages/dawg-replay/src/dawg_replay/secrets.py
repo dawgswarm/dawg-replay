@@ -9,6 +9,7 @@ from dawg_replay.errors import ReplayError
 
 SERVICE = "dawg-replay"
 API_KEY_USER = "dawg-api-key"
+TELEGRAM_USER = "telegram-bot-token"
 
 
 class Backend(Protocol):
@@ -86,6 +87,15 @@ class SecretStore:
 
     def api_key_raw(self) -> str | None:
         return self._b.get_password(SERVICE, API_KEY_USER) or None
+
+    def set_telegram_token(self, value: str) -> None:
+        self._b.set_password(SERVICE, TELEGRAM_USER, clean_secret(value, "токен бота", command=None))
+
+    def get_telegram_token(self) -> str | None:
+        return self._b.get_password(SERVICE, TELEGRAM_USER) or None
+
+    def delete_telegram_token(self) -> None:
+        self._b.delete_password(SERVICE, TELEGRAM_USER)
 
     def set_secret(self, script: str, param: str, value: str) -> None:
         self._b.set_password(SERVICE, _secret_user(script, param), clean_secret(value, "секрет", f"dawg-replay secret set {script} {param}"))
