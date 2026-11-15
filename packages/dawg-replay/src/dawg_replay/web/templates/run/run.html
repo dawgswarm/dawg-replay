@@ -25,7 +25,7 @@
     </details>
 
     <details class="card fold run-log-section" open>
-      <summary><span class="fold-title" id="log-title">Журнал</span><span class="hint-inline">{{ s.log_total }} {{ s.log_total | plural("сообщение", "сообщения", "сообщений") }}</span></summary>
+      <summary><span class="fold-title" id="log-title">Журнал</span><span class="hint-inline" id="log-count">{{ s.log_total | log_count }}</span></summary>
       <div class="run-section-head">
         <label class="log-filter">Показывать
           <select id="log-level" aria-controls="run-log">

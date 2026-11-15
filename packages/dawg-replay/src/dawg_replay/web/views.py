@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -118,6 +119,20 @@ def items_text(counts: dict[str, int] | None) -> str:
     return ", ".join(parts)
 
 
+_SPACES = re.compile(r"[\s\u00a0\u202f]+")
+
+
+def run_items(run: dict[str, Any], summary_shown: bool = True) -> str:
+    """Итог по строкам для строки списка. Пусто, если показан summary скрипта, а в нём уже
+    есть то же «N из M»: «4 из 5, 1 упала» рядом с «4 из 5, 1 упала» не нужно."""
+    counts = run.get("items")
+    text = items_text(counts)
+    if not text or not summary_shown or not run.get("summary"):
+        return text
+    summary = _SPACES.sub("", str(run["summary"]))
+    return "" if f"{counts.get('ok', 0)}из{counts['total']}" in summary else text
+
+
 def plural(n: Any, one: str, few: str, many: str) -> str:
     """Форма слова для числа: 1 сообщение, 2 сообщения, 5 сообщений."""
     try:
@@ -151,6 +166,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["number"] = number
     env.filters["plural"] = plural
     env.filters["items_text"] = items_text
+    env.filters["run_items"] = run_items
     env.filters["minutes"] = minutes.fmt
     env.filters["rows_word"] = rows_word
     env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v

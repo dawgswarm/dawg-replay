@@ -221,3 +221,63 @@ def test_runview_masked_keys_differ_by_row(tmp_path):
     write(d, [item("***", "ok", row=2), item("***", "failed", "нет", row=3), item("***", "ok", row=3)])
     snap = RunView(d).snapshot()
     assert snap["items"]["counts"] == {"ok": 2, "failed": 0, "skipped": 0, "total": 2}
+
+
+# --- мелочи после приёмки (dr-66) ---
+
+
+def test_key_equal_to_row_shown_once(client, make_run):
+    rid = make_run([item(2, "ok", row=2), item("a@x.ru", "failed", "нет", row=3)], status="partial")
+    panel = re.search(r'<section id="run-items".*?</section>', client.get(f"/runs/{rid}").text, re.S).group(0)
+    assert "<td>2</td>" in panel and "№&nbsp;2" not in panel
+    assert "a@x.ru <span" in panel and "№&nbsp;3" in panel
+
+
+def test_run_items_not_duplicated_by_summary():
+    from dawg_replay.web.views import run_items
+
+    counts = {"ok": 4, "failed": 1, "skipped": 0, "total": 5}
+    assert run_items({"items": counts, "summary": "кабинет открыт: 4 из 5, не вышло: 1"}) == ""
+    assert run_items({"items": counts, "summary": "готово"}) == "4 из 5, 1 упала"
+    assert run_items({"items": counts, "summary": None}) == "4 из 5, 1 упала"
+    # summary не показан (вместо него текст тихой поломки): итог по строкам нужен
+    assert run_items({"items": counts, "summary": "4 из 5"}, False) == "4 из 5, 1 упала"
+    big = {"ok": 4800, "failed": 200, "skipped": 0, "total": 5000}
+    assert run_items({"items": big, "summary": "4 800 из 5 000"}) == ""
+
+
+def test_script_history_hides_duplicate_items_text(client, make_run, home, kr):
+    rid = make_run(_done(4, failed=1), status="partial")
+    with App(home, keyring_backend=kr) as a:
+        a.db.execute("UPDATE runs SET summary = ? WHERE id = ?", ("кабинет открыт: 4 из 5, не вышло: 1", rid))
+    page = client.get("/scripts/ozon-cards").text
+    assert "кабинет открыт: 4 из 5" in page and "4 из 5, 1 упала" not in page
+
+
+def test_log_count_in_live_patch(tmp_path):
+    from starlette.templating import Jinja2Templates
+
+    from dawg_replay.web import run_screen, server, views
+
+    templates = Jinja2Templates(directory=str(server.HERE / "templates"))
+    views.setup_templates(templates, Secrets(port=PORT))
+    run_screen.setup(templates)
+    d = tmp_path / "r1"
+    write(d, [{"t": "log", "level": "info", "msg": "a"}])
+    v = RunView(d)
+    seq = v.snapshot()["seq"]
+    write(d, [{"t": "log", "level": "info", "msg": "b"}, {"t": "log", "level": "info", "msg": "c"}])
+    batch = v.changes(seq)
+    assert run_screen.patch_for(templates, v, batch["changes"])["log_count"] == "3 сообщения"
+    write(d, [item("k", "ok")])
+    assert "log_count" not in run_screen.patch_for(templates, v, v.changes(batch["seq"])["changes"])
+    assert [run_screen.log_count(n) for n in (0, 1, 2, 5, 11, 21, 1000)] == [
+        "0 сообщений", "1 сообщение", "2 сообщения", "5 сообщений", "11 сообщений", "21 сообщение", "1\u202f000 сообщений"]
+
+
+def test_stop_button_is_not_red_on_red():
+    from dawg_replay.web import server
+
+    css = (server.HERE / "static" / "run.css").read_text("utf-8")
+    assert "button.secondary.danger { background: var(--surface); color: var(--failed);" in css
+    assert "\nbutton.danger {" not in css
