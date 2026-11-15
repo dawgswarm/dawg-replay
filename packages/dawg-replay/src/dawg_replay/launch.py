@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import asks, devkit, hooks, insurance, procinfo
+from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -326,6 +326,7 @@ def supervise(
         env=payload.get("env") or None,
         after_exit=[_insurance(app, payload.get("api_key"), stop=hooks_stop), *hooks.after_exit_hooks()],
         secrets_dir=app.paths.secrets_tmp,
+        logins_dir=logins.prepare_dir(app.paths, rec.script_name),
     )
     try:
         run.start()

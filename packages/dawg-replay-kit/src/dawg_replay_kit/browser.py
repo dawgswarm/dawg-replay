@@ -17,6 +17,9 @@
 (kit превращает его в SystemExit) и при выходе из процесса (atexit). Если процесс
 убит жёстко, браузер освобождает приложение по событиям `open` без `close`.
 
+С `login="имя"` kit восстанавливает в контексте сохранённые cookies и localStorage
+этого входа и сохраняет их при закрытии браузера (dawg_replay_kit.logins).
+
 Сколько браузеров одновременно держит скрипт, задаётся явно:
 `kit.set_browser_limit(n)`, по умолчанию 1. Превышение даёт ошибку сразу,
 без ожидания.
@@ -28,7 +31,10 @@ import asyncio
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
+
+from dawg_replay_kit import logins as _logins
 
 from dawg_replay_kit.dawg_api import (
     READY_TIMEOUT,
@@ -154,6 +160,7 @@ class Browsers:
         sessions: Callable[[], Sessions] | None = None,
         connect: Callable[[str], Connection] = _sync_connect,
         aconnect: Callable[[str], Any] = _async_connect,
+        logins_dir: str | Path | None = None,
     ):
         self.events = events
         self._api_key = api_key
@@ -168,6 +175,14 @@ class Browsers:
         self._in_use = 0
         self._open: dict[str, str] = {}  # session_id -> browser_id, ещё не освобождённые
         self._lock = threading.Lock()
+        self.logins_dir = Path(logins_dir) if logins_dir is not None else None
+
+    def login_store(self) -> _logins.LoginStore:
+        if self.logins_dir is None:
+            raise BrowserError(
+                "сохранённые входы не поддерживаются этой версией dawg-replay: обновите приложение", created=False
+            )
+        return _logins.LoginStore(self.logins_dir)
 
     def _key(self) -> str:
         if not self._api_key:
@@ -265,8 +280,15 @@ class BrowserSession:
         proxy: str | None = None,
         geo: str | tuple[float, float] | None = None,
         ready_timeout: float = READY_TIMEOUT,
+        login: str | None = None,
     ):
         self._m = manager
+        self.login = None if login is None else _logins.check_name(login)
+        self._store = manager.login_store() if self.login is not None else None
+        self._previous: _logins.Login | None = None
+        self._save_login = self.login is not None
+        self.login_restored = False
+        self._restore_done = False  # отмена посреди восстановления: неполный вход не сохраняется
         self._payload = build_payload(proxy, geo)
         self._ready_timeout = ready_timeout
         self.session_id: str | None = None
@@ -299,6 +321,9 @@ class BrowserSession:
             finally:
                 prov.close()
             self._attach(self._m.connect(ws_url))
+            if self._store is not None:
+                self._restore(lambda state: _logins.restore_sync(self.context, state))
+                self._restore_done = True
         except BaseException:
             self._cleanup_sync()
             raise
@@ -310,6 +335,11 @@ class BrowserSession:
     def _cleanup_sync(self) -> None:
         try:
             if self._conn is not None:
+                if self._wants_save():
+                    try:
+                        self._store_state(_logins.capture_sync(self.context))
+                    except Exception as e:
+                        self._save_failed(e)
                 conn, self._conn = self._conn, None
                 try:
                     conn.close()
@@ -337,6 +367,15 @@ class BrowserSession:
             finally:
                 await prov.close()
             self._attach(await self._m.aconnect(ws_url))
+            if self._store is not None:
+                state = self._loaded_state()
+                if state is not None:
+                    try:
+                        await _logins.restore_async(self.context, state)
+                        self._restored()
+                    except Exception as e:
+                        self._restore_failed(e)
+                self._restore_done = True
         except BaseException:
             await self._cleanup_async()
             raise
@@ -348,6 +387,11 @@ class BrowserSession:
     async def _cleanup_async(self) -> None:
         try:
             if self._conn is not None:
+                if self._wants_save():
+                    try:
+                        self._store_state(await _logins.capture_async(self.context))
+                    except Exception as e:
+                        self._save_failed(e)
                 conn, self._conn = self._conn, None
                 try:
                     await conn.close()
@@ -357,6 +401,58 @@ class BrowserSession:
             # Освобождение короткое (DELETE и список), идёт синхронно: так оно
             # не прерывается отменой задачи на выходе из цикла.
             self._release_remote()
+
+    # --- сохранённый вход ---
+
+    def forget_login(self) -> None:
+        """Стирает сохранённый вход (например, сайт его отозвал). При закрытии этого
+        браузера вход больше не сохраняется."""
+        if self._store is None:
+            raise BrowserError("браузер открыт без login=, забывать нечего", created=False)
+        self._store.forget(self.login)
+        self._previous = None
+        self._save_login = False
+        self._m.events.log("info", "сохранённый вход стёрт")
+
+    def _loaded_state(self) -> dict[str, Any] | None:
+        assert self._store is not None and self.login is not None
+        try:
+            self._previous = self._store.load(self.login)
+        except OSError as e:
+            self._m.events.log("warn", f"сохранённый вход не прочитан ({type(e).__name__}); скрипт войдёт заново")
+            return None
+        if self._previous is None:
+            self._m.events.log("info", "сохранённого входа нет, он сохранится при закрытии браузера")
+            return None
+        return self._previous.state
+
+    def _restore(self, apply: Callable[[dict[str, Any]], None]) -> None:
+        state = self._loaded_state()
+        if state is None:
+            return
+        try:
+            apply(state)
+            self._restored()
+        except Exception as e:
+            self._restore_failed(e)
+
+    def _restored(self) -> None:
+        self.login_restored = True
+        self._m.events.log("info", "сохранённый вход загружен в браузер")
+
+    def _restore_failed(self, e: Exception) -> None:
+        self._m.events.log("warn", f"сохранённый вход не загрузился в браузер ({type(e).__name__}); скрипт войдёт заново")
+
+    def _wants_save(self) -> bool:
+        return self._store is not None and self._save_login and self._restore_done and self.context is not None
+
+    def _store_state(self, state: dict[str, Any]) -> None:
+        assert self._store is not None and self.login is not None
+        self._store.save(self.login, state, self._previous)
+        self._m.events.log("info", "вход сохранён для следующих запусков")
+
+    def _save_failed(self, e: Exception) -> None:
+        self._m.events.log("warn", f"вход не сохранён ({type(e).__name__}): браузер уже закрыт или недоступен")
 
     # --- общее ---
 

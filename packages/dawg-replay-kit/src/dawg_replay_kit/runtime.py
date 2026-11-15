@@ -8,7 +8,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TextIO
 
-from dawg_replay_kit import cancel, parameters
+from dawg_replay_kit import cancel, logins, parameters
 from dawg_replay_kit.ask import ENV_ANSWERS_DIR, Asker
 from dawg_replay_kit.browser import Browsers
 from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL
@@ -97,7 +97,8 @@ class Kit:
         api_key = environ.get(ENV_API_KEY) or None
         secrets = params.secret_values() + ([api_key] if api_key else [])
         events = Emitter(sink, secrets=secrets, output_dir=output_dir)
-        browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL)
+        browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL,
+                            logins_dir=logins.default_dir(environ, autonomous, cwd or Path.cwd()))
         answers_dir = None
         if not autonomous:
             if environ.get(ENV_ANSWERS_DIR):

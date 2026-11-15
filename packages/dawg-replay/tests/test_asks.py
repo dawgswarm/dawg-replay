@@ -352,3 +352,10 @@ def test_cancel_while_waiting_and_leftover_secret_removed(tmp_path):
     assert outcome is not None and time.monotonic() - t0 < 5 and outcome.killed is False
     assert outcome.reason == "cancelled"
     assert not (run.answers_dir / "9-zz.json").exists()
+
+
+def test_env_has_answers_and_logins_dirs_together(tmp_path):
+    run = script_run(tmp_path, "", logins_dir=tmp_path / "logins")
+    env = run._environment(run.params_path)
+    assert env["DAWG_SCRIPT_ANSWERS_DIR"] == str((tmp_path / "runs" / "r1" / "answers").resolve())
+    assert env["DAWG_SCRIPT_LOGINS_DIR"] == str((tmp_path / "logins").resolve())
