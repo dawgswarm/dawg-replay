@@ -65,6 +65,11 @@ class Paths:
         return self.home / "imports"
 
     @property
+    def uploads(self) -> Path:
+        """Таблицы параметров `table`, загруженные через форму (0700, сутки)."""
+        return self.home / "uploads"
+
+    @property
     def schedules(self) -> Path:
         """Логи регулярных запусков и обёртки задач Планировщика Windows."""
         return self.home / "schedules"

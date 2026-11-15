@@ -204,8 +204,8 @@ class App:
 
     # --- пресеты ---
 
-    def save_preset(self, script: str, preset: str, values: dict[str, Any]) -> Preset:
-        return self.presets.save(script, preset, self.registry.manifest(script), values)
+    def save_preset(self, script: str, preset: str, values: dict[str, Any], files: dict[str, str] | None = None) -> Preset:
+        return self.presets.save(script, preset, self.registry.manifest(script), values, files)
 
     def get_preset(self, script: str, preset: str) -> Preset:
         return self.presets.get(script, preset, self.registry.manifest(script))

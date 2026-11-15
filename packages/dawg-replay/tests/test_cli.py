@@ -27,7 +27,7 @@ GOOD = """\
 # ///
 """
 
-BAD = GOOD.replace("version = 2", "version = 0").replace('type = "string"', 'type = "date"')
+BAD = GOOD.replace("version = 2", "version = 0").replace('type = "string"', 'type = "datetime"')
 
 
 @pytest.fixture
@@ -44,12 +44,12 @@ def test_version(capsys):
     assert main(["--version"]) == 0
     out = capsys.readouterr().out
     assert f"dawg-replay {__version__}" in out
-    assert "контракт скриптов: 1.1" in out
+    assert "контракт скриптов: 1.2" in out
 
 
 def test_version_json(capsys):
     assert main(["--version", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"version": __version__, "contracts": [1], "contract_versions": ["1.1"]}
+    assert json.loads(capsys.readouterr().out) == {"version": __version__, "contracts": [1], "contract_versions": ["1.2"]}
 
 
 def test_validate_ok(script, capsys):
@@ -74,7 +74,7 @@ def test_validate_errors(script, capsys):
     err = capsys.readouterr().err
     assert "ошибок: 2" in err
     assert "version:" in err
-    assert "params[0](query).type: неизвестный тип 'date'" in err
+    assert "params[0](query).type: неизвестный тип 'datetime'" in err
 
 
 def test_validate_errors_json_flag_before_command(script, capsys):

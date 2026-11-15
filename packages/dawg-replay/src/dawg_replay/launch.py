@@ -223,7 +223,8 @@ def prepare(
     manifest, script_path, draft, version = _target(app, target)
     values = merge_values(app, manifest, preset, params_file, sets, values)
 
-    secret_names = [p.name for p in manifest.params if p.type == "secret"]
+    # Секретная таблица идёт скрипту как секрет: во временный файл 0700, не в историю.
+    secret_names = [p.name for p in manifest.params if p.is_secret]
     missing: list[str] = []
     for p in manifest.params:
         if p.type != "secret":
