@@ -161,3 +161,63 @@
   document.addEventListener("DOMContentLoaded", syncAllScheduleForms);
   document.addEventListener("htmx:afterSettle", syncAllScheduleForms);
 })();
+
+// Вопросы скриптов посреди запуска (kit.ask): уведомление браузера, если человек разрешил.
+// Пока идут запуски, раз в 5 секунд спрашиваем /events/asks; о каждом вопросе сообщаем один раз.
+(function () {
+  "use strict";
+  var supported = "Notification" in window;
+  var seen = {};
+  var first = true;
+  try { seen = JSON.parse(window.sessionStorage.getItem("dawg-asks-seen") || "{}") || {}; } catch (e) { seen = {}; }
+
+  function remember() {
+    try { window.sessionStorage.setItem("dawg-asks-seen", JSON.stringify(seen)); } catch (e) { /* не страшно */ }
+  }
+
+  function offerButtons() {
+    var show = supported && Notification.permission === "default";
+    Array.prototype.forEach.call(document.querySelectorAll("[data-notify-offer]"), function (el) { el.hidden = !show; });
+  }
+
+  function notify(q) {
+    var n = new Notification("Скрипт ждёт ответа: " + q.title, { body: q.question, tag: "dawg-ask-" + q.id });
+    n.onclick = function () {
+      window.focus();
+      window.location.href = "/runs/" + encodeURIComponent(q.run) + "#run-ask";
+      n.close();
+    };
+  }
+
+  function check() {
+    if (!window.fetch || !supported || Notification.permission !== "granted") return Promise.resolve();
+    if (!document.body.classList.contains("runs-active") && !document.querySelector("[data-ask-id]")) return Promise.resolve();
+    return fetch("/events/asks", { credentials: "same-origin", cache: "no-store" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d) return;
+        var quiet = first && !document.hidden;  // вопрос уже на экране, когда страница открылась
+        first = false;
+        d.questions.forEach(function (q) {
+          if (seen[q.id]) return;
+          seen[q.id] = 1;
+          if (!quiet && (document.hidden || !document.hasFocus())) notify(q);
+        });
+        remember();
+      })
+      .catch(function () { /* сервер остановлен */ });
+  }
+
+  function loop() {
+    check().then(function () { window.setTimeout(loop, 5000); });
+  }
+
+  document.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-notify-enable]") : null;
+    if (!btn || !supported) return;
+    Notification.requestPermission().then(function () { offerButtons(); check(); });
+  });
+  document.addEventListener("DOMContentLoaded", function () { offerButtons(); loop(); });
+  document.addEventListener("htmx:afterSettle", offerButtons);
+  document.addEventListener("dawg:panels", offerButtons);
+})();

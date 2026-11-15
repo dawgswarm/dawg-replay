@@ -118,8 +118,12 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
             progress = _progress(snap)
         except (ReplayError, OSError):
             pass
+        try:
+            question = views.get(rec.id).question()  # снимок выше уже дочитал файл
+        except (ReplayError, OSError):
+            question = None
         running.append({"run": rec.to_dict(), "title": title, "cover": cov, "step": step, "progress": progress,
-                        "cancelling": rec.cancel_requested_at is not None})
+                        "cancelling": rec.cancel_requested_at is not None, "question": question})
 
     recent_recs = app.runs.list(None, max(RECENT_RUNS, SUSPECT_SCAN))
     recent = []

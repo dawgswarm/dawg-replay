@@ -100,6 +100,21 @@ class ConsoleSink:
             body = f"браузер {e['action']}{sid}"
         elif t == "result":
             body = f"ИТОГ {e['status']}: {e['summary']}"
+        elif t == "ask":
+            body = f"ВОПРОС: {e['question']}"
+            if e.get("choices"):
+                body += " (" + " / ".join(str(c) for c in e["choices"]) + ")"
+            elif e.get("kind") == "confirm":
+                body += " (да / нет)"
+            deadline = str(e.get("deadline") or "")
+            body += f", ответить до {deadline[11:16] if len(deadline) >= 16 else deadline}"
+        elif t == "ask_closed":
+            if e.get("outcome") == "answered":
+                answer = e.get("answer")
+                shown = ("да" if answer else "нет") if isinstance(answer, bool) else answer
+                body = "ответ получен" + (f": {shown}" if "answer" in e else "")
+            else:
+                body = "ответа на вопрос не дождались"
         else:
             body = _dumps(e)
         return f"[{clock}] {body}"
@@ -167,6 +182,13 @@ class Emitter:
         with self._lock:
             self._flush_expired()
             self._write(event)
+
+    def add_secret(self, value: str) -> None:
+        """Ещё одно значение для маскировки, например секретный ответ на вопрос (kit.ask)."""
+        if not value:
+            return
+        with self._lock:
+            self._secrets = sorted({*self._secrets, value}, key=len, reverse=True)
 
     def _write(self, event: dict[str, Any]) -> None:
         if self._closed:

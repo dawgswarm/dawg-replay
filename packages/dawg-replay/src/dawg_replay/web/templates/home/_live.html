@@ -29,6 +29,7 @@
         {{ cover(r.cover) }}
         <div class="dash-text">
           <a class="dash-title" href="/runs/{{ r.run.id }}">{{ r.title }}</a>
+          {% if r.question %}<span class="dash-ask" data-ask-id="{{ r.run.id }}/{{ r.question.id }}" data-ask-title="{{ r.title }}" data-ask-text="{{ r.question.question }}"><a class="status status-ask" href="/runs/{{ r.run.id }}#run-ask">ждёт ответа</a> <span class="clamp1">{{ r.question.question }}</span></span>{% endif %}
           <span class="hint-inline">{% if r.step %}{{ r.step }}, {% endif %}{% if r.progress %}{{ r.progress.done | value }} из {{ r.progress.total | value }}, {% endif %}начат {{ r.run.created_at | when }}</span>
           {% if r.progress %}<progress class="meter" value="{{ r.progress.done if r.progress.done <= r.progress.total else r.progress.total }}" max="{{ r.progress.total }}" aria-label="{{ r.progress.label }}"></progress>{% endif %}
         </div>

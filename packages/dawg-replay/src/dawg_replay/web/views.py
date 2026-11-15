@@ -262,6 +262,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
             lg = _logins_ctx(app, name)
+        run_screen.mark_questions(run_screen.views_of(request), view["runs"])
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
         view["tags"] = list(meta["tags"])
         return page(request, "script.html", active="scripts", v=view, f=ctx, lg=lg)
@@ -281,6 +282,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         name = request.path_params["name"]
         with _ui(request).open_app() as app:
             runs = repair.annotate(app, [r.to_dict() for r in app.runs.list(name, 20)])
+        run_screen.mark_questions(run_screen.views_of(request), runs)
         return fragment(request, "_script_runs.html", sname=name, runs=runs)
 
     async def script_run(request: Request) -> Response:

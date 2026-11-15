@@ -4,6 +4,7 @@
 {% block content %}
 <div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" {% if running or not run.finished_at %}data-live{% endif %}>
   {{ panels.head | safe }}
+  {{ panels.ask | safe }}
   <section class="run-hero" aria-label="Итог запуска">
     <div class="run-hero-main">
       {{ panels.result | safe }}
