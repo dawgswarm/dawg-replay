@@ -38,6 +38,17 @@ class TableError(Exception):
     """Таблицу не прочитать. Текст готов для показа человеку."""
 
 
+class EmptySheetError(TableError):
+    """В выбранном листе XLSX нет строк, а листов несколько. Форма предлагает выбор листа,
+    командная строка подсказывает `книга.xlsx#Лист`."""
+
+    def __init__(self, name: str, sheet: str | int | None, names: list[str]):
+        self.name, self.sheet, self.names = name, sheet, names
+        which = f"«{sheet}»" if isinstance(sheet, str) else (f"номер {sheet}" if sheet else f"«{names[0]}» (первом)")
+        listed = ", ".join(f"«{n}»" for n in names)
+        super().__init__(f"{name}: на листе {which} нет строк. Листы: {listed}")
+
+
 def read_table(path: str | Path, *, name: str | None = None, sheet: str | int | None = None) -> list[dict[str, Any]]:
     """Строки таблицы из файла. `name`: имя файла для сообщений и выбора формата
     (при загрузке через форму файл лежит под временным именем)."""
@@ -59,7 +70,18 @@ def parse_table(data: bytes, name: str, *, sheet: str | int | None = None) -> li
     if suffix == ".tsv":
         return _rows(_csv_cells(data, name, delimiter="\t"), name)
     if suffix == ".xlsx":
-        return _rows(_xlsx_cells(data, name, sheet), name)
+        try:
+            rows = _rows(_xlsx_cells(data, name, sheet), name)
+        except TableError as e:
+            if "нет даже шапки" not in str(e):
+                raise
+            rows = []
+        if not rows:
+            names = sheet_names(data, name)
+            if len(names) > 1:
+                raise EmptySheetError(name, sheet, names)
+            raise TableError(f"{name}: таблица пустая" + ("" if names else ", в книге нет листов"))
+        return rows
     if suffix == ".json":
         return _json_rows(data, name)
     raise TableError(f"{name}: нужна таблица {KINDS} (.csv, .tsv, .xlsx, .json)")
@@ -80,15 +102,19 @@ def read_table_arg(arg: str, declared: str | int | None = None) -> list[dict[str
     if chosen is not None and declared is not None:
         raise TableError(f"лист задан скриптом («{declared}»), `#{chosen}` в имени файла не нужен")
     sheet = declared if declared is not None else chosen
-    rows = read_table(Path(path).expanduser(), sheet=sheet)
-    if not rows and Path(path).suffix.lower() == ".xlsx":
-        p = Path(path).expanduser()
-        names = sheet_names(p.read_bytes(), p.name)
-        if len(names) > 1:
-            which = f"«{sheet}»" if isinstance(sheet, str) else (f"номер {sheet}" if sheet else f"«{names[0]}» (первом)")
-            listed = ", ".join(f"«{n}»" for n in names)
-            raise TableError(f"{p.name}: на листе {which} нет строк. Листы: {listed}; выберите нужный: {p.name}#{names[-1]}")
-    return rows
+    try:
+        return read_table(Path(path).expanduser(), sheet=sheet)
+    except EmptySheetError as e:
+        if declared is not None:
+            raise
+        if e.sheet is None:
+            empty = e.names[0]
+        elif isinstance(e.sheet, int):
+            empty = e.names[e.sheet - 1]
+        else:
+            empty = e.sheet
+        other = next((n for n in e.names if n != empty), e.names[-1])
+        raise TableError(f"{e}; выберите нужный: {e.name}#{other}") from None
 
 
 def sheet_names(data: bytes, name: str) -> list[str]:
