@@ -1,4 +1,4 @@
-"""Команды CLI запусков: run, runs, logs, fix-prompt, cancel. Тонкая обёртка над dawg_replay.launch."""
+"""Команды CLI запусков: run, runs, logs, fix-prompt, cancel, answer. Тонкая обёртка над dawg_replay.launch."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from typing import Any
 
 from dawg_replay_kit.events import ConsoleSink
 
-from dawg_replay import diagnosis, launch, repair
+from dawg_replay import asks, diagnosis, launch, repair
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
 from dawg_replay.errors import ReplayError
@@ -63,6 +63,73 @@ def format_event_line(line: str, sink: ConsoleSink) -> str:
         return sink.format(event)
     except (ValueError, KeyError, TypeError):
         return f"[сырая строка] {line}"
+
+
+class TerminalAnswers:
+    """`run --follow`: вопрос скрипта (kit.ask) печатается, ответ читается из терминала.
+
+    Ввод идёт в отдельном потоке: супервизор в главном потоке не должен ждать
+    человека (таймаут, отмена по Ctrl+C). Ответ пишется тем же `asks.write_answer`,
+    что и из UI; если на вопрос уже ответили в UI, строка из терминала идёт на
+    следующий вопрос или отбрасывается.
+    """
+
+    def __init__(self, run_dir: Path, out: Any, read_line: Any = None, read_secret: Any = None):
+        import getpass
+
+        self._run_dir = run_dir
+        self._out = out
+        self._read_line = read_line or (lambda: sys.stdin.readline())
+        self._read_secret = read_secret or (lambda: getpass.getpass("ответ (не отображается): ", stream=out))
+        self._asked: set[str] = set()
+        self._reader: threading.Thread | None = None
+
+    def poll(self) -> None:
+        if self._reader is not None and self._reader.is_alive():
+            return
+        for q in asks.waiting(self._run_dir):
+            if q.id in self._asked:
+                continue
+            self._asked.add(q.id)
+            self._print(q)
+            self._reader = threading.Thread(target=self._read, args=(q,), name="dawg-answer-input", daemon=True)
+            self._reader.start()
+            return
+
+    def _print(self, q: asks.Question) -> None:
+        print(f"\nскрипт спрашивает: {q.question}", file=self._out, flush=True)
+        if q.kind == "confirm":
+            print("ответьте yes или no и нажмите Enter", file=self._out, flush=True)
+        elif q.kind == "choice":
+            assert q.choices is not None
+            for i, c in enumerate(q.choices, 1):
+                print(f"  {i}. {c}", file=self._out, flush=True)
+            print("номер или текст варианта и Enter", file=self._out, flush=True)
+        elif not q.secret:
+            print("ответ и Enter", file=self._out, flush=True)
+
+    def _read(self, q: asks.Question) -> None:
+        while True:
+            try:
+                raw = self._read_secret() if q.secret else self._read_line()
+            except (EOFError, OSError):
+                return
+            if raw == "":
+                return  # ввод закрыт
+            raw = raw.rstrip("\r\n")
+            if not asks.is_waiting(self._run_dir, q):
+                print("на этот вопрос уже ответили или срок вышел", file=self._out, flush=True)
+                return
+            try:
+                asks.write_answer(self._run_dir, q, asks.normalize(q, raw))
+            except ReplayError as e:
+                if e.code == "bad_answer":
+                    print(f"{e.message}; попробуйте ещё раз", file=self._out, flush=True)
+                    continue
+                print(e.message, file=self._out, flush=True)
+                return
+            print("ответ отправлен", file=self._out, flush=True)
+            return
 
 
 # --- команды -----------------------------------------------------------------
@@ -136,11 +203,20 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
             sig = getattr(signal, name)
             previous[sig] = signal.signal(sig, on_signal)
     tail = None if args.json else EventTail(run_dir / "events.jsonl", sys.stdout, run_dir / "output")
+    # Вопросы скрипта принимаем из терминала, только если он есть: в --json и из планировщика отвечают через answer или UI.
+    answers = TerminalAnswers(run_dir, sys.stdout) if tail is not None and _interactive() else None
     if tail is not None:
         print(f"запуск {run_id} ({prepared.run.script_name}), Ctrl+C отменяет", flush=True)
+
+    def on_tick() -> None:
+        if tail is not None:
+            tail.poll()
+        if answers is not None:
+            answers.poll()
+
     try:
         rec = launch.supervise(
-            app, run_id, prepared.payload(), interrupted=interrupted, on_tick=tail.poll if tail else None
+            app, run_id, prepared.payload(), interrupted=interrupted, on_tick=on_tick if tail else None
         )
     finally:
         for sig, handler in previous.items():
@@ -161,6 +237,29 @@ def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
             lines.append(dg["hint"])
     data = {"run": rec.to_dict(), "run_dir": str(run_dir), "warnings": prepared.warnings, "diagnosis": dg}
     return data, "\n".join(lines)
+
+
+def _interactive() -> bool:
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (ValueError, OSError):
+        return False
+
+
+def _answer(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    raw = args.answer
+    if raw == "-":
+        if _interactive():
+            import getpass
+
+            raw = getpass.getpass("ответ (не отображается): ")
+        else:
+            raw = sys.stdin.readline().rstrip("\r\n")
+    q, value = asks.answer(app, args.run_id, raw, args.id)
+    shown = "скрыт" if q.secret else asks.answer_text(value)
+    data = {"run": args.run_id, "question": {k: v for k, v in q.to_dict().items() if k != "answer"},
+            "accepted": None if q.secret else value}
+    return data, f"ответ на вопрос «{q.question}» отправлен ({shown}), скрипт продолжит работу"
 
 
 def _runs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
@@ -293,6 +392,19 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
         "Скопировать на macOS: dawg-replay fix-prompt <run_id> | pbcopy",
     )
     p.add_argument("run_id")
+
+    p = add(
+        "answer",
+        _answer,
+        "ответить на вопрос, который задал идущий запуск",
+        "Отвечает на вопрос скрипта (kit.ask). Для вопроса да или нет: yes или no; для выбора: номер или текст "
+        "варианта. Вопрос виден в dawg-replay logs <run_id> --events и на экране запуска. Секретный ответ "
+        "(код из SMS) не попадает ни в историю, ни в логи; чтобы он не остался в истории оболочки, "
+        "передайте - и введите его без отображения.",
+    )
+    p.add_argument("run_id")
+    p.add_argument("answer", help="ответ; - чтобы ввести без отображения")
+    p.add_argument("--id", metavar="ASK_ID", help="id вопроса, если запуск ждёт нескольких ответов")
 
     p = add("cancel", _cancel, "отменить запуск: мягкий сигнал, через grace секунд kill дерева процессов")
     p.add_argument("run_id")

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TextIO
 
 from dawg_replay_kit import cancel, parameters
+from dawg_replay_kit.ask import ENV_ANSWERS_DIR, Asker
 from dawg_replay_kit.browser import Browsers
 from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL
 from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink, Sink
@@ -39,6 +40,7 @@ class Kit:
         run_id: str | None,
         autonomous: bool,
         browsers: Browsers | None = None,
+        answers_dir: Path | None = None,
     ):
         self.manifest = manifest
         self.params = params
@@ -47,6 +49,8 @@ class Kit:
         self.run_id = run_id
         self.autonomous = autonomous
         self.browsers = browsers if browsers is not None else Browsers(events, None, DEFAULT_BASE_URL)
+        # Без каталога ответов (автономный режим) вопросы задаются в терминале.
+        self.asker = Asker(events, answers_dir)
 
     @classmethod
     def from_environment(
@@ -94,7 +98,14 @@ class Kit:
         secrets = params.secret_values() + ([api_key] if api_key else [])
         events = Emitter(sink, secrets=secrets, output_dir=output_dir)
         browsers = Browsers(events, api_key, environ.get(ENV_BASE_URL) or DEFAULT_BASE_URL)
-        return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous, browsers)
+        answers_dir = None
+        if not autonomous:
+            if environ.get(ENV_ANSWERS_DIR):
+                answers_dir = Path(environ[ENV_ANSWERS_DIR])
+            elif environ.get(ENV_EVENTS):
+                answers_dir = Path(environ[ENV_EVENTS]).parent / "answers"
+        return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous, browsers,
+                   answers_dir)
 
     def close(self) -> None:
         # Браузеры, которые скрипт не закрыл сам (atexit, отмена), освобождаются до закрытия файла событий.

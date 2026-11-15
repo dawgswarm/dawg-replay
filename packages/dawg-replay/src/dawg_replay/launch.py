@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import devkit, hooks, insurance, procinfo
+from dawg_replay import asks, devkit, hooks, insurance, procinfo
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -518,6 +518,7 @@ def _close_lost(app: App, rec: Run, reason: str, killed: bool) -> bool:
     ):
         return False  # итог уже поставил кто-то другой
     _remove_secret_dirs(app, rec.id)
+    asks.drop_secret_answers(run_dir)
     outcome = RunOutcome(
         run_id=rec.id,
         run_dir=run_dir,

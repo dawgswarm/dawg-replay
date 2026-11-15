@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import diagnosis, insurance, launch, minutes, repair
+from dawg_replay import asks, diagnosis, insurance, launch, minutes, repair
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -54,9 +54,10 @@ PANELS_BY_KIND = {
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result",),
-    "run": ("head", "result", "repair", "suspects", "files", "trail"),
+    "ask": ("ask", "head"),
+    "run": ("head", "ask", "result", "repair", "suspects", "files", "trail"),
 }
-PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "tables")
+PANELS = ("head", "ask", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "tables")
 
 REASONS = {
     "cancelled": "Запуск отменили. Собранное до отмены осталось в файлах результатов, если скрипт успел их сохранить.",
@@ -132,6 +133,17 @@ class Views:
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
+
+
+def mark_questions(views: Views, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """`question` у идущих запусков, которые ждут ответа (kit.ask): для отметки «ждёт ответа» в списках."""
+    for r in runs:
+        if r.get("status") == "running":
+            try:
+                r["question"] = views.get(r["id"]).current_question()
+            except (ReplayError, OSError):
+                r["question"] = None
+    return runs
 
 
 def views_of(request: Request) -> Views:
@@ -448,6 +460,52 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         return Response(render_panels(templates, snap, {"head"})["head"], media_type="text/html; charset=utf-8",
                         headers={"HX-Trigger": "runs-changed"})
 
+    async def answer(request: Request) -> Response:
+        """Ответ на вопрос скрипта (kit.ask). Значение не пишется ни в БД, ни в логи сервера."""
+        form = await request.form()
+        raw = form.get("answer")
+        ask_id = form.get("ask_id") or None
+        run_id = request.path_params["run_id"]
+
+        def work() -> tuple[str | None, str | None]:
+            with request.app.state.ui.open_app() as app:
+                try:
+                    q, value = asks.answer(app, run_id, raw if isinstance(raw, str) else "", ask_id)
+                except ReplayError as e:
+                    return None, e.message
+            shown = "" if q.secret else f" «{asks.answer_text(value)}»"
+            return f"Ответ{shown} отправлен, скрипт продолжит работу.", None
+
+        ok, error = await run_in_threadpool(work)
+        view = await run_in_threadpool(get_view, request)
+        snap = await run_in_threadpool(view.snapshot)
+        ctx = {**context(snap), "ask_notice": ok, "ask_error": error}
+        if error and not snap.get("question"):
+            ctx["ask_notice"] = None
+            body = templates.get_template("run/_notice.html").render(text=error, ok=False)
+            return Response(f'<div id="run-ask">{body}</div>', media_type="text/html; charset=utf-8")
+        return Response(templates.get_template("run/_ask.html").render(ctx), media_type="text/html; charset=utf-8",
+                        headers={"HX-Trigger": "runs-changed"})
+
+    def open_questions(request: Request) -> Response:
+        """Вопросы идущих запусков для уведомления браузера (app.js). Без ответов, только текст вопроса."""
+        from starlette.responses import JSONResponse
+
+        views = views_of(request)
+        with request.app.state.ui.open_app() as app:
+            recs = app.runs.running()
+        out = []
+        for rec in recs:
+            try:
+                view = views.get(rec.id)
+                q = view.current_question()
+            except (ReplayError, OSError):
+                continue
+            if q:
+                title = (view.run or {}).get("title") or rec.script_name
+                out.append({"id": f"{rec.id}/{q['id']}", "run": rec.id, "title": title, "question": q["question"]})
+        return JSONResponse({"questions": out}, headers={"Cache-Control": "no-store"})
+
     async def release(request: Request) -> Response:
         form = await request.form()
         session_id = form.get("session_id") or None
@@ -497,7 +555,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/runs/{run_id}/open-folder", open_dir, methods=["POST"]),
         Route("/runs/{run_id}/cancel", cancel, methods=["POST"]),
         Route("/runs/{run_id}/release", release, methods=["POST"]),
+        Route("/runs/{run_id}/answer", answer, methods=["POST"]),
+        Route("/events/asks", open_questions),
     ]
 
 
-__all__ = ["routes", "markdown", "safe_output_file", "run_stream", "Views", "open_folder"]
+__all__ = ["mark_questions", "routes", "markdown", "safe_output_file", "run_stream", "Views", "open_folder"]
