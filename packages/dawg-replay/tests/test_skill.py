@@ -70,12 +70,15 @@ def test_no_long_dashes(path):
 
 def test_plugin_manifests_consistent():
     plugin = json.loads((PLUGIN / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
-    market = json.loads((PLUGIN / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
     mcp = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
     assert plugin["name"] == SKILL_DIR.name
     (entry,) = market["plugins"]
-    assert entry["name"] == plugin["name"] and entry["source"] == "./"
-    assert market["owner"]["name"]
+    # Маркетплейс в корне репозитория: `/plugin marketplace add dawgswarm/dawg-replay`.
+    assert market["name"] == "dawg-replay" and market["owner"]["name"]
+    assert entry["name"] == plugin["name"] and entry["source"] == "./skill"
+    assert (ROOT / entry["source"] / ".claude-plugin" / "plugin.json").is_file()
+    assert not (PLUGIN / ".claude-plugin" / "marketplace.json").exists()
     server = mcp["mcpServers"]["dawg"]
     assert server["command"] == "uvx" and server["args"] == ["--with", "mcp<2", "dawg-mcp"]
     keys = re.findall(r"\$\{user_config\.(\w+)\}", json.dumps(server))

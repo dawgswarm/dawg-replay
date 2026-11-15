@@ -7,6 +7,7 @@
 ```
 packages/dawg-replay       приложение: ядро, CLI, веб-интерфейс
 packages/dawg-replay-kit   библиотека для скриптов: параметры, события, браузеры DAWG
+.claude-plugin/             маркетплейс dawg-replay для Claude Code, плагин берётся из skill/
 skill/                     плагин dawg-replay-builder (скилл для агента и конфиг dawg-mcp)
 examples/                  эталонные скрипты Ozon и Wildberries
 docs/                      контракт скрипта, ТЗ, приёмка этапов
@@ -45,6 +46,7 @@ uv run dawg-replay config set dev_kit_source "$PWD/packages/dawg-replay-kit"
 Проверка плагина из рабочей копии, из корня репозитория:
 
 ```sh
+claude plugin validate .
 claude plugin validate ./skill
 claude --plugin-dir ./skill
 ```

@@ -69,7 +69,7 @@ dawg-replay запускает на вашем компьютере скрипт
 В сессии Claude Code:
 
 ```
-/plugin marketplace add dawgswarm/dawg-replay-builder
+/plugin marketplace add dawgswarm/dawg-replay
 /plugin install dawg-replay-builder@dawg-replay
 ```
 
@@ -77,7 +77,7 @@ dawg-replay запускает на вашем компьютере скрипт
 
 ### Codex
 
-Для Codex скилл копируется в каталог скиллов, а dawg-mcp прописывается в `~/.codex/config.toml`. Пошагово: [README плагина](https://github.com/dawgswarm/dawg-replay-builder#codex).
+Для Codex скилл копируется в каталог скиллов, а dawg-mcp прописывается в `~/.codex/config.toml`. Пошагово: [README плагина](skill/README.md#codex).
 
 ## Первый скрипт
 
