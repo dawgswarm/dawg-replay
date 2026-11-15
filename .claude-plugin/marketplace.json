@@ -6,7 +6,7 @@
     {
       "name": "dawg-replay-builder",
       "source": "./skill",
-      "description": "Агент собирает скрипты сбора данных для dawg-replay через браузер DAWG"
+      "description": "Агент собирает скрипты сбора данных и действий на сайтах для dawg-replay через браузер DAWG"
     }
   ]
 }
