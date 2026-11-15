@@ -40,7 +40,7 @@
       {% endif %}
       <input id="{{ fid }}" class="file-input" name="_table_file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
              hx-post="/scripts/{{ script }}/_table/{{ fl.name }}" hx-encoding="multipart/form-data" hx-trigger="change"
-             hx-params="_table_file" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+             hx-params="_table_file" hx-disabled-elt="this" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
       <label class="file-button" for="{{ fid }}">{{ "Заменить файл" if t else "Выбрать файл" }}</label>
       <span class="file-busy hint-inline">Читаем таблицу…</span>
     {% elif fl.widget == "number" %}

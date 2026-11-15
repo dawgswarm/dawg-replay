@@ -20,13 +20,15 @@
     {% endif %}
     {% if run.reason and run.reason in REASONS %}
       <p class="result-reason">{{ REASONS[run.reason] }}</p>
+    {% elif run.diagnosis and run.diagnosis.ask_timeout %}
+      <p class="result-reason">{{ run.diagnosis.summary }} Скрипт ждал до срока и завершился. Сам скрипт исправен: запустите его снова и ответьте на вопрос на экране запуска, в терминале или командой <code>dawg-replay answer</code>.</p>
     {% elif run.reason == 'exit_code' %}
       <p class="result-reason">Скрипт завершился с ошибкой (код {{ run.exit_code }}).{% if not run.diagnosis and s.log_total %} Что случилось, видно в журнале ниже.{% endif %}</p>
     {% endif %}
     {% if run.error %}<p class="result-reason">{{ run.error }}</p>{% endif %}
     {% include "run/_minutes.html" %}
     {% set dg = run.diagnosis %}
-    {% if dg %}
+    {% if dg and not dg.ask_timeout %}
       {% if dg.hint %}<p class="result-hint">{{ dg.hint }}</p>{% endif %}
       <p class="result-reason">Скрипт ничего не сообщил{% if not s.log_total %}, журнал пуст{% endif %}. Последние строки вывода ошибок (stderr):</p>
       <pre class="code stderr-tail"><code>{{ dg.tail | join("\n") }}</code></pre>

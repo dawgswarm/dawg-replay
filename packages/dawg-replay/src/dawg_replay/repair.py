@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from dawg_replay import diagnosis
+from dawg_replay import asks, diagnosis
 from dawg_replay.errors import ReplayError
 from dawg_replay.runview import item_id
 from dawg_replay.values import brief
@@ -388,7 +388,12 @@ def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
         return None
     if rec.status == "failed":
         # Отменили сами или не дождался слота (dr-52): скрипт не виноват, чинить нечего.
-        return None if rec.reason in NOT_SCRIPT_FAULT else {"suspicion": None}
+        if rec.reason in NOT_SCRIPT_FAULT:
+            return None
+        # Не ответили на вопрос скрипта (kit.AskTimeout): тоже не поломка.
+        if rec.exit_code not in (0, None) and asks.timed_out(app.paths.run_dir(rec.id)) is not None:
+            return None
+        return {"suspicion": None}
     s = suspicion(app, rec)
     return {"suspicion": s} if s else None
 

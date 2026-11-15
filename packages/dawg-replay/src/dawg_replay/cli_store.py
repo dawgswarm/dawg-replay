@@ -167,8 +167,14 @@ def _remove(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 
 
 def _logins_list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    from dawg_replay.web.views import when  # то же местное время, что в интерфейсе
+
     items = app.list_logins(args.script)
-    lines = [f"{i['name']}  сохранён {i['saved_at'] or '—'}, использован {i['used_at'] or '—'}" for i in items]
+    lines = []
+    for i in items:
+        saved = f"сохранён {when(i['saved_at'])}" if i["saved_at"] else "ещё не сохранялся"
+        used = f"использован {when(i['used_at'])}" if i["used_at"] else "ещё не использовался"
+        lines.append(f"{i['name']}  {saved}, {used}")
     return {"script": args.script, "logins": items}, "\n".join(lines) or "сохранённых входов нет"
 
 

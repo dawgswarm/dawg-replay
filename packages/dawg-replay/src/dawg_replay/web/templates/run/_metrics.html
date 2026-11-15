@@ -5,7 +5,7 @@
     {% for m in s.metrics.values() %}
     <div class="metric">
       <dt>{{ m.label }}</dt>
-      <dd><span class="metric-value">{{ m.value | value }}</span>{% if m.unit %} <span class="metric-unit">{{ m.unit }}</span>{% endif %}</dd>
+      <dd title="{{ m.value | value }}{% if m.unit %} {{ m.unit }}{% endif %}"><span class="metric-value">{{ m.value | value }}</span>{% if m.unit %} <span class="metric-unit">{{ m.unit }}</span>{% endif %}</dd>
     </div>
     {% endfor %}
   </dl>

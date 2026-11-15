@@ -8,6 +8,7 @@ import textwrap
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 from starlette.testclient import TestClient
@@ -360,3 +361,72 @@ def test_env_has_answers_and_logins_dirs_together(tmp_path):
     env = run._environment(run.params_path)
     assert env["DAWG_SCRIPT_ANSWERS_DIR"] == str((tmp_path / "runs" / "r1" / "answers").resolve())
     assert env["DAWG_SCRIPT_LOGINS_DIR"] == str((tmp_path / "logins").resolve())
+
+
+# --- таймаут вопроса в итоге запуска (dr-71) ------------------------------------
+
+
+def finished_with_timeout(home, running, *, exit_code=1, extra=()):
+    run_dir = running(ask_event("1-a", question="Отметить проверку?", kind="confirm"),
+                      {"t": "ask_closed", "id": "1-a", "outcome": "timeout"}, *extra)
+    (run_dir / "stderr.log").write_text("Traceback (most recent call last):\n  File \"/x/" + "y" * 300 + ".py\"\n"
+                                        "dawg_replay_kit.ask.AskTimeout: не дождались ответа\n", encoding="utf-8")
+    with App(home) as app:
+        app.runs.finish(RUN_ID, status="failed", reason="exit_code", exit_code=exit_code)
+        app.runs._db.execute("UPDATE runs SET draft = 0 WHERE id = ?", (RUN_ID,))
+    return run_dir
+
+
+def test_ask_timeout_is_clear_result_without_traceback_or_repair(client, running, home, write_script):
+    from dawg_replay import diagnosis, repair
+
+    with App(home) as app:
+        app.registry.add(write_script(version=1))
+    finished_with_timeout(home, running)
+    with App(home) as app:
+        rec = app.runs.get(RUN_ID)
+        dg = diagnosis.diagnose(app, rec)
+        assert dg["ask_timeout"] == "Отметить проверку?" and dg["tail"] == []
+        assert dg["summary"] == "Не дождались ответа на вопрос «Отметить проверку?»."
+        assert repair.needs_repair(app, rec) is None
+    h = client.get(f"/runs/{RUN_ID}").text
+    assert "Не дождались ответа на вопрос «Отметить проверку?»" in h and "Сам скрипт исправен" in h
+    assert "Traceback" not in h and "AskTimeout" not in h and "Скрипт ничего не сообщил" not in h
+    assert "Починить с агентом" not in h
+    live = client.get("/home/_live").text
+    assert "Не дождались ответа на вопрос «Отметить проверку?»" in live and "AskTimeout" not in live
+    assert "#repair" not in live
+
+
+def test_answered_question_then_crash_is_still_repairable(running, home):
+    from dawg_replay import diagnosis, repair
+
+    finished_with_timeout(home, running, extra=(ask_event("2-b"), {"t": "ask_closed", "id": "2-b",
+                                                                   "outcome": "answered", "answer": "x"}))
+    with App(home) as app:
+        rec = app.runs.get(RUN_ID)
+        assert not (diagnosis.diagnose(app, rec) or {}).get("ask_timeout")
+        assert repair.needs_repair(app, rec) is not None
+
+
+def test_finished_run_has_no_current_step(client, running, home):
+    running({"t": "stage", "ts": "2026-11-15T12:00:00.000Z", "name": "Идём по строкам"})
+    assert "trail-current" in client.get(f"/runs/{RUN_ID}").text
+    with App(home) as app:
+        app.runs.finish(RUN_ID, status="ok", reason=None)
+    h = client.get(f"/runs/{RUN_ID}").text
+    assert "Идём по строкам" in h and "trail-current" not in h and 'aria-current="step"' not in h
+
+
+def test_table_upload_disables_itself_not_a_missing_submit(client, home, tmp_path):
+    # hx-disabled-elt наследовался от формы («find button[type=submit]») и у поля файла ничего не находил.
+    import re
+
+    src = (Path(__file__).parent / "test_table_params.py").read_text(encoding="utf-8")
+    f = tmp_path / "acts.py"
+    f.write_text(src.split("SCRIPT = '''\\\n", 1)[1].split("'''", 1)[0], encoding="utf-8")
+    with App(home) as app:
+        app.registry.add(f)
+    h = client.get("/scripts/acts").text
+    tags = re.findall(r'<input[^>]*name="_table_file"[^>]*>', h, re.S)
+    assert len(tags) == 2 and all('hx-disabled-elt="this"' in tag for tag in tags)

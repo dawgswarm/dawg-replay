@@ -139,7 +139,8 @@ def test_cli_logins_text(home, kr, write_script, capsys):
         _save(app, "a@x.ru")
     assert main(["logins", "list", "ozon-cards"]) == 0
     out = capsys.readouterr().out
-    assert out.startswith("a@x.ru  сохранён ") and "использован —" in out
+    # Местное время, как в интерфейсе («сегодня 18:43»), а не ISO в UTC.
+    assert out.startswith("a@x.ru  сохранён сегодня ") and "ещё не использовался" in out and "Z" not in out
 
 
 # --- веб ---

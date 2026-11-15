@@ -999,3 +999,8 @@ a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem;
 .dash-ask { display: flex; align-items: center; gap: 0.45rem; min-width: 0; }
 .status-ask { color: var(--partial); background: var(--partial-bg); }
 .status-ask::before { border-radius: 50%; background: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+
+/* Длинные строки без пробелов (пути, адреса, токены) переносятся, а не растягивают страницу. */
+main { min-width: 0; }
+code, .hint, .hint-inline, .notice { overflow-wrap: anywhere; }
+pre { max-width: 100%; overflow-x: auto; }
