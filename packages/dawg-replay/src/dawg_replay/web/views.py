@@ -25,7 +25,7 @@ from starlette.templating import Jinja2Templates
 
 from dawg_replay_kit.manifest import COLUMN_TYPE_WORDS
 
-from dawg_replay import forms, imports, minutes, repair, schedules, uistate, uploads
+from dawg_replay import forms, imports, launch, minutes, repair, schedules, uistate, uploads
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.presets import secret_tables_note
@@ -880,11 +880,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     rec = app.runs.get(run_id)
                     if rec.draft:
                         raise ReplayError("draft_run", "черновой запуск повторяется только из терминала")
-                    names = {p.name for p in app.registry.manifest(rec.script_name).params}
                     presets = [p.name for p in app.list_presets(rec.script_name)]
+                    values = launch.again_values(app, rec)
                 except ReplayError as e:
-                    return fragment(request, "_flash.html", message=e.message, link=None)
-            values = {k: v for k, v in rec.params.items() if k in names}
+                    link = f"/scripts/{quote(rec.script_name)}#launch" if e.code == "needs_upload" else None
+                    return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}" if link else e.message, link=link)
             try:
                 run = ui.runs.start(rec.script_name, preset=rec.preset if rec.preset in presets else None, values=values)
             except ReplayError as e:

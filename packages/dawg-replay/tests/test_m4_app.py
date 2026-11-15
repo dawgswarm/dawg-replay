@@ -162,7 +162,8 @@ def test_web_form_and_run_page(web, home):
     assert ">Дешевле</option>" in page and ">Популярные</option>" in page
     assert 'type="checkbox" value="kzn"' in page and "<span>Казань</span>" in page
     assert 'type="time"' in page and 'type="datetime-local"' in page
-    assert '<option value="today-1" selected>вчера (сегодня это ' in page
+    y_ru = (TODAY - dt.timedelta(days=1)).strftime("%d.%m.%Y")
+    assert f'<option value="today-1" selected>вчера: {y_ru}</option>' in page and "сегодня это" not in page
     assert "по умолчанию вчера" in page.lower()
     r = c.post("/scripts/m4/run", data={"sort": "price", "stores": ["msk", "kzn"], "at": "09:00", "since__rel": "today-1",
                                         "moment": "2026-11-20T18:00"}, headers=h)
@@ -176,4 +177,14 @@ def test_web_form_and_run_page(web, home):
     run = c.get(f"/runs/{run_id}").text
     assert "Параметры запуска" in run and "<dd>Дешевле</dd>" in run and "<dd>Москва, Казань</dd>" in run
     y = TODAY - dt.timedelta(days=1)
-    assert f"<dd>{y.strftime('%d.%m.%Y')}</dd>" in run and "<dd>20.11.2026 18:00</dd>" in run
+    assert f"<dd>{y.strftime('%d.%m.%Y')}, из выражения «вчера»</dd>" in run and "<dd>20.11.2026 18:00</dd>" in run
+    # «Запустить снова» предупреждает, что дата не посчитается заново
+    assert f"«С даты» {y.strftime('%d.%m.%Y')} из выражения «вчера»" in run and "hx-confirm=" in run
+
+
+def test_cli_accepts_choice_titles(m4, cli):
+    code, data = cli("preset", "save", "m4", "п", "--set", "sort=Дешевле", "--set", "stores=Москва,kzn")
+    assert code == 0, data
+    assert data["preset"]["params"]["sort"] == "price" and data["preset"]["params"]["stores"] == ["msk", "kzn"]
+    code, data = cli("preset", "save", "m4", "п2", "--set", "sort=Дорогие")
+    assert code != 0 and "нет в choices: popular (Популярные), price (Дешевле)" in data["error"]["message"]

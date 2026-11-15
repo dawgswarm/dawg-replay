@@ -34,7 +34,9 @@ def read_params_file(path: str | Path) -> dict[str, Any]:
 def _convert(p: Param, raw: str) -> Any:
     """Строка из `--set` в значение нужного типа."""
     t = p.type
-    if t in ("string", "text", "secret", "enum", "url", "date", "time", "datetime"):
+    if t == "enum":
+        return by_title(p, raw)
+    if t in ("string", "text", "secret", "url", "date", "time", "datetime"):
         return raw
     if t == "multi_enum":
         # повтор `--set k=a --set k=b` или через запятую `k=a,b`; `k=[...]` JSON-список
@@ -43,7 +45,7 @@ def _convert(p: Param, raw: str) -> Any:
                 return json.loads(raw)
             except json.JSONDecodeError as e:
                 raise ValueError(f"список в JSON не разобран: {e}") from None
-        return [x.strip() for x in raw.split(",") if x.strip()]
+        return [by_title(p, x.strip()) for x in raw.split(",") if x.strip()]
     if t == "table":
         return _table_value(p, raw)
     if t == "file":
@@ -74,6 +76,16 @@ def _convert(p: Param, raw: str) -> Any:
             return value
         return [raw]
     raise ValueError(f"неизвестный тип {t}")
+
+
+def by_title(p: Param, raw: str) -> str:
+    """Вариант по значению или по подписи (`--set sort="По рейтингу"`), если подпись однозначна.
+    Не нашлось: как есть, ошибку с перечнем вариантов даст проверка значения."""
+    if p.choices is None or raw in p.choices:
+        return raw
+    want = raw.strip().casefold()
+    hits = [v for v in p.choices if p.choice_title(v).strip().casefold() == want]
+    return hits[0] if len(hits) == 1 else raw
 
 
 def _file_value(p: Param, raw: str) -> Any:

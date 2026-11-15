@@ -112,9 +112,11 @@ class Uploads:
         except OSError:
             return None
 
-    def link(self, run_id: str, tables: dict[str, str]) -> None:
-        """Запуск взял секретные таблицы из этих загрузок (параметр -> id загрузки)."""
-        tables = {k: v for k, v in tables.items() if is_upload_id(v)}
+    def link(self, run_id: str, tables: dict[str, Any]) -> None:
+        """Запуск взял секретные таблицы и файлы из этих загрузок (параметр -> id или список id у
+        `multiple`). Ссылки дописываются к прежним: запуск с таблицей и файлом связывают в двух местах."""
+        tables = {k: v for k, v in tables.items()
+                  if is_upload_id(v) or (isinstance(v, list) and v and all(is_upload_id(x) for x in v))}
         if not tables or not _RUN_RE.fullmatch(run_id):
             return
         d = self.dir / "runs"
@@ -122,11 +124,37 @@ class Uploads:
         os.chmod(self.dir, 0o700)
         os.chmod(d, 0o700)
         path = d / f"{run_id}.json"
+        try:
+            old = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            old = {}
+        merged = {**(old if isinstance(old, dict) else {}), **tables}
         tmp = path.with_suffix(".tmp")
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(tables, f)
+            json.dump(merged, f)
         tmp.replace(path)
+
+    def linked_files(self, run_id: str, param: str) -> list[dict[str, Any]] | None:
+        """Секретные файлы запуска из живых загрузок: [{"path", "name", "size"}] или None
+        (ссылки нет или хоть один файл устарел: тогда файл нужно загрузить заново)."""
+        if not _RUN_RE.fullmatch(run_id):
+            return None
+        try:
+            links = json.loads((self.dir / "runs" / f"{run_id}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        uids = links.get(param) if isinstance(links, dict) else None
+        uids = [uids] if isinstance(uids, str) else uids
+        if not isinstance(uids, list) or not uids:
+            return None
+        out = []
+        for uid in uids:
+            data = self.get_file(uid) if isinstance(uid, str) else None
+            if data is None or data.get("param") != param:
+                return None
+            out.append({"path": data["path"], "name": data["file"], "size": data["size"]})
+        return out
 
     def linked(self, run_id: str, param: str) -> dict[str, Any] | None:
         """Секретная таблица запуска из живой загрузки или None (не было ссылки, загрузка устарела)."""

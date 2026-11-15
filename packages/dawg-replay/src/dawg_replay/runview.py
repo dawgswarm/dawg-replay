@@ -121,6 +121,8 @@ class RunView:
                 "suspects": insurance.pending_suspects(run_dir),
                 # упал, ничего не сообщив: хвост stderr и подсказка (dawg_replay.diagnosis)
                 "diagnosis": diagnosis.diagnose(app, rec),
+                # даты из выражений: «Запустить снова» берёт вычисленную дату и предупреждает об этом
+                "again_note": again_note(app, rec, run_dir),
             }
 
         kw.setdefault("rows_limit", app.config.rows_preview_limit)
@@ -530,6 +532,30 @@ def result_extras(e: dict[str, Any], output_dir: Path) -> dict[str, Any]:
 
 
 MAX_LINKS = 20
+
+def again_note(app: Any, rec: Any, run_dir: Path) -> str | None:
+    """«С даты» 14.11.2026 из выражения «вчера»: повтор возьмёт ту же дату, а не посчитает заново."""
+    from dawg_replay_kit import relative
+
+    from dawg_replay import repair
+    from dawg_replay.errors import ReplayError
+
+    exprs = repair.read_relative(run_dir)
+    if not exprs:
+        return None
+    try:
+        titles = {p.name: p.title for p in app.registry.manifest(rec.script_name, rec.script_version).params}
+    except ReplayError:
+        titles = {}
+    parts = []
+    for name, expr in exprs.items():
+        value = str(rec.params.get(name) or "")
+        day, sep, t = value.partition("T")
+        shown = ".".join(reversed(day.split("-"))) + (f" {t}" if sep else "")
+        parts.append(f"«{titles.get(name, name)}» {shown} из выражения «{relative.title(expr)}»")
+    return ("Повтор возьмёт те же значения: " + "; ".join(parts)
+            + ". Чтобы дата посчиталась на сегодня, запустите из пресета или формы: там выражение считается заново.")
+
 
 _RUN_FIELDS = (
     "id", "script", "version", "draft", "status", "reason", "label", "created_at",

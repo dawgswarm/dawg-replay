@@ -44,6 +44,7 @@ from typing import TYPE_CHECKING, Any
 
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
+from dawg_replay_kit.relative import is_relative
 
 from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair
 from dawg_replay.errors import ReplayError
@@ -305,6 +306,12 @@ def prepare(
             del values[p.name]
     # Секретные таблицы, взятые из пресета: запуск запомнит их для «Перезапустить упавшие».
     from_preset = {k: v for k, v in preset_tables.items() if values.get(k) is v}
+    # Даты из выражений (`today-1`): повтор берёт вычисленную дату, экран запуска называет выражение.
+    relative_used = {}
+    for p in manifest.params:
+        given = values.get(p.name) if p.name in values else p.default
+        if p.type in ("date", "datetime") and is_relative(given, p.type):
+            relative_used[p.name] = given
 
     # Секретная таблица идёт скрипту как секрет: во временный файл 0700, не в историю.
     secret_names = [p.name for p in manifest.params if p.is_secret]
@@ -380,10 +387,25 @@ def prepare(
     # Сколько строк в таблицах запуска: секретной таблицы нет в истории, а «2 из 5» нужно и для неё.
     repair.write_table_sizes(run_dir, {p.name: len(full[p.name]) for p in manifest.params
                                        if p.type == "table" and isinstance(full.get(p.name), list)})
-    if from_preset:
-        store = Uploads(app.paths.uploads)
-        p = app.presets.get(manifest.name, preset, manifest)
-        store.link(run.id, {k: store.put(k, p.secret_tables[k]["file"], v, secret=True) for k, v in from_preset.items()})
+    store = Uploads(app.paths.uploads)
+    # Секретные таблицы для «Перезапустить упавшие» и «Запустить снова»: копия в загрузках (сутки).
+    # Загрузка из формы потом перепривязывается своим id, итог тот же.
+    secret_tables = {p.name: full[p.name] for p in manifest.params
+                     if p.type == "table" and p.secret and isinstance(full.get(p.name), list)}
+    if secret_tables:
+        names = app.presets.get(manifest.name, preset, manifest).secret_tables if from_preset else {}
+        store.link(run.id, {k: store.put(k, names.get(k, {}).get("file") or "таблица", v, secret=True)
+                            for k, v in secret_tables.items()})
+    # Секретный файл в истории только именем: для «Запустить снова» запуск помнит его копию
+    # в загрузках (0600, сутки), потом файл просят загрузить заново.
+    secret_copies = {}
+    for p in file_params:
+        if p.secret:
+            uids = [store.put_file(p.name, f["name"], Path(f["path"]).read_bytes(), secret=True) for f in _as_list(full[p.name])]
+            secret_copies[p.name] = uids if p.multiple else uids[0]
+    store.link(run.id, secret_copies)
+    if relative_used:
+        repair.write_relative(run_dir, relative_used)
     return Prepared(
         run=run,
         values=full,
@@ -395,6 +417,40 @@ def prepare(
         warnings=warnings,
         env=env,
     )
+
+
+def again_values(app: App, rec: Run) -> dict[str, Any]:
+    """Значения для «Запустить снова»: те же, что у запуска. Секретных таблиц и файлов в истории нет,
+    их запуск помнит в загрузках сутки; потом повтор не начинается и просит загрузить их заново,
+    чтобы скрипт не пошёл молча без файла."""
+    manifest = app.registry.manifest(rec.script_name)
+    store = Uploads(app.paths.uploads)
+    run_dir = app.paths.run_dir(rec.id)
+    sizes = repair.read_table_sizes(run_dir)
+    values: dict[str, Any] = {}
+    lost: list[str] = []
+    for p in manifest.params:
+        if p.type == "file" and p.secret:
+            got = store.linked_files(rec.id, p.name)
+            if got is not None:
+                values[p.name] = got if p.multiple else got[0]
+            elif p.required or rec.params.get(p.name):
+                lost.append(f"секретного файла «{p.title}»")
+        elif p.type == "table" and p.secret:
+            data = store.linked(rec.id, p.name)
+            if data is not None:
+                values[p.name] = data["rows"]
+            elif p.required or p.name in sizes:
+                lost.append(f"секретной таблицы «{p.title}»")
+        elif p.name in rec.params:
+            values[p.name] = rec.params[p.name]
+    if lost:
+        raise ReplayError(
+            "needs_upload",
+            f"для повтора нет {', '.join(lost)}: в истории запуска они не хранятся, а копия для повтора "
+            "живёт сутки и уже удалена. Загрузите заново в форме запуска",
+        )
+    return values
 
 
 # --- супервизор ----------------------------------------------------------------
