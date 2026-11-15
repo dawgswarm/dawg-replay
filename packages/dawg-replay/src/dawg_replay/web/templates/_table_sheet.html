@@ -1,0 +1,7 @@
+{# Выбор листа XLSX после загрузки (скрипт не объявил sheet, листов несколько). Контекст: sh_t, fl, script. #}
+        <label class="table-sheet">Лист
+          <select hx-post="/scripts/{{ script }}/_table/{{ fl.name }}/sheet" hx-trigger="change" hx-target="closest .field" hx-swap="outerHTML"
+                  hx-vals='{"_upload": "{{ sh_t.id }}"}' name="_sheet" hx-params="_sheet,_upload" hx-disabled-elt="this" form="none">
+            {% for sh in sh_t.sheets %}<option value="{{ sh }}" {% if sh == sh_t.sheet %}selected{% endif %}>{{ sh }}</option>{% endfor %}
+          </select>
+        </label>

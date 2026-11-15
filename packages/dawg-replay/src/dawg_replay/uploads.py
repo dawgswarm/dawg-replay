@@ -66,6 +66,23 @@ class Uploads:
             return None
         return data if isinstance(data, dict) and isinstance(data.get("rows"), list) else None
 
+    def put_source(self, uid: str, data: bytes) -> None:
+        """Исходный XLSX загрузки: из него форма перечитывает другой лист. Та же защита и срок, что у таблицы."""
+        if not is_upload_id(uid):
+            return
+        path = self.dir / f"{uid}.src"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+
+    def source(self, uid: str) -> bytes | None:
+        if not is_upload_id(uid) or self.get(uid) is None:
+            return None
+        try:
+            return (self.dir / f"{uid}.src").read_bytes()
+        except OSError:
+            return None
+
     def link(self, run_id: str, tables: dict[str, str]) -> None:
         """Запуск взял секретные таблицы из этих загрузок (параметр -> id загрузки)."""
         tables = {k: v for k, v in tables.items() if is_upload_id(v)}

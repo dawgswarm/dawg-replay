@@ -47,6 +47,7 @@
     {% elif fl.widget == "table" %}
       {% set t = fl.table if fl.table and not fl.table.failed else none %}
       <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">
+      {% if fl.table and fl.table.failed and fl.table.sheets %}{% set sh_t = fl.table %}{% include "_table_sheet.html" %}{% endif %}
       {% if t %}
       <div class="table-loaded">
         <p class="table-file"><strong>{{ t.file }}</strong>, {{ t.count | rows_word }}{% if t.secret %}. Таблица секретная: содержимое не показывается и не попадает в историю запусков; в пресете она хранится отдельно и видна только вам{% endif %}</p>
@@ -59,15 +60,22 @@
         </div>
         {% if t.count > t.preview | length %}<p class="hint">Показаны первые {{ t.preview | length }} из {{ t.count }}.</p>{% endif %}
         {% endif %}
+        {% if t.sheets %}{% set sh_t = t %}{% include "_table_sheet.html" %}{% endif %}
       </div>
       {% endif %}
-      <input id="{{ fid }}" class="file-input" name="_table_file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      {% set ins = fl.inputs or ["file", "manual", "preset"] %}
+      {% if "file" in ins %}
+      <input id="{{ fid }}" class="file-input" name="_table_file" type="file" accept=".csv,.tsv,.xlsx,.json,text/csv,text/tab-separated-values,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
              hx-post="/scripts/{{ script }}/_table/{{ fl.name }}" hx-encoding="multipart/form-data" hx-trigger="change"
              hx-params="_table_file" hx-disabled-elt="this" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
       <label class="file-button" for="{{ fid }}">{{ "Заменить файл" if t else "Выбрать файл" }}</label>
+      {% endif %}
       {% set mt = fl.manual or {} %}
-      <button type="button" class="file-button" data-manual-open aria-expanded="{{ 'true' if mt.open else 'false' }}">Ввести вручную</button>
+      {% if "manual" in ins %}
+      <button type="button" class="file-button" data-manual-open aria-expanded="{{ 'true' if mt.open else 'false' }}">{{ "Изменить вручную" if t and "file" not in ins else "Ввести вручную" }}</button>
+      {% endif %}
       <span class="file-busy hint-inline">Читаем таблицу…</span>
+      {% if "manual" in ins %}
       {# Ввод строк руками. У полей нет name: в отправку формы запуска они не попадают, их собирает app.js. #}
       {% set mcols = fl.columns or mt.columns or (t.columns if t else []) or [] %}
       {% set fixed = fl.columns and true %}
@@ -98,6 +106,7 @@
           <span class="hint-inline">{% if fl.secret_table %}Таблица секретная: пароли и коды вводятся скрыто, в историю запусков не попадают.{% else %}Пустые строки не учитываются.{% endif %}</span>
         </div>
       </div>
+      {% endif %}
     {% elif fl.widget == "number" %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="number" inputmode="decimal" step="{{ fl.step }}" value="{{ fl.value }}"
              {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
@@ -117,7 +126,7 @@
   {% if fl.widget == "checkboxes" and fl.min_items and fl.max_items %}{% set _ = rules.append("выберите от " ~ fl.min_items ~ " до " ~ fl.max_items) %}
   {% elif fl.widget == "checkboxes" and fl.min_items %}{% set _ = rules.append("выберите хотя бы " ~ fl.min_items) %}
   {% elif fl.widget == "checkboxes" and fl.max_items %}{% set _ = rules.append("не больше " ~ fl.max_items) %}{% endif %}
-  {% if fl.widget == "table" %}{% set _ = rules.append("файл .csv или .xlsx, первая строка шапка") %}{% if fl.columns %}{% set _ = rules.append("нужны колонки " ~ ("«" ~ fl.columns | join("», «") ~ "»")) %}{% endif %}{% set _ = rules.append("не больше " ~ fl.max_rows ~ " строк") %}{% endif %}
+  {% if fl.widget == "table" %}{% if "file" in (fl.inputs or ["file"]) %}{% set _ = rules.append("файл .csv, .tsv, .xlsx или .json, первая строка шапка" ~ (", лист «" ~ fl.sheet ~ "»" if fl.sheet is string else (", лист " ~ fl.sheet if fl.sheet else ""))) %}{% endif %}{% if fl.column_types %}{% set _ = rules.append("типы: " ~ fl.column_types | type_words) %}{% endif %}{% if fl.columns %}{% set _ = rules.append("нужны колонки " ~ ("«" ~ fl.columns | join("», «") ~ "»")) %}{% endif %}{% set _ = rules.append("не больше " ~ fl.max_rows ~ " строк") %}{% endif %}
   {% if fl.type in ("url_list", "string_list") %}{% set _ = rules.append("по одному " ~ ("адресу" if fl.type == "url_list" else "значению") ~ " на строку" ~ (", не больше " ~ fl.max_items if fl.max_items else "")) %}{% endif %}
   {% if fl.default is not none and fl.widget not in ("checkbox", "password", "table") and fl.default != "" and fl.default != [] %}{% set _ = rules.append("по умолчанию " ~ (fl.default | ru_date if fl.widget in ("date", "datetime") else ((fl.default | map("choice_title", fl) | join(", ")) if fl.widget == "checkboxes" else ((fl.default | choice_title(fl)) if fl.widget == "select" else (fl.default | join(", ") if fl.default is sequence and fl.default is not string else fl.default))))) %}{% endif %}
   {% if rules %}<p class="hint">{{ (rules | join(", ")) | capitalize_first }}.</p>{% endif %}

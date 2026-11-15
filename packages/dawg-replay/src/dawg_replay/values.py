@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
-from dawg_replay_kit.tables import TableError, read_table
+from dawg_replay_kit.tables import TableError, convert_types, read_table
 
 from dawg_replay.errors import ReplayError
 
@@ -45,7 +45,7 @@ def _convert(p: Param, raw: str) -> Any:
                 raise ValueError(f"список в JSON не разобран: {e}") from None
         return [x.strip() for x in raw.split(",") if x.strip()]
     if t == "table":
-        return _table_value(raw)
+        return _table_value(p, raw)
     if t == "bool":
         low = raw.strip().lower()
         if low in ("true", "1", "yes", "да"):
@@ -74,11 +74,14 @@ def _convert(p: Param, raw: str) -> Any:
     raise ValueError(f"неизвестный тип {t}")
 
 
-def _table_value(raw: str) -> list[dict[str, Any]]:
-    """`@путь` к CSV или XLSX; `[...]` готовая таблица в JSON (как в --params)."""
+def _table_value(p: Param, raw: str) -> list[dict[str, Any]]:
+    """`@путь` к CSV, TSV, XLSX или JSON-файлу; `[...]` готовая таблица в JSON (как в --params).
+    Лист и типы колонок из манифеста (`sheet`, `column_types`)."""
     if raw.startswith("@"):
+        if "file" not in p.inputs:
+            raise ValueError("скрипт не принимает эту таблицу файлом" + _inputs_hint(p))
         try:
-            return read_table(Path(raw[1:]).expanduser())
+            return convert_types(read_table(Path(raw[1:]).expanduser(), sheet=p.sheet), p.types)
         except TableError as e:
             raise ValueError(str(e)) from None
     if raw.lstrip().startswith("["):
@@ -87,6 +90,13 @@ def _table_value(raw: str) -> list[dict[str, Any]]:
         except json.JSONDecodeError as e:
             raise ValueError(f"таблица в JSON не разобрана: {e}") from None
     raise ValueError("таблица задаётся файлом: имя=@путь/к/файлу.xlsx или .csv")
+
+
+INPUT_WORDS = {"file": "файлом (имя=@файл)", "manual": "строками (--row)", "preset": "из пресета (--preset)"}
+
+
+def _inputs_hint(p: Param) -> str:
+    return "; можно " + ", ".join(INPUT_WORDS[i] for i in p.inputs)
 
 
 def table_files(manifest: Manifest, items: Iterable[str]) -> dict[str, str]:
@@ -133,6 +143,9 @@ def parse_row_args(
         if name in from_set:
             problems.append(f"`{name}`: таблица задана и файлом (--set), и строками (--row); выберите что-то одно")
             continue
+        if "manual" not in tables[name].inputs:
+            problems.append(f"`{name}`: скрипт не принимает эту таблицу строками" + _inputs_hint(tables[name]))
+            continue
         cells: dict[str, Any] = {}
         for token in row[1:]:
             col, sep, value = token.partition("=")
@@ -160,6 +173,11 @@ def parse_row_args(
             hint = " ".join(f"{c}=-" for c in cols)
             warn(f"таблица `{name}` секретная, а {which} в истории терминала; "
                  f"чтобы ввести без отображения, задайте {hint}")
+    for name, rows_ in out.items():
+        try:
+            out[name] = convert_types(rows_, tables[name].types)
+        except TableError as e:
+            problems.append(f"`{name}`: {e}")
     if problems:
         raise ReplayError("bad_params", "строки таблиц не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems)
     return out
@@ -229,11 +247,28 @@ def filter_explained(manifest: Manifest, values: Mapping[str, Any]) -> tuple[dic
             why[name] = f"`{name}`: такого параметра в текущей версии скрипта нет"
         elif p.is_secret:
             why[name] = f"«{p.title}»: секреты в пресете не хранятся"
-        elif (problem := check_value(p, value)) is not None:
-            why[name] = f"«{p.title}»: {problem}"
+        elif p.type == "table" and "preset" not in p.inputs:
+            why[name] = f"«{p.title}»: скрипт не берёт эту таблицу из пресета, только " + (
+                "из файла или вручную" if {"file", "manual"} <= set(p.inputs) else
+                ("из файла" if "file" in p.inputs else "вручную"))
         else:
-            kept[name] = value
+            typed, problem = _typed(p, value) if p.type == "table" and p.types else (value, None)
+            problem = problem or check_value(p, typed)
+            if problem is not None:
+                why[name] = f"«{p.title}»: {problem}"
+            else:
+                kept[name] = typed
     return kept, why
+
+
+def _typed(p: Param, value: Any) -> tuple[Any, str | None]:
+    """Таблица пресета по column_types (пресет мог сохраниться строками до появления типов)."""
+    if not isinstance(value, list):
+        return value, None
+    try:
+        return convert_types(value, p.types), None
+    except TableError as e:
+        return value, str(e)
 
 
 def brief(values: Mapping[str, Any], files: Mapping[str, str] | None = None) -> dict[str, Any]:

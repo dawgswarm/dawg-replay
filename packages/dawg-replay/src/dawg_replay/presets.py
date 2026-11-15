@@ -36,6 +36,9 @@ def secret_tables_note(manifest: Manifest, preset: Preset) -> str | None:
 
     notes = []
     for p in manifest.params:
+        if p.type == "table" and "preset" not in p.inputs:
+            notes.append(f"Таблица «{p.title}» в пресет не сохраняется: скрипт берёт её только при запуске.")
+            continue
         if p.type != "table" or not p.secret:
             continue
         t = preset.secret_tables.get(p.name)
@@ -118,6 +121,9 @@ class Presets:
         """`files`: имена файлов таблиц. Секретная таблица пишется в отдельный файл, пресет хранит ссылку.
         Пресет с тем же именем перезаписывается целиком, прежние файлы таблиц удаляются."""
         name = clean_name(name)
+        # Таблица, которую скрипт не берёт из пресета (input без "preset"), в пресет не пишется.
+        no_preset = {p.name for p in manifest.params if p.type == "table" and "preset" not in p.inputs}
+        values = {k: v for k, v in values.items() if k not in no_preset}
         secret = {p.name: p for p in manifest.params if p.type == "table" and p.secret}
         tables = {k: v for k, v in values.items() if k in secret}
         values = {k: v for k, v in values.items() if k not in secret}

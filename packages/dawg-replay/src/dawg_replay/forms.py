@@ -42,7 +42,7 @@ from typing import Any
 from dawg_replay_kit import relative
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
 from dawg_replay_kit.parameters import ParamsError, is_blank, resolve
-from dawg_replay_kit.tables import TableError, columns_of, parse_table
+from dawg_replay_kit.tables import TableError, columns_of, convert_types, parse_table, sheet_names
 
 from dawg_replay.errors import ReplayError
 from dawg_replay.imports import display_name
@@ -96,6 +96,9 @@ class Field:
     max_rows: int | None = None
     secret_table: bool = False
     manual: dict[str, Any] | None = None  # table: введённое вручную при ошибке, чтобы не потерять
+    inputs: list[str] | None = None  # table: способы ввода, которые объявил скрипт
+    sheet: str | int | None = None  # table: лист XLSX из манифеста
+    column_types: dict[str, str] | None = None  # table: типы колонок из манифеста
     choice_titles: list[tuple[str, str]] | None = None  # enum, multi_enum: (значение, подпись)
     min_items: int | None = None
     relative: str = ""  # date, datetime: выбранное выражение (`today-1`) или "" для точной даты
@@ -203,6 +206,9 @@ def fields_for(
                 columns=list(p.columns) if p.columns else None,
                 max_rows=p.row_limit if p.type == "table" else None,
                 secret_table=p.type == "table" and p.secret,
+                inputs=list(p.inputs) if p.type == "table" else None,
+                sheet=p.sheet if p.type == "table" else None,
+                column_types=p.types or None if p.type == "table" else None,
                 choice_titles=[(v, p.choice_title(v)) for v in p.choices] if p.choices else None,
                 min_items=p.min_items,
                 relative=rel,
@@ -529,7 +535,8 @@ def save_preset(app: Any, script: str, preset: str, form: Any) -> Submission:
 
 
 def upload_table(
-    app: Any, script: str, param: str, data: bytes, filename: str | None, problem: str | None = None
+    app: Any, script: str, param: str, data: bytes, filename: str | None, problem: str | None = None,
+    sheet: str | None = None,
 ) -> dict[str, Any]:
     """Загрузка файла в поле таблицы: разбор, проверка по манифесту, сохранение.
     Возвращает поле для отрисовки; ошибка разбора или проверки видна у поля.
@@ -541,12 +548,19 @@ def upload_table(
         raise ReplayError("param_not_found", f"у скрипта `{script}` нет параметра `{param}`") from None
     if p.type != "table":
         raise ReplayError("param_not_found", f"параметр `{param}` не таблица")
+    if "file" not in p.inputs:
+        raise ReplayError("input_not_allowed", f"параметр `{param}` не принимает файл")
     name = display_name(filename)
     error = info = None
+    sheets: list[str] = []
     try:
         if problem:
             raise TableError(problem[:1].lower() + problem[1:])
-        rows = parse_table(data, name)
+        if name.lower().endswith(".xlsx") and p.sheet is None:
+            # Лист не объявлен: если их несколько, после загрузки человек выбирает (по умолчанию первый).
+            sheets = sheet_names(data, name)
+        rows = parse_table(data, name, sheet=p.sheet if p.sheet is not None else sheet)
+        rows = convert_types(rows, p.types)
     except TableError as e:
         error = str(e).removeprefix(f"{name}: ").removeprefix(f"{name}, ")
     else:
@@ -554,12 +568,22 @@ def upload_table(
         if problem:
             error = _human(p, problem)
         else:
-            uid = Uploads(app.paths.uploads).put(p.name, name, rows, secret=p.secret)
+            store = Uploads(app.paths.uploads)
+            uid = store.put(p.name, name, rows, secret=p.secret)
             info = table_info(p, uid, name, rows)
+            if len(sheets) > 1:
+                store.put_source(uid, data)
+                info["sheets"], info["sheet"] = sheets, sheet if sheet in sheets else sheets[0]
     (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
                        tables={p.name: info} if info else None)
     if error:
         fl.table = {"file": name, "failed": True}
+        if len(sheets) > 1:
+            # Лист не подошёл: выбор листа остаётся, файл заново не нужен. Пустая загрузка держит исходный файл.
+            store = Uploads(app.paths.uploads)
+            holder = store.put(p.name, name, [], secret=p.secret)
+            store.put_source(holder, data)
+            fl.table.update({"id": holder, "sheets": sheets, "sheet": sheet if sheet in sheets else sheets[0]})
     return {"field": fl}
 
 
@@ -571,6 +595,15 @@ def secret_column(name: str) -> bool:
     """Колонка похожа на пароль, код или токен: в ручном вводе секретной таблицы поле пароля."""
     return bool(_SECRET_COLUMN.search(str(name)))
 MANUAL_MAX_COLUMNS = 50
+
+
+def table_sheet(app: Any, script: str, param: str, upload_id: str, sheet: str) -> dict[str, Any]:
+    """Другой лист уже загруженного XLSX: файл перечитывается из загрузки."""
+    store = Uploads(app.paths.uploads)
+    data, meta = store.source(upload_id), store.get(upload_id)
+    if data is None or meta is None or meta.get("param") != param:
+        return upload_table(app, script, param, b"", "таблица.xlsx", problem=TABLE_EXPIRED)
+    return upload_table(app, script, param, data, str(meta.get("file") or "таблица.xlsx"), sheet=sheet)
 
 
 def manual_table(app: Any, script: str, param: str, columns: list[str], cells: list[str]) -> dict[str, Any]:
@@ -586,6 +619,8 @@ def manual_table(app: Any, script: str, param: str, columns: list[str], cells: l
         raise ReplayError("param_not_found", f"у скрипта `{script}` нет параметра `{param}`") from None
     if p.type != "table":
         raise ReplayError("param_not_found", f"параметр `{param}` не таблица")
+    if "manual" not in p.inputs:
+        raise ReplayError("input_not_allowed", f"параметр `{param}` не принимает ввод вручную")
     error = info = None
     cols = [str(c).strip() for c in columns]
     if not cols or len(cols) > MANUAL_MAX_COLUMNS:
@@ -606,7 +641,11 @@ def manual_table(app: Any, script: str, param: str, columns: list[str], cells: l
             if any(values):
                 shown[len(rows) + 2] = i // len(cols) + 1
                 rows.append({**dict(zip(cols, values)), "_row": len(rows) + 2})
-        problem = "введите хотя бы одну строку" if not rows else check_value(p, rows)
+        try:
+            rows = convert_types(rows, p.types)
+            problem = "введите хотя бы одну строку" if not rows else check_value(p, rows)
+        except TableError as e:
+            problem = str(e)
         if problem:
             # В редакторе строки идут с первой, у файла с второй (шапка это строка 1): номер как на экране.
             error = re.sub(r"^строка (\d+)", lambda m: f"строка {shown.get(int(m.group(1)), m.group(1))}", _human(p, problem))
