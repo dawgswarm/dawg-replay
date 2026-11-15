@@ -61,17 +61,16 @@ def web(home, kr, app):
 # --- секретная таблица: пресет и расписание ------------------------------------------
 
 
-def test_cli_preset_warns_and_schedule_refused(acts, cli, tmp_path, fake_scheduler):
-    acc, log = tmp_path / "a.csv", tmp_path / "l.csv"
+def test_cli_preset_without_secret_table_cannot_be_scheduled(acts, cli, tmp_path, fake_scheduler):
+    acc = tmp_path / "a.csv"
     acc.write_text(CSV, encoding="utf-8")
-    log.write_text(LOGINS, encoding="utf-8")
-    code, data = cli("preset", "save", "acts", "демо", "--param", f"accounts=@{acc}", "--param", f"logins=@{log}")
-    assert code == 0 and "logins" not in data["preset"]["params"]
-    assert "Секретная таблица «Входы» в пресет не сохраняется" in data["note"] and "регулярный запуск" in data["note"]
+    code, data = cli("preset", "save", "acts", "демо", "--param", f"accounts=@{acc}")
+    assert code == 0 and data["preset"]["secret_tables"] == {}
+    assert "Таблица «Входы» не загружена: регулярный запуск по этому пресету не начнётся" in data["note"]
 
     code, data = cli("schedule", "add", "acts", "--preset", "демо", "--daily", "09:00")
     assert code != 0 and data["error"]["code"] == "schedule_impossible"
-    assert "обязательная секретная таблица «Входы»" in data["error"]["message"]
+    assert "в пресете «демо» нет секретной таблицы «Входы»" in data["error"]["message"]
     with App(acts.paths.home) as a:
         assert a.schedules.all() == []
     assert not (fake_scheduler / "crontab").exists() or "dawg-replay" not in (fake_scheduler / "crontab").read_text(encoding="utf-8")
@@ -85,27 +84,14 @@ def test_preset_without_required_value_refused(app, write_script):
     assert e.value.code == "schedule_impossible" and "нет обязательных значений: «Запрос»" in e.value.message
 
 
-def test_web_preset_note_and_schedule_error(acts, web):
+def test_web_preset_without_secret_table_schedule_error(acts, web):
     c, h = web
     r = c.post("/scripts/acts/_table/accounts", files={"_table_file": ("a.csv", CSV.encode(), "text/csv")}, headers=h)
     uid = r.text.split('name="accounts" value="', 1)[1].split('"', 1)[0]
     r = c.post("/scripts/acts/presets", data={"_preset_name": "демо", "accounts": uid}, headers=h)
-    assert "Пресет «демо» сохранён. Секретная таблица «Входы» в пресет не сохраняется" in r.text
-    block = c.get("/scripts/acts/_schedules").text
-    assert "Регулярный запуск недоступен: у скрипта обязательная секретная таблица «Входы»" in block
-    assert "Добавить расписание" not in block
+    assert "Пресет «демо» сохранён. Таблица «Входы» не загружена" in r.text
     r = c.post("/scripts/acts/schedules", data={"_preset": "демо", "_kind": "daily", "_time": "09:00"}, headers=h)
-    assert "обязательная секретная таблица «Входы»" in r.text and "Расписание добавлено" not in r.text
-
-
-def test_optional_secret_table_note_without_schedule_ban(app, tmp_path):
-    f = tmp_path / "acts.py"
-    f.write_text(SCRIPT, encoding="utf-8")  # logins необязательная
-    app.registry.add(f)
-    from dawg_replay.presets import secret_tables_note
-
-    note = secret_tables_note(app.registry.manifest("acts"))
-    assert "не сохраняется" in note and "регулярный запуск" not in note
+    assert "нет секретной таблицы «Входы»" in r.text and "Расписание добавлено" not in r.text
 
 
 # --- плановый запуск, не начавшийся ---------------------------------------------------

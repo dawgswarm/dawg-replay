@@ -61,6 +61,7 @@ from dawg_replay.runner import (
 )
 from dawg_replay.runs import REASON_LOST, REASON_START_ERROR, WAITER_LOST, Run, WaitPolicy, new_run_id, parse_ts
 from dawg_replay.secrets import has_control_chars
+from dawg_replay.uploads import Uploads
 from dawg_replay.values import parse_set_args, read_params_file
 
 if TYPE_CHECKING:
@@ -160,12 +161,16 @@ def merge_values(
     params_file: str | None,
     sets: Sequence[str] | None,
     form_values: Mapping[str, Any] | None = None,
+    preset_tables: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """default < пресет < --params < значения формы UI < --set. Секреты сюда не принимаются."""
+    """default < пресет < --params < значения формы UI < --set. Секреты сюда не принимаются.
+    `preset_tables`: секретные таблицы пресета (Presets.secret_rows); загруженная в форму или
+    через --set таблица их перекрывает, сам пресет при этом не меняется."""
     values: dict[str, Any] = {}
     if preset:
         p = app.presets.get(manifest.name, preset, manifest)
         values.update(p.params)
+        values.update(preset_tables or {})
     if params_file:
         values.update(read_params_file(params_file))
     if form_values:
@@ -254,7 +259,10 @@ def prepare(
     outdated = app.presets.get(manifest.name, preset, manifest).outdated() if preset else None
     if outdated and (strict_preset or schedule_id is not None):
         raise ReplayError("preset_outdated", outdated[:1].upper() + outdated[1:])
-    values = merge_values(app, manifest, preset, params_file, sets, values)
+    preset_tables = app.presets.secret_rows(app.presets.get(manifest.name, preset, manifest)) if preset else {}
+    values = merge_values(app, manifest, preset, params_file, sets, values, preset_tables)
+    # Секретные таблицы, взятые из пресета: запуск запомнит их для «Перезапустить упавшие».
+    from_preset = {k: v for k, v in preset_tables.items() if values.get(k) is v}
 
     # Секретная таблица идёт скрипту как секрет: во временный файл 0700, не в историю.
     secret_names = [p.name for p in manifest.params if p.is_secret]
@@ -318,6 +326,10 @@ def prepare(
     # Сколько строк в таблицах запуска: секретной таблицы нет в истории, а «2 из 5» нужно и для неё.
     repair.write_table_sizes(run_dir, {p.name: len(full[p.name]) for p in manifest.params
                                        if p.type == "table" and isinstance(full.get(p.name), list)})
+    if from_preset:
+        store = Uploads(app.paths.uploads)
+        p = app.presets.get(manifest.name, preset, manifest)
+        store.link(run.id, {k: store.put(k, p.secret_tables[k]["file"], v, secret=True) for k, v in from_preset.items()})
     return Prepared(
         run=run,
         values=full,

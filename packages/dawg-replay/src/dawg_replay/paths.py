@@ -60,6 +60,14 @@ class Paths:
         return self.home / "tmp"
 
     @property
+    def preset_tables(self) -> Path:
+        """Секретные таблицы пресетов, по каталогу на скрипт. 0700, файлы 0600."""
+        return self.home / "preset-tables"
+
+    def preset_tables_dir(self, name: str) -> Path:
+        return self.preset_tables / _part(name)
+
+    @property
     def logins(self) -> Path:
         """Сохранённые входы скриптов (cookies, localStorage), по каталогу на скрипт. 0700."""
         return self.home / "logins"

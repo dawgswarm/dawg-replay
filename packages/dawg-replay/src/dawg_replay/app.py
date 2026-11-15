@@ -11,6 +11,7 @@ from dawg_replay.config import Config, coerce, load_config, save_config, set_con
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
 from dawg_replay.paths import Paths, default_home
+from dawg_replay.preset_tables import PresetTables
 from dawg_replay.presets import Preset, Presets
 from dawg_replay.registry import Registry
 from dawg_replay.runs import STATUS_RUNNING, RunStore
@@ -30,7 +31,7 @@ class App:
         self.paths.ensure()
         self.db: sqlite3.Connection = connect(self.paths.db)
         self.registry = Registry(self.db, self.paths)
-        self.presets = Presets(self.db)
+        self.presets = Presets(self.db, PresetTables(self.paths))
         self.runs = RunStore(self.db)
         self.secrets = SecretStore(keyring_backend)
         self._scheduler_backend = scheduler_backend
@@ -196,6 +197,7 @@ class App:
         for param in sorted(secret_params):
             self.secrets.delete_secret(name, param)
         logins_deleted = logins.remove_dir(self.paths, name)
+        PresetTables(self.paths).remove_script(name)  # секретные таблицы пресетов
         return {
             "name": name,
             "versions": [v.version for v in versions],
