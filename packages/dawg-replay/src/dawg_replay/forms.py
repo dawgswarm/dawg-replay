@@ -39,6 +39,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
+from dawg_replay_kit import relative
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
 from dawg_replay_kit.parameters import ParamsError, is_blank, resolve
 from dawg_replay_kit.tables import TableError, columns_of, convert_types, parse_table, sheet_names
@@ -60,7 +61,12 @@ WIDGETS = {
     "secret": "password",
     "date": "date",
     "table": "table",
+    "time": "time",
+    "datetime": "datetime",
+    "multi_enum": "checkboxes",
 }
+REL = "__rel"  # поле выбора относительной даты: `<имя>__rel`
+REL_TIME = "__reltime"  # время к относительной дате у datetime
 PREVIEW_ROWS = 5
 TABLE_EXPIRED = "загруженная таблица устарела (хранится сутки), загрузите файл заново"
 CHECKED = ("on", "true", "1", "yes", "да")
@@ -77,7 +83,7 @@ class Field:
     title: str
     description: str | None
     required: bool
-    value: str | bool
+    value: str | bool | list[str]
     default: Any = None
     min: int | float | str | None = None
     max: int | float | str | None = None
@@ -93,6 +99,11 @@ class Field:
     inputs: list[str] | None = None  # table: способы ввода, которые объявил скрипт
     sheet: str | int | None = None  # table: лист XLSX из манифеста
     column_types: dict[str, str] | None = None  # table: типы колонок из манифеста
+    choice_titles: list[tuple[str, str]] | None = None  # enum, multi_enum: (значение, подпись)
+    min_items: int | None = None
+    relative: str = ""  # date, datetime: выбранное выражение (`today-1`) или "" для точной даты
+    rel_time: str = ""  # datetime: время к относительной дате
+    rel_options: list[dict[str, str]] | None = None  # date, datetime: {"value", "title", "today"}
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,6 +140,10 @@ def display(param: Param, value: Any) -> str | bool:
         return ""
     if param.type in LIST_TYPES:
         return "\n".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value)
+    if param.type == "multi_enum":
+        return [str(v) for v in value] if isinstance(value, (list, tuple)) else [str(value)]
+    if param.type in ("date", "datetime") and relative.is_relative(value, param.type):
+        return ""  # выражение показывается выбором рядом, поле точной даты пустое
     if isinstance(value, float) and value.is_integer() and param.type == "float":
         return repr(value)
     return str(value)
@@ -170,6 +185,7 @@ def fields_for(
             value = display(p, values[p.name])
         else:
             value = display(p, p.default)
+        rel, rel_time, options = _relative_state(p, values, raw)
         out.append(
             Field(
                 name=p.name,
@@ -193,10 +209,32 @@ def fields_for(
                 inputs=list(p.inputs) if p.type == "table" else None,
                 sheet=p.sheet if p.type == "table" else None,
                 column_types=p.types or None if p.type == "table" else None,
+                choice_titles=[(v, p.choice_title(v)) for v in p.choices] if p.choices else None,
+                min_items=p.min_items,
+                relative=rel,
+                rel_time=rel_time,
+                rel_options=options,
                 error=errors.get(p.name),
             )
         )
     return out
+
+
+def _relative_state(p: Param, values: Mapping[str, Any], raw: Mapping[str, Any]) -> tuple[str, str, list[dict[str, str]] | None]:
+    """Выбор относительной даты у date и datetime: (выражение, время, варианты для выбора)."""
+    if p.type not in ("date", "datetime"):
+        return "", "", None
+    if f"{p.name}{REL}" in raw:
+        expr, t = str(raw[f"{p.name}{REL}"]), str(raw.get(f"{p.name}{REL_TIME}") or "")
+    else:
+        src = values[p.name] if p.name in values else p.default
+        expr, t = "", ""
+        if relative.is_relative(src, p.type):
+            expr, _, t = str(src).partition("T")
+    choices = list(relative.COMMON) + ([expr] if expr and expr not in relative.COMMON else [])
+    today = {e: relative.resolve(e) for e in choices}
+    options = [{"value": e, "title": relative.title(e), "today": today[e]} for e in choices]
+    return expr, t, options
 
 
 def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, Any]:
@@ -275,6 +313,36 @@ def parse(
 
     for p in manifest.params:
         items = _getlist(form, p.name)
+        if p.type == "multi_enum":
+            picked = [v.strip() for v in items if v.strip()]
+            raw[p.name] = picked  # type: ignore[assignment]
+            if not picked:
+                continue  # не выбрано: действует default
+            problem = check_value(p, picked)
+            if problem:
+                errors[p.name] = _human(p, problem)
+            else:
+                values[p.name] = picked
+            continue
+        if p.type in ("date", "datetime"):
+            rel = (_getlist(form, f"{p.name}{REL}") or [""])[-1].strip()
+            if rel:
+                t = (_getlist(form, f"{p.name}{REL_TIME}") or [""])[-1].strip() if p.type == "datetime" else ""
+                raw[p.name] = (items[-1] if items else "")
+                raw[f"{p.name}{REL}"] = rel
+                raw[f"{p.name}{REL_TIME}"] = t
+                expr = f"{rel}T{t}" if t else rel
+                problem = check_value(p, expr) if relative.is_relative(expr, p.type) else "выберите вариант из списка"
+                if not problem:
+                    # Выражение проходит, но сегодня может дать дату вне min/max: сказать сразу.
+                    problem = check_value(p, relative.resolve(expr, p.type))
+                    if problem:
+                        problem = f"{relative.title(expr)} сегодня даёт {relative.resolve(expr, p.type)}: {problem}"
+                if problem:
+                    errors[p.name] = _human(p, problem)
+                else:
+                    values[p.name] = expr
+                continue
         if p.type == "table":
             uid = (items[-1] if items else "").strip()
             if not uid:
@@ -383,14 +451,24 @@ def _human(p: Param, problem: str) -> str:
         return re.sub(r"получено (['\"])(.*)\1$", lambda m: f"введено «{m.group(2)}»", text)
     if p.type == "string" and "переводить строку" in problem:
         return "одна строка, без переводов строки"
-    if p.type == "date":
+    if p.type in ("date", "datetime", "time"):
+        prefix = problem.split(": ", 1)[0] + ": " if " сегодня даёт " in problem else ""
+        shown = (lambda v: v) if p.type == "time" else _moment
         if "раньше min" in problem:
-            return f"не раньше {_date(p.min)}"
+            return f"{prefix}не раньше {shown(p.min)}"
         if "позже max" in problem:
-            return f"не позже {_date(p.max)}"
+            return f"{prefix}не позже {shown(p.max)}"
         if "такой даты нет" in problem:
             return "такой даты нет"
-        return "нужна дата"
+        if "вариант из списка" in problem:
+            return problem
+        return {"date": "нужна дата", "time": "нужно время ЧЧ:ММ", "datetime": "нужны дата и время"}[p.type]
+    if p.type == "multi_enum":
+        if "min_items" in problem:
+            return f"выберите хотя бы {p.min_items}"
+        if "max_items" in problem:
+            return f"выберите не больше {p.max_items}"
+        return "выберите значения из списка"
     if p.type == "table" and "max_rows" in problem:
         return f"{problem.split(',')[0]}, а можно не больше {p.row_limit}"
     return problem
@@ -400,6 +478,12 @@ def _date(value: Any) -> str:
     """2026-11-01 в 01.11.2026."""
     y, m, d = str(value).split("-")
     return f"{d}.{m}.{y}"
+
+
+def _moment(value: Any) -> str:
+    """2026-11-01 в 01.11.2026, 2026-11-01T09:30 в 01.11.2026 09:30."""
+    day, _, t = str(value).partition("T")
+    return _date(day) + (f" {t}" if t else "")
 
 
 def _num(v: int | float) -> str:

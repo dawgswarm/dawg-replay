@@ -88,6 +88,8 @@ class App:
             "keyring_error": keyring_error,
             "max_parallel_runs": cfg.max_parallel_runs,
             "max_timeout_minutes": cfg.max_timeout_minutes,
+            "rows_preview_limit": cfg.rows_preview_limit,
+            "log_limit": cfg.log_limit,
             "base_url": cfg.base_url,
         }
 
@@ -104,11 +106,17 @@ class App:
             raise ReplayError("no_api_key", "ключ DAWG не задан")
         return account.fetch_usage(key, self.config.base_url or None)
 
-    def update_limits(self, max_parallel_runs: Any, max_timeout_minutes: Any) -> Config:
-        """Меняет оба лимита разом: при ошибке в любом ничего не сохраняется."""
+    def update_limits(self, max_parallel_runs: Any, max_timeout_minutes: Any,
+                      rows_preview_limit: Any = None, log_limit: Any = None) -> Config:
+        """Меняет лимиты разом: при ошибке в любом ничего не сохраняется. None: не трогать."""
         cfg = self.config
-        cfg.max_parallel_runs = coerce("max_parallel_runs", max_parallel_runs)
-        cfg.max_timeout_minutes = coerce("max_timeout_minutes", max_timeout_minutes)
+        values = {"max_parallel_runs": coerce("max_parallel_runs", max_parallel_runs),
+                  "max_timeout_minutes": coerce("max_timeout_minutes", max_timeout_minutes)}
+        for key, raw in (("rows_preview_limit", rows_preview_limit), ("log_limit", log_limit)):
+            if raw is not None:
+                values[key] = coerce(key, raw)
+        for key, value in values.items():
+            setattr(cfg, key, value)
         save_config(self.paths.config, cfg)
         return cfg
 

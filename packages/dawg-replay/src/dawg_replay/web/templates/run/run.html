@@ -2,7 +2,7 @@
 {% block title %}{{ run.title or run.script }}: запуск, dawg-replay{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/run.css"><script src="/static/run.js" defer></script>{% endblock %}
 {% block content %}
-<div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" {% if running or not run.finished_at %}data-live{% endif %}>
+<div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" data-log-limit="{{ s.log_limit }}" {% if running or not run.finished_at %}data-live{% endif %}>
   {{ panels.head | safe }}
   {{ panels.ask | safe }}
   <section class="run-hero" aria-label="Итог запуска">
@@ -42,6 +42,15 @@
       </ol>
       <p class="log-empty hint">{% if running %}Сообщений пока нет.{% else %}Скрипт не писал сообщений в журнал.{% endif %}</p>
     </details>
+
+    {% if run_params %}
+    <details class="card fold run-params">
+      <summary><span class="fold-title">Параметры запуска</span><span class="hint-inline">{{ run_params | length }}</span></summary>
+      <dl class="params-list">
+        {% for p in run_params %}<div><dt>{{ p.title }}</dt><dd>{{ p.value }}</dd></div>{% endfor %}
+      </dl>
+    </details>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

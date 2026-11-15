@@ -315,3 +315,12 @@ def test_history_fragment(c, secrets_, home):
     wait_done(home, run_id)
     frag = c.get("/scripts/all-types/_runs").text
     assert f'href="/runs/{run_id}"' in frag and "готово" in frag
+
+
+def test_footer_shows_versions(c):
+    import dawg_replay
+    import dawg_replay_kit
+
+    html = c.get("/").text
+    assert f"dawg-replay {dawg_replay.__version__}" in html
+    assert f"kit {dawg_replay_kit.__version__}" in html and "контракт 1." in html

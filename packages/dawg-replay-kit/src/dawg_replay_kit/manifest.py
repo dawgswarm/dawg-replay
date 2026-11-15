@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
+from dawg_replay_kit import relative
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:
@@ -22,12 +24,12 @@ else:
 SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
 """Мажорные версии контракта, которые понимает эта версия kit."""
 
-CONTRACT_MINORS: dict[int, int] = {1: 2}
+CONTRACT_MINORS: dict[int, int] = {1: 3}
 """Последняя минорная версия каждого мажора, которую знает эта версия kit."""
 
 
 def contract_versions() -> list[str]:
-    """Полные версии для `dawg-replay --version`: ["1.2"]."""
+    """Полные версии для `dawg-replay --version`: ["1.3"]."""
     return [f"{major}.{CONTRACT_MINORS[major]}" for major in SUPPORTED_CONTRACTS]
 
 
@@ -49,6 +51,9 @@ PARAM_TYPES: tuple[str, ...] = (
     "secret",
     "date",
     "table",
+    "time",
+    "datetime",
+    "multi_enum",
 )
 NUMBER_TYPES = ("int", "float")
 LIST_TYPES = ("url_list", "string_list")
@@ -72,7 +77,9 @@ _TOP_KEYS = ("contract", "name", "title", "description", "site", "tags", "versio
 # Поля, появившиеся в минорных версиях: поле -> (мажор, минор).
 _FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
 # Типы параметров, появившиеся в минорных версиях.
-_TYPE_SINCE: dict[str, tuple[int, int]] = {"date": (1, 2), "table": (1, 2)}
+_TYPE_SINCE: dict[str, tuple[int, int]] = {
+    "date": (1, 2), "table": (1, 2), "time": (1, 3), "datetime": (1, 3), "multi_enum": (1, 3),
+}
 # Поля параметров, появившиеся в минорных версиях.
 _PARAM_FIELD_SINCE: dict[str, tuple[int, int]] = {"input": (1, 3), "sheet": (1, 3), "column_types": (1, 3)}
 # table: как человек задаёт таблицу; по умолчанию все способы.
@@ -80,6 +87,10 @@ TABLE_INPUTS = ("file", "manual", "preset")
 # table: типы колонок; без column_types все значения строки.
 COLUMN_TYPES = ("string", "int", "float", "bool", "date")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
+_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$")
+CHOICE_TYPES = ("enum", "multi_enum")
+MOMENT_TYPES = ("date", "time", "datetime")  # min/max строками того же вида
 DEFAULT_MAX_ROWS = 10000
 ROW_KEY = "_row"
 
@@ -87,8 +98,8 @@ SITE_MAX = 40
 TAGS_MAX = 5
 TAG_MAX = 24
 _PARAM_KEYS = (
-    "name", "type", "title", "description", "required", "default", "min", "max", "max_items", "choices",
-    "columns", "max_rows", "secret", "input", "sheet", "column_types",
+    "name", "type", "title", "description", "required", "default", "min", "max", "min_items", "max_items",
+    "choices", "columns", "max_rows", "secret", "input", "sheet", "column_types",
 )
 
 
@@ -132,13 +143,19 @@ class Param:
     min: int | float | None = None
     max: int | float | None = None
     max_items: int | None = None
-    choices: tuple[str, ...] | None = None
+    choices: tuple[str, ...] | None = None  # значения; подписи отдельно в choice_titles
     columns: tuple[str, ...] | None = None  # table: колонки, которые обязаны быть в шапке
     max_rows: int | None = None  # table: предел строк, без поля DEFAULT_MAX_ROWS
     secret: bool = False  # table: таблица целиком секрет
     input: tuple[str, ...] | None = None  # table: способы ввода из TABLE_INPUTS, None = все
     sheet: str | int | None = None  # table: лист XLSX по имени или номеру с 1, None = первый
     column_types: tuple[tuple[str, str], ...] | None = None  # table: (колонка, тип) из COLUMN_TYPES
+    choice_titles: tuple[tuple[str, str], ...] | None = None  # enum, multi_enum (1.3): (value, title)
+    min_items: int | None = None  # multi_enum (1.3)
+
+    def choice_title(self, value: str) -> str:
+        """Подпись варианта для людей: title из манифеста или само значение."""
+        return dict(self.choice_titles or ()).get(value, value)
 
     @property
     def has_default(self) -> bool:
@@ -165,11 +182,13 @@ class Param:
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"name": self.name, "type": self.type, "title": self.title, "required": self.required}
-        for key in ("description", "default", "min", "max", "max_items", "max_rows"):
+        for key in ("description", "default", "min", "max", "min_items", "max_items", "max_rows"):
             value = getattr(self, key)
             if value is not None:
                 d[key] = value
-        if self.choices is not None:
+        if self.choices is not None and self.choice_titles:
+            d["choices"] = [{"value": v, "title": t} for v, t in self.choice_titles]
+        elif self.choices is not None:
             d["choices"] = list(self.choices)
         if self.columns is not None:
             d["columns"] = list(self.columns)
@@ -338,9 +357,37 @@ def check_value(param: Param, value: Any) -> str | None:
         if param.choices is not None and value not in param.choices:
             return f"`{value}` нет в choices: {', '.join(param.choices)}"
         return None
+    if t == "multi_enum":
+        if not isinstance(value, list):
+            return f"ожидается список значений из choices, получено {_type_name(value)}"
+        for item in value:
+            if not isinstance(item, str):
+                return f"ожидается строка из choices, получено {_type_name(item)}"
+            if param.choices is not None and item not in param.choices:
+                return f"`{item}` нет в choices: {', '.join(param.choices)}"
+        if len(set(value)) != len(value):
+            return "значения повторяются"
+        if param.min_items is not None and len(value) < param.min_items:
+            return f"выбрано {len(value)}, а min_items = {param.min_items}"
+        if param.max_items is not None and len(value) > param.max_items:
+            return f"выбрано {len(value)}, а max_items = {param.max_items}"
+        return None
+    if t in ("time", "datetime"):
+        if t == "datetime" and relative.is_relative(value, "datetime"):
+            return None  # выражение: дата появится при запуске, тогда и проверка min/max
+        problem = _moment_problem(t, value)
+        if problem:
+            return problem
+        if param.min is not None and value < param.min:
+            return f"{value} раньше min = {param.min}"
+        if param.max is not None and value > param.max:
+            return f"{value} позже max = {param.max}"
+        return None
     if t == "url":
         return None if _is_url(value) else f"ожидается адрес http(s)://..., получено {value!r}"
     if t == "date":
+        if relative.is_relative(value, "date"):
+            return None  # выражение: дата появится при запуске, тогда и проверка min/max
         problem = _date_problem(value)
         if problem:
             return problem
@@ -363,6 +410,19 @@ def check_value(param: Param, value: Any) -> str | None:
             return f"элементов {len(value)}, а max_items = {param.max_items}"
         return None
     return f"неизвестный тип `{t}`"
+
+
+def _moment_problem(t: str, value: Any) -> str | None:
+    """Проверка вида для date, time и datetime (без min/max)."""
+    if t == "date":
+        return _date_problem(value)
+    if t == "time":
+        if not isinstance(value, str) or not _TIME_RE.fullmatch(value):
+            return f"ожидается время ЧЧ:ММ, получено {value!r}"
+        return None
+    if not isinstance(value, str) or not _DATETIME_RE.fullmatch(value):
+        return f"ожидается дата и время ГГГГ-ММ-ДДTЧЧ:ММ, получено {value!r}"
+    return _date_problem(value[:10])
 
 
 def _date_problem(value: Any) -> str | None:
@@ -489,18 +549,18 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
     for key, v in (("min", lo), ("max", hi)):
         if v is None:
             continue
-        if t is not None and t not in (*NUMBER_TYPES, "date"):
-            err("field_not_allowed", key, f"`{key}` бывает только у int, float и date")
-        elif t == "date":
-            problem = _date_problem(v)
+        if t is not None and t not in (*NUMBER_TYPES, *MOMENT_TYPES):
+            err("field_not_allowed", key, f"`{key}` бывает только у int, float, date, time и datetime")
+        elif t in MOMENT_TYPES:
+            problem = _moment_problem(t, v)
             if problem:
-                err("bad_value", key, f"`{key}` у date: {problem}")
+                err("bad_value", key, f"`{key}` у {t}: {problem}")
         elif t == "int" and not _is_int(v):
             err("bad_value", key, f"`{key}` у int должен быть целым")
         elif not _is_number(v):
             err("bad_value", key, f"`{key}` должен быть числом")
-    if t == "date":
-        if isinstance(lo, str) and isinstance(hi, str) and not _date_problem(lo) and not _date_problem(hi) and lo > hi:
+    if t in MOMENT_TYPES:
+        if isinstance(lo, str) and isinstance(hi, str) and not _moment_problem(t, lo) and not _moment_problem(t, hi) and lo > hi:
             err("bad_range", "min", f"min = {lo} позже max = {hi}")
     elif _is_number(lo) and _is_number(hi) and lo > hi:
         err("bad_range", "min", f"min = {lo} больше max = {hi}")
@@ -535,25 +595,51 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
 
     max_items = raw.get("max_items")
     if max_items is not None:
-        if t is not None and t not in LIST_TYPES:
-            err("field_not_allowed", "max_items", "`max_items` бывает только у url_list и string_list")
+        if t is not None and t not in (*LIST_TYPES, "multi_enum"):
+            err("field_not_allowed", "max_items", "`max_items` бывает только у url_list, string_list и multi_enum")
         elif not _is_int(max_items) or max_items < 1:
             err("bad_value", "max_items", "`max_items` должен быть целым не меньше 1")
 
+    min_items = raw.get("min_items")
+    if min_items is not None:
+        if t is not None and t != "multi_enum":
+            err("field_not_allowed", "min_items", "`min_items` бывает только у multi_enum")
+        elif not _is_int(min_items) or min_items < 1:
+            err("bad_value", "min_items", "`min_items` должен быть целым не меньше 1")
+        elif _is_int(max_items) and min_items > max_items:
+            err("bad_range", "min_items", f"min_items = {min_items} больше max_items = {max_items}")
+
     choices = raw.get("choices")
-    if t == "enum":
+    values: list[str] = []
+    titles: list[tuple[str, str]] = []
+    if t in CHOICE_TYPES:
+        problem = None
         if choices is None:
-            err("missing_field", "choices", "у enum обязателен список `choices`")
-        elif (
-            not isinstance(choices, list)
-            or not choices
-            or not all(isinstance(c, str) and c for c in choices)
-        ):
-            err("bad_value", "choices", "`choices` должен быть непустым списком непустых строк")
-        elif len(set(choices)) != len(choices):
+            err("missing_field", "choices", f"у {t} обязателен список `choices`")
+        elif not isinstance(choices, list) or not choices:
+            problem = "`choices` должен быть непустым списком"
+        else:
+            for c in choices:
+                if isinstance(c, str) and c:
+                    values.append(c)
+                    titles.append((c, c))
+                elif (
+                    isinstance(c, dict) and set(c) <= {"value", "title"}
+                    and isinstance(c.get("value"), str) and c["value"]
+                    and isinstance(c.get("title"), str) and c["title"].strip()
+                ):
+                    values.append(c["value"])
+                    titles.append((c["value"], c["title"]))
+                else:
+                    problem = ("вариант в `choices`: непустая строка или таблица "
+                               "{ value = \"...\", title = \"...\" } с непустыми value и title")
+                    break
+        if problem:
+            err("bad_value", "choices", problem)
+        elif choices is not None and len(set(values)) != len(values):
             err("bad_value", "choices", "в `choices` есть повторы")
     elif choices is not None and t is not None:
-        err("field_not_allowed", "choices", "`choices` бывает только у enum")
+        err("field_not_allowed", "choices", "`choices` бывает только у enum и multi_enum")
 
     default = raw.get("default")
     table_input = raw.get("input")
@@ -612,7 +698,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
         min=lo,
         max=hi,
         max_items=max_items,
-        choices=tuple(choices) if choices is not None else None,
+        choices=tuple(values) if choices is not None else None,
+        choice_titles=tuple(titles) if any(isinstance(c, dict) for c in choices or ()) else None,
+        min_items=min_items,
         columns=tuple(columns) if columns is not None else None,
         max_rows=max_rows,
         secret=bool(secret),
@@ -692,6 +780,17 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
                     v = f"{since[0]}.{since[1]}"
                     issues.append(Issue("field_needs_minor", f"params[{i}].{key}",
                                         f"поле `{key}` есть в контракте с версии {v}: укажите contract = \"{v}\""))
+            if not isinstance(raw, dict) or declared >= (1, 3):
+                continue
+            if isinstance(raw.get("choices"), list) and any(isinstance(c, dict) for c in raw["choices"]):
+                issues.append(Issue("field_needs_minor", f"params[{i}].choices",
+                                    "подписи вариантов `{ value, title }` есть в контракте с версии 1.3: укажите contract = \"1.3\""))
+            if t in ("date", "datetime") and relative.is_relative(raw.get("default"), t):
+                issues.append(Issue("field_needs_minor", f"params[{i}].default",
+                                    "относительная дата в `default` есть в контракте с версии 1.3: укажите contract = \"1.3\""))
+            if "min_items" in raw:
+                issues.append(Issue("field_needs_minor", f"params[{i}].min_items",
+                                    "`min_items` есть в контракте с версии 1.3: укажите contract = \"1.3\""))
 
     name = data.get("name")
     if name is None:

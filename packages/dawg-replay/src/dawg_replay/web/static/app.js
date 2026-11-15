@@ -329,3 +329,20 @@
     if (done) done.click();
   });
 })();
+
+// Поле даты: выбрано выражение («вчера», «начало месяца») — поле точной даты прячется,
+// у datetime показывается время к выражению. Без скрипта видны оба поля, сервер берёт выражение.
+(function () {
+  "use strict";
+  function sync(box) {
+    var rel = box.querySelector("select");
+    if (!rel) return;
+    var relative = rel.value !== "";
+    Array.prototype.forEach.call(box.querySelectorAll("[data-exact]"), function (el) { el.hidden = relative; });
+    Array.prototype.forEach.call(box.querySelectorAll("[data-relative]"), function (el) { el.hidden = !relative; });
+  }
+  document.addEventListener("change", function (e) {
+    var box = e.target.closest && e.target.closest("[data-moment]");
+    if (box) sync(box);
+  });
+})();

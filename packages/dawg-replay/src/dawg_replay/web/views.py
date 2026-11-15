@@ -72,9 +72,34 @@ def run_status_view(run: dict[str, Any]) -> dict[str, str]:
     return {**status_view(run.get("label")), "title": ""}
 
 
+def ru_moment(value: Any) -> str:
+    """Дата, время или выражение для человека: 2026-11-01 -> 01.11.2026, 2026-11-01T09:30 -> 01.11.2026 09:30,
+    today-1 -> вчера, 09:30 -> 09:30."""
+    from dawg_replay_kit import relative
+
+    if not value:
+        return value
+    text = str(value)
+    if relative.is_relative(text, "datetime"):
+        return relative.title(text)
+    day, sep, t = text.partition("T")
+    if len(day) == 10 and day[4] == "-" and day[7] == "-":
+        return ".".join(reversed(day.split("-"))) + (f" {t}" if sep else "")
+    return text
+
+
 def ticks(text: str | None) -> str:
     """`имя` из текста ошибки в «имя»: в простом тексте обратные кавычки выглядят мусором."""
     return re.sub(r"`([^`\n]+)`", r"«\1»", text) if text else ""
+
+
+HISTORY_CSV_LIMIT = 10000
+
+
+def _local(value: str | None) -> str:
+    """ISO UTC из БД в местное время для таблицы: «2026-11-15 18:43:07»."""
+    dt = parse_ts(value) if value else None
+    return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S") if dt else ""
 
 
 def when(value: str | None, now: datetime | None = None) -> str:
@@ -165,10 +190,20 @@ def runs_active(request: Request) -> bool:
         return False
 
 
+def _versions() -> dict[str, str]:
+    """Версии в подвале каждой страницы: какое приложение и kit сейчас запущены."""
+    import dawg_replay
+    import dawg_replay_kit
+    from dawg_replay_kit.manifest import contract_versions
+
+    return {"app": dawg_replay.__version__, "kit": dawg_replay_kit.__version__, "contract": ", ".join(contract_versions())}
+
+
 def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env = templates.env
     env.globals["csrf_token"] = secrets_.csrf
     env.globals["runs_active"] = runs_active
+    env.globals["versions"] = _versions()
     env.filters["when"] = when
     env.filters["when_next"] = when_next
     env.filters["status"] = status_view
@@ -183,7 +218,8 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["type_words"] = lambda types: ", ".join(
         f"«{c}» {COLUMN_TYPE_WORDS.get(t, t)}" for c, t in (types or {}).items())
     env.filters["ticks"] = ticks
-    env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
+    env.filters["ru_date"] = ru_moment
+    env.filters["choice_title"] = lambda value, fl: dict(fl.choice_titles or ()).get(value, value)
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
@@ -316,6 +352,41 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             runs = repair.annotate(app, [r.to_dict() for r in app.runs.list(name, 20)])
         run_screen.mark_questions(run_screen.views_of(request), runs)
         return fragment(request, "_script_runs.html", sname=name, runs=runs)
+
+    def script_runs_csv(request: Request) -> Response:
+        """История запусков скрипта в CSV для Excel: BOM, «;», местное время."""
+        import csv
+        import io
+
+        from dawg_replay import repair as repair_mod
+
+        name = request.path_params["name"]
+        with _ui(request).open_app() as app:
+            try:
+                app.registry.get(name)
+            except ReplayError as e:
+                return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            runs = [r.to_dict() for r in app.runs.list(name, HISTORY_CSV_LIMIT)]
+            repair_mod.annotate_items(app, runs)
+            counts = {r["id"]: repair_mod.scan(app.paths.run_dir(r["id"])).count for r in runs}
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+        w.writerow(["Запуск", "Статус", "Начат", "Закончен", "Версия", "Пресет", "Как запущен", "Записей",
+                    "Строк сделано", "Строк всего", "Итог", "Ошибка"])
+        for r in runs:
+            items = r.get("items") or {}
+            w.writerow([
+                r["id"], status_view(r["label"])["text"], _local(r["created_at"]), _local(r["finished_at"]),
+                r["version"] or "", r["preset"] or "", "по расписанию" if r["trigger"] == "schedule" else "вручную",
+                "" if counts.get(r["id"]) is None else counts[r["id"]],
+                items.get("ok", "") if items else "", items.get("total", "") if items else "",
+                r["summary"] or "", r["error"] or "",
+            ])
+        from urllib.parse import quote
+
+        fname = f"{name}-запуски.csv"
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename=\"runs.csv\"; filename*=UTF-8''{quote(fname)}"})
 
     async def script_run(request: Request) -> Response:
         """«Запустить»: форма разбирается forms.submit; при ошибках запуск не создаётся."""
@@ -738,10 +809,12 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         def work() -> Response:
             with _ui(request).open_app() as app:
                 try:
-                    app.update_limits(form.get("max_parallel_runs", ""), form.get("max_timeout_minutes", ""))
+                    app.update_limits(form.get("max_parallel_runs", ""), form.get("max_timeout_minutes", ""),
+                                      form.get("rows_preview_limit"), form.get("log_limit"))
+                    request.app.state.ui.run_views = None  # новые лимиты действуют на открываемые запуски
                     return fragment(request, "_limits.html", s=app.settings_view(), saved=True)
                 except ReplayError as e:
-                    keys = ("max_parallel_runs", "max_timeout_minutes")
+                    keys = ("max_parallel_runs", "max_timeout_minutes", "rows_preview_limit", "log_limit")
                     view = {**app.settings_view(), **{k: form.get(k, "") for k in keys}}
                     return fragment(request, "_limits.html", s=view, error=e.message)
 
@@ -792,6 +865,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}", script_page),
         Route("/scripts/{name}/_form", script_form),
         Route("/scripts/{name}/_runs", script_runs),
+        Route("/scripts/{name}/runs.csv", script_runs_csv),
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}", script_table_upload, methods=["POST"]),

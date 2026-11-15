@@ -7,20 +7,43 @@
       <span>{{ fl.title }}</span>
     </label>
   {% else %}
-    <label for="{{ fid }}">{{ fl.title }}{% if fl.required %} <span class="req">обязательное</span>{% endif %}</label>
+    <label id="{{ fid }}-label" for="{{ fid }}{% if fl.widget == 'checkboxes' %}-1{% endif %}">{{ fl.title }}{% if fl.required %} <span class="req">обязательное</span>{% endif %}</label>
     {% if fl.widget == "textarea" %}
       <textarea id="{{ fid }}" name="{{ fl.name }}" rows="{{ 5 if fl.type == 'text' else 4 }}" spellcheck="{{ 'true' if fl.type == 'text' else 'false' }}"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>{{ fl.value }}</textarea>
     {% elif fl.widget == "select" %}
       <select id="{{ fid }}" name="{{ fl.name }}"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
         {% if not fl.required and fl.default is none %}<option value="" {% if not fl.value %}selected{% endif %}>не выбрано</option>{% endif %}
-        {% for c in fl.choices %}<option value="{{ c }}" {% if fl.value == c %}selected{% endif %}>{{ c }}</option>{% endfor %}
+        {% for c, title in fl.choice_titles %}<option value="{{ c }}" {% if fl.value == c %}selected{% endif %}>{{ title }}</option>{% endfor %}
       </select>
+    {% elif fl.widget == "checkboxes" %}
+      <div class="choices" role="group" aria-labelledby="{{ fid }}-label"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        {% for c, title in fl.choice_titles %}
+        <label class="check" for="{{ fid }}-{{ loop.index }}">
+          <input id="{{ fid }}-{{ loop.index }}" name="{{ fl.name }}" type="checkbox" value="{{ c }}" {% if c in fl.value %}checked{% endif %}>
+          <span>{{ title }}</span>
+        </label>
+        {% endfor %}
+      </div>
+    {% elif fl.widget == "time" %}
+      <input id="{{ fid }}" name="{{ fl.name }}" type="time" value="{{ fl.value }}"
+             {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
     {% elif fl.widget == "password" %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="password" autocomplete="new-password" spellcheck="false"
              placeholder="{{ 'задан, оставьте пустым, чтобы не менять' if fl.secret_set else 'введите значение' }}"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
-    {% elif fl.widget == "date" %}
-      <input id="{{ fid }}" name="{{ fl.name }}" type="date" value="{{ fl.value }}"
-             {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+    {% elif fl.widget in ("date", "datetime") %}
+      <div class="moment" data-moment>
+        <select id="{{ fid }}-rel" name="{{ fl.name }}__rel" aria-label="{{ fl.title }}: точная или относительная дата">
+          <option value="" {% if not fl.relative %}selected{% endif %}>{{ "точная дата" if fl.widget == "date" else "точные дата и время" }}</option>
+          {% for o in fl.rel_options %}<option value="{{ o.value }}" {% if fl.relative == o.value %}selected{% endif %}>{{ o.title }} (сегодня это {{ o.today | ru_date }})</option>{% endfor %}
+        </select>
+        <input id="{{ fid }}" name="{{ fl.name }}" type="{{ 'date' if fl.widget == 'date' else 'datetime-local' }}" value="{{ fl.value }}" data-exact{% if fl.relative %} hidden{% endif %}
+               {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+        {% if fl.widget == "datetime" %}
+        <label class="sr" for="{{ fid }}-reltime">Время для относительной даты</label>
+        <input id="{{ fid }}-reltime" name="{{ fl.name }}__reltime" type="time" value="{{ fl.rel_time }}" title="Время для относительной даты" data-relative{% if not fl.relative %} hidden{% endif %}>
+        {% endif %}
+      </div>
+      <p class="hint">Относительная дата считается в момент каждого запуска, по расписанию тоже: «вчера» в пресете всегда значит вчерашний день.{% if fl.widget == "datetime" %} Время рядом с ней: без него 00:00.{% endif %}</p>
     {% elif fl.widget == "table" %}
       {% set t = fl.table if fl.table and not fl.table.failed else none %}
       <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">
@@ -97,12 +120,15 @@
   {% if fl.widget == "number" and fl.min is not none and fl.max is not none %}{% set _ = rules.append("от " ~ fl.min ~ " до " ~ fl.max) %}
   {% elif fl.widget == "number" and fl.min is not none %}{% set _ = rules.append("не меньше " ~ fl.min) %}
   {% elif fl.widget == "number" and fl.max is not none %}{% set _ = rules.append("не больше " ~ fl.max) %}{% endif %}
-  {% if fl.widget == "date" and fl.min is not none and fl.max is not none %}{% set _ = rules.append("от " ~ (fl.min | ru_date) ~ " до " ~ (fl.max | ru_date)) %}
-  {% elif fl.widget == "date" and fl.min is not none %}{% set _ = rules.append("не раньше " ~ (fl.min | ru_date)) %}
-  {% elif fl.widget == "date" and fl.max is not none %}{% set _ = rules.append("не позже " ~ (fl.max | ru_date)) %}{% endif %}
+  {% if fl.widget in ("date", "datetime", "time") and fl.min is not none and fl.max is not none %}{% set _ = rules.append("от " ~ (fl.min | ru_date) ~ " до " ~ (fl.max | ru_date)) %}
+  {% elif fl.widget in ("date", "datetime", "time") and fl.min is not none %}{% set _ = rules.append("не раньше " ~ (fl.min | ru_date)) %}
+  {% elif fl.widget in ("date", "datetime", "time") and fl.max is not none %}{% set _ = rules.append("не позже " ~ (fl.max | ru_date)) %}{% endif %}
+  {% if fl.widget == "checkboxes" and fl.min_items and fl.max_items %}{% set _ = rules.append("выберите от " ~ fl.min_items ~ " до " ~ fl.max_items) %}
+  {% elif fl.widget == "checkboxes" and fl.min_items %}{% set _ = rules.append("выберите хотя бы " ~ fl.min_items) %}
+  {% elif fl.widget == "checkboxes" and fl.max_items %}{% set _ = rules.append("не больше " ~ fl.max_items) %}{% endif %}
   {% if fl.widget == "table" %}{% if "file" in (fl.inputs or ["file"]) %}{% set _ = rules.append("файл .csv, .tsv, .xlsx или .json, первая строка шапка" ~ (", лист «" ~ fl.sheet ~ "»" if fl.sheet is string else (", лист " ~ fl.sheet if fl.sheet else ""))) %}{% endif %}{% if fl.column_types %}{% set _ = rules.append("типы: " ~ fl.column_types | type_words) %}{% endif %}{% if fl.columns %}{% set _ = rules.append("нужны колонки " ~ ("«" ~ fl.columns | join("», «") ~ "»")) %}{% endif %}{% set _ = rules.append("не больше " ~ fl.max_rows ~ " строк") %}{% endif %}
   {% if fl.type in ("url_list", "string_list") %}{% set _ = rules.append("по одному " ~ ("адресу" if fl.type == "url_list" else "значению") ~ " на строку" ~ (", не больше " ~ fl.max_items if fl.max_items else "")) %}{% endif %}
-  {% if fl.default is not none and fl.widget not in ("checkbox", "password", "table") and fl.default != "" and fl.default != [] %}{% set _ = rules.append("по умолчанию " ~ (fl.default | ru_date if fl.widget == "date" else (fl.default | join(", ") if fl.default is sequence and fl.default is not string else fl.default))) %}{% endif %}
+  {% if fl.default is not none and fl.widget not in ("checkbox", "password", "table") and fl.default != "" and fl.default != [] %}{% set _ = rules.append("по умолчанию " ~ (fl.default | ru_date if fl.widget in ("date", "datetime") else ((fl.default | map("choice_title", fl) | join(", ")) if fl.widget == "checkboxes" else ((fl.default | choice_title(fl)) if fl.widget == "select" else (fl.default | join(", ") if fl.default is sequence and fl.default is not string else fl.default))))) %}{% endif %}
   {% if rules %}<p class="hint">{{ (rules | join(", ")) | capitalize_first }}.</p>{% endif %}
   {% if fl.widget == "password" %}<p class="hint">Секрет {{ "задан" if fl.secret_set else "не задан" }}. Он хранится в системном хранилище паролей и на экран не возвращается.</p>{% endif %}
 </div>

@@ -35,7 +35,7 @@
 </section>
 
 <section class="card" aria-labelledby="runs-title">
-  <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}</div>
+  <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}{% if v.runs %}<a class="button button-secondary small" href="/scripts/{{ s.name | urlencode }}/runs.csv" download>История в CSV</a>{% endif %}</div>
   {% set sname = s.name %}{% set runs = v.runs %}
   {% include "_script_runs.html" %}
 </section>

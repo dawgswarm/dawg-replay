@@ -54,7 +54,7 @@ PANELS_BY_KIND = {
     "item": ("items",),
     "artifact": ("files",),
     "browsers": ("head",),
-    "result": ("result",),
+    "result": ("result", "files"),
     "ask": ("ask", "head"),
     "run": ("head", "ask", "result", "repair", "suspects", "files", "trail", "items"),
 }
@@ -109,6 +109,7 @@ class Views:
         with state.open_app() as app:
             rec = app.runs.get(run_id)  # ReplayError для неизвестного id
             rows_limit = app.config.rows_preview_limit
+            log_limit = app.config.log_limit
             run_dir = app.paths.run_dir(run_id)
             try:
                 title = app.registry.version(rec.script_name, rec.script_version).title if not rec.draft else rec.script_name
@@ -142,7 +143,7 @@ class Views:
             info["table_rows"] = repair.table_size(run_dir, rec_.params)
             return info
 
-        return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
+        return RunView(run_dir, rows_limit=rows_limit, log_limit=log_limit, run_info=run_info)
 
 
 def _retry_view(state: Any, rec: Any) -> dict[str, Any] | None:
@@ -297,6 +298,88 @@ def _cell_csv(value: Any) -> Any:
     return value
 
 
+# Что показываем прямо на экране запуска. SVG нет: в нём бывают скрипты. HTML не превьюим.
+PREVIEW_MIMES = {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
+# Своя политика для превью: ничего не грузит и не исполняет, во фрейм только своей страницы.
+PREVIEW_CSP = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'self'; sandbox"
+PDF_CSP = "default-src 'none'; frame-ancestors 'self'"
+
+
+def preview_kind(mime: str | None) -> str | None:
+    if mime not in PREVIEW_MIMES:
+        return None
+    return "pdf" if mime == "application/pdf" else "image"
+
+
+def zip_stream(output_dir: Path, chunk: int = 1 << 16):
+    """Zip каталога результатов потоком, без временного файла. Только обычные файлы внутри
+    output (символические ссылки наружу и сами ссылки пропускаются). Секретов в output
+    приложение не кладёт: параметры с секретами живут во временном каталоге вне запуска."""
+    import zipfile
+
+    class Sink:
+        def __init__(self) -> None:
+            self.parts: list[bytes] = []
+            self.pos = 0
+
+        def write(self, b: bytes) -> int:
+            self.parts.append(bytes(b))
+            self.pos += len(b)
+            return len(b)
+
+        def tell(self) -> int:
+            return self.pos
+
+        def flush(self) -> None:
+            pass
+
+        def take(self) -> bytes:
+            out = b"".join(self.parts)
+            self.parts.clear()
+            return out
+
+    root = output_dir.resolve()
+    sink = Sink()
+    with zipfile.ZipFile(sink, "w", compression=zipfile.ZIP_DEFLATED) as zf:  # type: ignore[arg-type]
+        for path in sorted(root.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                rel = path.resolve().relative_to(root)
+            except (ValueError, OSError):
+                continue
+            with open(path, "rb") as src, zf.open(rel.as_posix(), "w", force_zip64=True) as dst:
+                while True:
+                    data = src.read(chunk)
+                    if not data:
+                        break
+                    dst.write(data)
+                    if sink.pos and len(sink.parts) > 8:
+                        yield sink.take()
+            yield sink.take()
+    yield sink.take()
+
+
+def items_xlsx(rows: list[dict[str, Any]]) -> bytes:
+    """Отчёт по строкам в xlsx: те же колонки, что в CSV."""
+    import io
+
+    from openpyxl import Workbook
+
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("Строки")
+    numbered = any(r.get("row") is not None and str(r["key"]) != str(r["row"]) for r in rows)
+    ws.append(["Строка", "Номер в таблице", "Статус", "Сообщение"] if numbered else ["Строка", "Статус", "Сообщение"])
+    for r in rows:
+        cells: list[Any] = [_cell_csv(r["key"])]
+        if numbered:
+            cells.append("" if r.get("row") is None else r["row"])
+        ws.append([*cells, ITEM_WORDS.get(r["status"], r["status"]), _cell_csv(r.get("msg") or "")])
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def items_csv(rows: list[dict[str, Any]]) -> str:
     """Отчёт по строкам для Excel: BOM, разделитель «;», статусы словами."""
     import csv
@@ -321,6 +404,7 @@ def setup(templates: Jinja2Templates) -> None:
     env.filters["value"] = value_text
     env.filters["cell"] = cell
     env.tests["number"] = is_number
+    env.filters["preview_kind"] = preview_kind
     env.filters["size"] = size_text
     env.filters["markdown"] = markdown
     env.globals["REASONS"] = REASONS
@@ -329,6 +413,42 @@ def setup(templates: Jinja2Templates) -> None:
     env.globals["ITEM_KINDS"] = ITEM_KINDS
     env.filters["items_shown"] = items_shown
     env.filters["log_count"] = log_count
+
+
+def params_view(app: Any, run: dict[str, Any]) -> list[dict[str, str]]:
+    """Значения параметров запуска для людей: подписи из манифеста этой версии, варианты enum
+    подписями, даты в местном виде (относительная дата уже вычислена), таблица числом строк.
+    Секретов и секретных таблиц в истории нет, поэтому и здесь их нет."""
+    from dawg_replay.values import rows_word
+    from dawg_replay.web.views import ru_moment
+
+    params = run.get("params") or {}
+    if not params:
+        return []
+    try:
+        manifest = app.registry.manifest(run["script"], run.get("version")) if not run.get("draft") else None
+    except ReplayError:
+        manifest = None
+    by_name = {p.name: p for p in manifest.params} if manifest else {}
+    out = []
+    for name, value in params.items():
+        p = by_name.get(name)
+        if isinstance(value, bool):
+            text = "да" if value else "нет"
+        elif p is not None and p.type == "enum":
+            text = p.choice_title(value)
+        elif p is not None and p.type == "multi_enum":
+            text = ", ".join(p.choice_title(v) for v in value) or "ничего не выбрано"
+        elif isinstance(value, list) and value and all(isinstance(r, dict) for r in value):
+            text = "таблица, " + rows_word(len(value))
+        elif isinstance(value, list):
+            text = ", ".join(str(v) for v in value)
+        elif p is not None and p.type in ("date", "datetime"):
+            text = ru_moment(value)
+        else:
+            text = str(value)
+        out.append({"title": p.title if p else name, "value": text})
+    return out
 
 
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -468,6 +588,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         ctx = context(snap)
         ctx["panels"] = render_panels(templates, snap, set(PANELS))
         ctx["log_html"] = render_log(templates, snap["log"])
+        with request.app.state.ui.open_app() as app:
+            # Параметры не входят в снимок (он идёт и в поток событий): берутся из записи запуска.
+            ctx["run_params"] = params_view(app, app.runs.get(request.path_params["run_id"]).to_dict())
         return page(request, "run/run.html", **ctx)
 
     async def run_events(request: Request) -> Response:
@@ -494,6 +617,50 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             return Response("Файла нет среди результатов этого запуска.", status_code=404, media_type="text/plain; charset=utf-8")
         mime = listed[rel].get("mime") or "application/octet-stream"
         return FileResponse(full, media_type=mime, filename=full.name)
+
+    def view_file(request: Request) -> Response:
+        """Картинка или PDF из результатов для показа на экране запуска (inline)."""
+        rel = request.path_params["path"]
+        try:
+            view = get_view(request)
+        except ReplayError as e:
+            return Response(e.message, status_code=404)
+        view.poll()
+        listed = {a["path"]: a for a in view.artifacts}
+        kind = preview_kind(listed[rel].get("mime")) if rel in listed else None
+        full = safe_output_file(view.output_dir, rel) if kind else None
+        if full is None:
+            return Response("Этот файл нельзя показать здесь, его можно скачать.", status_code=404,
+                            media_type="text/plain; charset=utf-8")
+        headers = {"content-security-policy": PDF_CSP if kind == "pdf" else PREVIEW_CSP,
+                   "x-frame-options": "SAMEORIGIN"}
+        return FileResponse(full, media_type=listed[rel]["mime"], filename=full.name,
+                            content_disposition_type="inline", headers=headers)
+
+    def output_zip(request: Request) -> Response:
+        try:
+            view = get_view(request)
+        except ReplayError as e:
+            return Response(e.message, status_code=404)
+        if not view.output_dir.is_dir():
+            return Response("Скрипт не сохранял файлов.", status_code=404, media_type="text/plain; charset=utf-8")
+        from urllib.parse import quote
+
+        name = f"{request.path_params['run_id']}.zip"
+        return StreamingResponse(zip_stream(view.output_dir), media_type="application/zip",
+                                 headers={"Content-Disposition": f"attachment; filename=\"{name}\"; filename*=UTF-8''{quote(name)}"})
+
+    def items_report_xlsx(request: Request) -> Response:
+        try:
+            view = get_view(request)
+        except ReplayError as e:
+            return Response(e.message, status_code=404)
+        rows = (view.snapshot().get("items") or {}).get("rows") or []
+        from urllib.parse import quote
+
+        name = f"{request.path_params['run_id']}-строки.xlsx"
+        return Response(items_xlsx(rows), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f"attachment; filename=\"items.xlsx\"; filename*=UTF-8''{quote(name)}"})
 
     def items_report(request: Request) -> Response:
         try:
@@ -663,6 +830,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/runs/{run_id}/files/{path:path}", download),
         Route("/runs/{run_id}/stderr.log", stderr_log),
         Route("/runs/{run_id}/items.csv", items_report),
+        Route("/runs/{run_id}/items.xlsx", items_report_xlsx),
+        Route("/runs/{run_id}/view/{path:path}", view_file),
+        Route("/runs/{run_id}/output.zip", output_zip),
         Route("/runs/{run_id}/retry-failed", retry_failed, methods=["POST"]),
         Route("/runs/{run_id}/open-folder", open_dir, methods=["POST"]),
         Route("/runs/{run_id}/cancel", cancel, methods=["POST"]),

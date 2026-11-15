@@ -27,6 +27,7 @@
   <div class="items-tools">
     {% if c.failed %}<label class="items-filter"><input type="checkbox" data-items-failed> только упавшие</label>{% endif %}
     <a class="button button-secondary small" href="/runs/{{ run.id }}/items.csv" download>Скачать отчёт CSV</a>
+    <a class="button button-secondary small" href="/runs/{{ run.id }}/items.xlsx" download>XLSX</a>
   </div>
   {% if shown | length < c.total %}<p class="hint">Показаны {{ shown | length | value }} из {{ c.total | value }}: все упавшие и последние сделанные. Полный отчёт в CSV.</p>{% endif %}
   <div class="table-scroll items-scroll" tabindex="0" role="region" aria-label="Отчёт по строкам">

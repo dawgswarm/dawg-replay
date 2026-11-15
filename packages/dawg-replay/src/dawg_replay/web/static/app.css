@@ -432,7 +432,7 @@ button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem; b
 
 label { display: block; margin-bottom: 0.35rem; font-weight: 560; font-size: 0.93rem; }
 
-input[type="password"], input[type="text"], input[type="number"], input[type="url"], input[type="time"], input[type="date"], textarea, select {
+input[type="password"], input[type="text"], input[type="number"], input[type="url"], input[type="time"], input[type="date"], input[type="datetime-local"], textarea, select {
   width: 100%;
   min-height: 2.6rem;
   padding: 0.5rem 0.75rem;
@@ -452,7 +452,12 @@ input:focus-visible, textarea:focus-visible, select:focus-visible {
 }
 input::placeholder, textarea::placeholder { color: var(--ink-faint); opacity: 1; }
 input[type="number"] { max-width: 10rem; }
-input[type="date"] { max-width: 12rem; }
+input[type="date"], input[type="time"] { max-width: 12rem; }
+input[type="datetime-local"] { max-width: 16rem; }
+.moment { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.moment select { flex: 1 1 100%; }
+.moment [hidden] { display: none; }
+.choices { display: flex; flex-wrap: wrap; gap: 0.35rem 1.1rem; }
 textarea { resize: vertical; min-height: 5.5rem; line-height: 1.5; }
 select { cursor: pointer; }
 
@@ -1019,3 +1024,6 @@ a.button.small { min-height: 2rem; padding: 0.25rem 0.75rem; font-size: 0.85rem;
 main { min-width: 0; }
 code, .hint, .hint-inline, .notice { overflow-wrap: anywhere; }
 pre { max-width: 100%; overflow-x: auto; }
+
+/* Подвал: версии приложения, kit и контракта */
+.foot { margin: 0 auto; padding: 24px 16px 32px; color: var(--muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }

@@ -26,7 +26,7 @@ from __future__ import annotations
 import atexit
 import sys
 import threading
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +39,7 @@ from dawg_replay_kit.logins import LoginError
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
 
-__version__ = "1.2.0"  # мажор равен мажору контракта; версия задаётся только здесь
+__version__ = "1.3.0"  # мажор равен мажору контракта; версия задаётся только здесь
 
 __all__ = [
     "SUPPORTED_CONTRACTS",
@@ -131,8 +131,20 @@ def artifact(path: str | Path, label: str, mime: str | None = None) -> None:
     _runtime().events.artifact(path, label, mime)
 
 
-def result(status: str, summary: str) -> None:
-    _runtime().events.result(status, summary)
+def result(
+    status: str,
+    summary: str,
+    count: int | None = None,
+    links: Sequence[Mapping[str, Any]] | None = None,
+    main: str | Path | None = None,
+) -> None:
+    """Итог запуска: `ok`, `partial` или `failed` и короткий текст.
+
+    Необязательно: `count` сколько записей или строк собрано (по нему приложение замечает
+    тихую поломку), `links` список {"title": ..., "url": ...}, `main` главный файл результата
+    в kit.output_dir: на экране запуска кнопка «Открыть результат» первой.
+    """
+    _runtime().events.result(status, summary, count, links, main)
 
 
 def ask(

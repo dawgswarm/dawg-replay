@@ -281,10 +281,10 @@ def test_for_run_with_app(app, home):
     (run_dir / "output").mkdir(parents=True)
     write(run_dir, ev("stage", name="A"))
     (run_dir / "insurance.json").write_text(json.dumps({"suspects": [{"session_id": "z", "started_at": "t"}]}), encoding="utf-8")
-    app.set_config("rows_preview_limit", "3")
+    app.set_config("rows_preview_limit", "10")
     v = RunView.for_run(app, rid)
     s = v.snapshot()
-    assert v.rows_limit == 3
+    assert v.rows_limit == 10 and v.log_limit == 2000
     assert s["run"]["status"] == "running" and s["run"]["id"] == rid
     assert [x["session_id"] for x in s["run"]["suspects"]] == ["z"]
     app.runs.finish(rid, status="ok", reason=None, summary="готово")
