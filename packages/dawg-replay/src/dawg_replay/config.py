@@ -23,7 +23,8 @@ class Config:
     cancel_grace_seconds: int = 15
     # Сколько плановый запуск (и run --wait) ждёт свободного слота, потом пропускается.
     wait_slot_minutes: int = 30
-    rows_preview_limit: int = 500
+    rows_preview_limit: int = 500  # строк превью на таблицу на экране запуска
+    log_limit: int = 2000  # последних записей журнала на экране запуска
     # Только для разработки: путь к packages/dawg-replay-kit, см. dawg_replay.devkit.
     dev_kit_source: str = ""
 
@@ -33,8 +34,14 @@ class Config:
 
 _FIELDS = {f.name: f for f in fields(Config)}
 
+# Границы целых настроек: (min, max, что это). Больше max страница запуска тормозит, меньше min бесполезно.
+BOUNDS: dict[str, tuple[int, int, str]] = {
+    "rows_preview_limit": (10, 10000, "строк превью на таблицу"),
+    "log_limit": (100, 20000, "записей журнала на экране запуска"),
+}
 
-def _coerce(key: str, raw: Any) -> Any:
+
+def _coerce(key: str, raw: Any, strict: bool = True) -> Any:
     if key not in _FIELDS:
         raise ReplayError("unknown_config_key", f"неизвестная настройка `{key}`; есть: {', '.join(_FIELDS)}")
     want = type(getattr(Config(), key))
@@ -47,6 +54,12 @@ def _coerce(key: str, raw: Any) -> Any:
             raise ReplayError("bad_config_value", f"`{key}` должен быть целым, получено {raw!r}") from None
         if value < 1:
             raise ReplayError("bad_config_value", f"`{key}` должен быть не меньше 1")
+        if key in BOUNDS:
+            lo, hi, what = BOUNDS[key]
+            if not strict:
+                return min(max(value, lo), hi)  # старый config.toml с прежними границами не ломает запуск
+            if not lo <= value <= hi:
+                raise ReplayError("bad_config_value", f"`{key}` ({what}): от {lo} до {hi}, получено {value}")
         return value
     if not isinstance(raw, str):
         raise ReplayError("bad_config_value", f"`{key}` должен быть строкой")
@@ -64,7 +77,7 @@ def load_config(path: Path) -> Config:
         raise ReplayError("bad_config", f"{path}: ошибка TOML: {e}") from None
     cfg = Config()
     for key, raw in data.items():
-        setattr(cfg, key, _coerce(key, raw))
+        setattr(cfg, key, _coerce(key, raw, strict=False))
     return cfg
 
 

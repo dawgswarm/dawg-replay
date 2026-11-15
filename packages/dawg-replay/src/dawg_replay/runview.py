@@ -124,6 +124,7 @@ class RunView:
             }
 
         kw.setdefault("rows_limit", app.config.rows_preview_limit)
+        kw.setdefault("log_limit", app.config.log_limit)
         return cls(run_dir, run_info=run_info, **kw)
 
     # --- состояние ---------------------------------------------------------------
@@ -174,6 +175,7 @@ class RunView:
                 "items": self._items_view(),
                 "log": list(self.log),
                 "log_total": self.log_total,
+                "log_limit": self.log_limit,
                 "artifacts": list(self.artifacts),
                 "browsers": self._browsers(),
                 "result": self.result,
@@ -427,7 +429,8 @@ class RunView:
         status = e["status"]
         if status not in RESULT_STATUSES:
             raise ValueError(f"статус {status!r}")
-        self.result = {"status": status, "summary": str(e.get("summary", "")), "ts": e.get("ts")}
+        self.result = {"status": status, "summary": str(e.get("summary", "")), "ts": e.get("ts"),
+                       **result_extras(e, self.output_dir)}
         self._emit("result", self.result)
 
     # --- лента и изменения -------------------------------------------------------
@@ -499,6 +502,34 @@ class RunView:
                     return
             stop.wait(interval)
 
+
+def result_extras(e: dict[str, Any], output_dir: Path) -> dict[str, Any]:
+    """Необязательные поля итога (контракт 1.3): count, links, main. Неподходящее отбрасывается
+    молча: итог важнее, чем его украшения."""
+    out: dict[str, Any] = {"count": None, "links": [], "main": None}
+    count = e.get("count")
+    if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
+        out["count"] = count
+    links = e.get("links")
+    if isinstance(links, list):
+        for link in links[:MAX_LINKS]:
+            if isinstance(link, dict) and isinstance(link.get("url"), str):
+                url = link["url"].strip()
+                if url.lower().startswith(("http://", "https://")):
+                    out["links"].append({"title": str(link.get("title") or url)[:200], "url": url})
+    main = e.get("main")
+    if isinstance(main, str) and main:
+        root = output_dir.resolve()
+        try:
+            rel = (root / main).resolve().relative_to(root)
+        except (ValueError, OSError, RuntimeError):
+            rel = None
+        if rel is not None:
+            out["main"] = rel.as_posix()
+    return out
+
+
+MAX_LINKS = 20
 
 _RUN_FIELDS = (
     "id", "script", "version", "draft", "status", "reason", "label", "created_at",

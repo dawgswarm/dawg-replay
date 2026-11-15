@@ -42,8 +42,9 @@
       var node = fromHtml(html);
       if (node) log.appendChild(node);
     });
-    // Длинный журнал не должен тормозить страницу: на экране держим последние 2000 строк.
-    while (log.children.length > 2000) log.removeChild(log.firstElementChild);
+    // Длинный журнал не должен тормозить страницу: на экране держим последние log_limit строк (настройки).
+    var limit = parseInt(root.getAttribute("data-log-limit"), 10) || 2000;
+    while (log.children.length > limit) log.removeChild(log.firstElementChild);
     if (stick) log.scrollTop = log.scrollHeight;
     updateEmpty();
   }

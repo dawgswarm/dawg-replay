@@ -27,6 +27,12 @@
     {% endif %}
     {% if run.error %}<p class="result-reason">{{ run.error | ticks }}</p>{% endif %}
     {% if run.reason == 'not_started' %}<p class="result-hint">Запустить снова с теми же значениями не выйдет: та же ошибка. {% if run.preset %}Откройте пресет «{{ run.preset }}», поправьте значения и сохраните под тем же именем, тогда плановый запуск возьмёт их.{% else %}Поправьте значения в форме запуска или расписание скрипта.{% endif %}</p>{% endif %}
+    {% set links = (s.result or {}).get("links") or [] %}
+    {% if links %}
+    <ul class="result-links" aria-label="Ссылки из итога">
+      {% for l in links %}<li><a href="{{ l.url }}" rel="noopener noreferrer" target="_blank">{{ l.title }}</a></li>{% endfor %}
+    </ul>
+    {% endif %}
     {% include "run/_minutes.html" %}
     {% set dg = run.diagnosis %}
     {% if dg and not dg.ask_timeout %}
