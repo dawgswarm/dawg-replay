@@ -5,15 +5,8 @@ import json
 
 import pytest
 
-from dawg_replay_kit import manifest as mf
 from dawg_replay_kit.manifest import ManifestError, Param, check_value, parse_manifest
 from dawg_replay_kit.tables import TableError, convert_types, parse_table, sheet_names
-
-
-@pytest.fixture(autouse=True)
-def contract_13(monkeypatch):
-    # Версии контракта поднимает dr-83; до его мержа тесты считают, что 1.3 уже есть.
-    monkeypatch.setitem(mf.CONTRACT_MINORS, 1, max(3, mf.CONTRACT_MINORS[1]))
 
 
 def manifest(params: str, contract: str = "1.3"):

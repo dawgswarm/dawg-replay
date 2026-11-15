@@ -13,7 +13,6 @@ from dawg_replay.app import App
 from dawg_replay.uploads import Uploads
 from dawg_replay.web.security import Secrets
 from dawg_replay.web.server import create_app
-from dawg_replay_kit import manifest as mf
 
 PORT = 54338
 BASE = f"http://127.0.0.1:{PORT}"
@@ -48,8 +47,7 @@ import dawg_replay_kit as kit
 
 
 @pytest.fixture(autouse=True)
-def contract_13(monkeypatch):
-    monkeypatch.setitem(mf.CONTRACT_MINORS, 1, max(3, mf.CONTRACT_MINORS[1]))
+def script_command(monkeypatch):
     monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
 
 
