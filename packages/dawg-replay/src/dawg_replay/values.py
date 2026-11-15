@@ -147,10 +147,10 @@ def parse_row_args(
     if visible_secrets and warn is not None:
         for name in sorted(visible_secrets):
             cols = visible_secrets[name]
-            which = (f"значение колонки «{cols[0]}» набрано" if len(cols) == 1
-                     else "значения колонок " + ", ".join(f"«{c}»" for c in cols) + " набраны")
+            which = (f"значение колонки «{cols[0]}» набрано в команде и останется" if len(cols) == 1
+                     else "значения колонок " + ", ".join(f"«{c}»" for c in cols) + " набраны в команде и останутся")
             hint = " ".join(f"{c}=-" for c in cols)
-            warn(f"таблица `{name}` секретная, а {which} в команде и останется в истории терминала; "
+            warn(f"таблица `{name}` секретная, а {which} в истории терминала; "
                  f"чтобы ввести без отображения, задайте {hint}")
     if problems:
         raise ReplayError("bad_params", "строки таблиц не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems)
