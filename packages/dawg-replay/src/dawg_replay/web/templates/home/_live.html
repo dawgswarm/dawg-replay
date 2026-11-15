@@ -78,7 +78,7 @@
         {% if a.run.reason == "not_started" %}
         <a class="button small" href="/scripts/{{ a.run.script | urlencode }}{% if a.run.preset %}?preset={{ a.run.preset | urlencode }}{% endif %}#launch" title="Плановый запуск повторит ту же ошибку, пока значения не поправлены">{% if a.run.preset %}Поправить пресет{% else %}Открыть форму запуска{% endif %}</a>
         {% else %}
-        <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
+        <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this"{% if a.again_note %} hx-confirm="{{ a.again_note }}" title="{{ a.again_note }}"{% endif %}>Запустить снова</button>
         {% endif %}
       </li>
       {% endfor %}
