@@ -17,9 +17,12 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
+from dawg_replay_kit.manifest import LIST_TYPES, ROW_KEY, Manifest, Param, check_value
 
 SECRET_ENV_PREFIX = "DAWG_SECRET_"
+# Ячейки секретной таблицы короче этого не маскируются: «1», «да», «RU» встречаются
+# в событиях повсюду, их замена на *** испортила бы весь вывод и ничего бы не скрыла.
+SECRET_CELL_MIN = 4
 CLI_SOURCE = "аргументы командной строки"
 
 
@@ -72,25 +75,34 @@ class Params:
         return isinstance(name, str) and any(p.name == name for p in self._manifest.params)
 
     def secret_values(self) -> list[str]:
-        return [
-            v
-            for p in self._manifest.params
-            if p.type == "secret" and isinstance(v := self._values.get(p.name), str) and v
-        ]
+        """Что маскировать в событиях: секреты и ячейки таблиц с `secret = true`."""
+        out: list[str] = []
+        for p in self._manifest.params:
+            v = self._values.get(p.name)
+            if p.type == "secret" and isinstance(v, str) and v:
+                out.append(v)
+            elif p.type == "table" and p.secret and isinstance(v, list):
+                out += [
+                    cell
+                    for row in v if isinstance(row, dict)
+                    for key, cell in row.items()
+                    if key != ROW_KEY and isinstance(cell, str) and len(cell.strip()) >= SECRET_CELL_MIN
+                ]
+        return out
 
     def to_dict(self, mask_secrets: bool = True) -> dict[str, Any]:
-        """Заданные значения. Секреты по умолчанию заменены на `***`."""
+        """Заданные значения. Секреты и секретные таблицы по умолчанию заменены на `***`."""
         out = {}
         for p in self._manifest.params:
             if p.name in self._values:
-                out[p.name] = "***" if mask_secrets and p.type == "secret" else self._values[p.name]
+                out[p.name] = "***" if mask_secrets and p.is_secret else self._values[p.name]
         return out
 
     def __repr__(self) -> str:
         return f"Params({self.to_dict()!r})"
 
 
-TEXT_TYPES = ("string", "text", "url", "secret", "enum")
+TEXT_TYPES = ("string", "text", "url", "secret", "enum", "date")
 
 
 def is_blank(param: Param, value: Any) -> bool:
@@ -103,7 +115,7 @@ def is_blank(param: Param, value: Any) -> bool:
         return True
     if param.type in TEXT_TYPES:
         return isinstance(value, str) and not value.strip()
-    if param.type in LIST_TYPES:
+    if param.type in LIST_TYPES or param.type == "table":
         return isinstance(value, (list, tuple)) and len(value) == 0
     return False
 
@@ -142,6 +154,8 @@ def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params
             value = float(value)
         elif p.type in LIST_TYPES:
             value = list(value)
+        elif p.type == "table":
+            value = [dict(row) for row in value]
         values[p.name] = value
 
     if problems:
@@ -154,6 +168,8 @@ def _missing_hint(p: Param, source: str) -> str:
         return f"обязательный параметр «{p.title}» не задан"
     if p.type == "secret":
         return f"обязательный секрет «{p.title}» не задан, передайте его переменной {secret_env_name(p.name)}"
+    if p.type == "table":
+        return f"обязательная таблица «{p.title}» не задана, передайте {cli_flag(p.name)} файл.csv или файл.xlsx"
     return f"обязательный параметр «{p.title}» не задан, передайте {cli_flag(p.name)} или ключ в --params"
 
 
@@ -244,6 +260,11 @@ def build_arg_parser(manifest: Manifest, prog: str | None = None) -> argparse.Ar
         elif p.type in LIST_TYPES:
             kwargs["action"] = "extend"
             kwargs["nargs"] = "+"
+        elif p.type == "date":
+            kwargs["metavar"] = "ГГГГ-ММ-ДД"
+        elif p.type == "table":
+            kwargs["metavar"] = "FILE"
+            kwargs["help"] = help_text + ". Файл .csv или .xlsx, первая строка шапка"
         parser.add_argument(cli_flag(p.name), **kwargs)
     return parser
 
@@ -281,6 +302,17 @@ def from_cli(
                 given[p.name] = value
             continue
         value = getattr(ns, p.name)
+        if value is not None and p.type == "table":
+            value = _read_table_arg(p, value)
         if value is not None:
             given[p.name] = value
     return resolve(manifest, given, CLI_SOURCE)
+
+
+def _read_table_arg(p: Param, path: str) -> list[dict[str, Any]]:
+    from dawg_replay_kit.tables import TableError, read_table
+
+    try:
+        return read_table(path)
+    except TableError as e:
+        raise ParamsError(f"параметры не подходят ({CLI_SOURCE}):\n  `{p.name}`: {e}") from None

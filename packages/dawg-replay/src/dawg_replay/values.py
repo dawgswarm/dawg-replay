@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
+from dawg_replay_kit.tables import TableError, read_table
 
 from dawg_replay.errors import ReplayError
 
@@ -33,8 +34,10 @@ def read_params_file(path: str | Path) -> dict[str, Any]:
 def _convert(p: Param, raw: str) -> Any:
     """Строка из `--set` в значение нужного типа."""
     t = p.type
-    if t in ("string", "text", "secret", "enum", "url"):
+    if t in ("string", "text", "secret", "enum", "url", "date"):
         return raw
+    if t == "table":
+        return _table_value(raw)
     if t == "bool":
         low = raw.strip().lower()
         if low in ("true", "1", "yes", "да"):
@@ -61,6 +64,33 @@ def _convert(p: Param, raw: str) -> Any:
             return value
         return [raw]
     raise ValueError(f"неизвестный тип {t}")
+
+
+def _table_value(raw: str) -> list[dict[str, Any]]:
+    """`@путь` к CSV или XLSX; `[...]` готовая таблица в JSON (как в --params)."""
+    if raw.startswith("@"):
+        try:
+            return read_table(Path(raw[1:]).expanduser())
+        except TableError as e:
+            raise ValueError(str(e)) from None
+    if raw.lstrip().startswith("["):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"таблица в JSON не разобрана: {e}") from None
+    raise ValueError("таблица задаётся файлом: имя=@путь/к/файлу.xlsx или .csv")
+
+
+def table_files(manifest: Manifest, items: Iterable[str]) -> dict[str, str]:
+    """Имена файлов таблиц из `--set имя=@файл`: пресет показывает, из какого файла таблица."""
+    tables = {p.name for p in manifest.params if p.type == "table"}
+    out: dict[str, str] = {}
+    for item in items:
+        name, sep, raw = item.partition("=")
+        name = name.strip().replace("-", "_")
+        if sep and name in tables and raw.startswith("@"):
+            out[name] = Path(raw[1:]).name
+    return out
 
 
 def parse_set_args(manifest: Manifest, items: Iterable[str]) -> dict[str, Any]:
@@ -100,7 +130,7 @@ def check_partial(manifest: Manifest, values: Mapping[str, Any], allow_secrets: 
         p = by_name.get(name)
         if p is None:
             problems.append(f"`{name}`: такого параметра нет в манифесте")
-        elif p.type == "secret" and not allow_secrets:
+        elif p.is_secret and not allow_secrets:
             problems.append(f"`{name}`: секрет здесь не хранится, задайте его командой `dawg-replay secret set`")
         else:
             problem = check_value(p, value)
@@ -116,8 +146,28 @@ def filter_known(manifest: Manifest, values: Mapping[str, Any]) -> tuple[dict[st
     by_name = {p.name: p for p in manifest.params}
     for name, value in values.items():
         p = by_name.get(name)
-        if p is None or p.type == "secret" or check_value(p, value) is not None:
+        if p is None or p.is_secret or check_value(p, value) is not None:
             dropped.append(name)
         else:
             kept[name] = value
     return kept, dropped
+
+
+def brief(values: Mapping[str, Any], files: Mapping[str, str] | None = None) -> dict[str, Any]:
+    """Значения для показа человеку: таблица заменена строкой «файл, N строк», остальное как есть."""
+    files = files or {}
+    out: dict[str, Any] = {}
+    for k, v in values.items():
+        if isinstance(v, list) and v and all(isinstance(r, dict) for r in v):
+            out[k] = (f"{files[k]}, " if k in files else "таблица, ") + rows_word(len(v))
+        else:
+            out[k] = v
+    return out
+
+
+def rows_word(n: int) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return f"{n} строка"
+    if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        return f"{n} строки"
+    return f"{n} строк"
