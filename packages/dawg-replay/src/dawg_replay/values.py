@@ -34,8 +34,16 @@ def read_params_file(path: str | Path) -> dict[str, Any]:
 def _convert(p: Param, raw: str) -> Any:
     """Строка из `--set` в значение нужного типа."""
     t = p.type
-    if t in ("string", "text", "secret", "enum", "url", "date"):
+    if t in ("string", "text", "secret", "enum", "url", "date", "time", "datetime"):
         return raw
+    if t == "multi_enum":
+        # повтор `--set k=a --set k=b` или через запятую `k=a,b`; `k=[...]` JSON-список
+        if raw.lstrip().startswith("["):
+            try:
+                return json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"список в JSON не разобран: {e}") from None
+        return [x.strip() for x in raw.split(",") if x.strip()]
     if t == "table":
         return _table_value(raw)
     if t == "bool":
@@ -177,7 +185,7 @@ def parse_set_args(manifest: Manifest, items: Iterable[str]) -> dict[str, Any]:
         except ValueError as e:
             problems.append(f"`{name}`: {e}")
             continue
-        if p.type in LIST_TYPES and isinstance(out.get(name), list) and isinstance(value, list):
+        if (p.type in LIST_TYPES or p.type == "multi_enum") and isinstance(out.get(name), list) and isinstance(value, list):
             out[name] = out[name] + value
         else:
             out[name] = value

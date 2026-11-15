@@ -42,6 +42,15 @@
       </ol>
       <p class="log-empty hint">{% if running %}Сообщений пока нет.{% else %}Скрипт не писал сообщений в журнал.{% endif %}</p>
     </details>
+
+    {% if run_params %}
+    <details class="card fold run-params">
+      <summary><span class="fold-title">Параметры запуска</span><span class="hint-inline">{{ run_params | length }}</span></summary>
+      <dl class="params-list">
+        {% for p in run_params %}<div><dt>{{ p.title }}</dt><dd>{{ p.value }}</dd></div>{% endfor %}
+      </dl>
+    </details>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

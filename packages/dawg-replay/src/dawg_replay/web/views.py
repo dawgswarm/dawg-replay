@@ -70,6 +70,22 @@ def run_status_view(run: dict[str, Any]) -> dict[str, str]:
     return {**status_view(run.get("label")), "title": ""}
 
 
+def ru_moment(value: Any) -> str:
+    """Дата, время или выражение для человека: 2026-11-01 -> 01.11.2026, 2026-11-01T09:30 -> 01.11.2026 09:30,
+    today-1 -> вчера, 09:30 -> 09:30."""
+    from dawg_replay_kit import relative
+
+    if not value:
+        return value
+    text = str(value)
+    if relative.is_relative(text, "datetime"):
+        return relative.title(text)
+    day, sep, t = text.partition("T")
+    if len(day) == 10 and day[4] == "-" and day[7] == "-":
+        return ".".join(reversed(day.split("-"))) + (f" {t}" if sep else "")
+    return text
+
+
 def ticks(text: str | None) -> str:
     """`имя` из текста ошибки в «имя»: в простом тексте обратные кавычки выглядят мусором."""
     return re.sub(r"`([^`\n]+)`", r"«\1»", text) if text else ""
@@ -198,7 +214,8 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["minutes"] = minutes.fmt
     env.filters["rows_word"] = rows_word
     env.filters["ticks"] = ticks
-    env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
+    env.filters["ru_date"] = ru_moment
+    env.filters["choice_title"] = lambda value, fl: dict(fl.choice_titles or ()).get(value, value)
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
