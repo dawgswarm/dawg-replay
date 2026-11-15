@@ -145,7 +145,7 @@ def test_csv_errors(data, fragment):
 def test_header_only_and_trailing_empty_header_cells():
     assert parse_table(b"a,b,,\n", "t.csv") == []
     assert parse_table(b"a,b,\n1,2,\n", "t.csv") == [{"a": "1", "b": "2", "_row": 2}]
-    with pytest.raises(TableError, match="нужна таблица .csv или .xlsx"):
+    with pytest.raises(TableError, match="нужна таблица CSV, TSV, XLSX или JSON"):
         parse_table(b"x", "t.txt")
 
 

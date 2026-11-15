@@ -223,7 +223,7 @@ def test_form_secret_table_shows_only_name_and_count(acts):
     (b"mail\nx\n", "t.csv", "нет колонок: «email»"),
     (b"email\n" + b"\n".join(b"u@x.ru" for _ in range(6)), "t.csv", "строк 6, а можно не больше 5"),
     (b"email\n", "t.csv", "в таблице нет строк"),
-    (b"email\n", "t.txt", "нужна таблица .csv или .xlsx"),
+    (b"email\n", "t.txt", "нужна таблица CSV, TSV, XLSX или JSON"),
     (b"a,a\n1,2\n", "t.csv", "повторяется"),
 ])
 def test_form_upload_errors(acts, data, filename, fragment):
