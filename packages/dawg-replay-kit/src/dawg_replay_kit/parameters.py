@@ -350,9 +350,9 @@ def file_record(path: str | Path) -> dict[str, Any]:
 
 
 def _read_table_arg(p: Param, path: str) -> list[dict[str, Any]]:
-    from dawg_replay_kit.tables import TableError, read_table
+    from dawg_replay_kit.tables import TableError, convert_types, read_table
 
     try:
-        return read_table(path)
+        return convert_types(read_table(path, sheet=p.sheet), p.types)
     except TableError as e:
         raise ParamsError(f"параметры не подходят ({CLI_SOURCE}):\n  `{p.name}`: {e}") from None

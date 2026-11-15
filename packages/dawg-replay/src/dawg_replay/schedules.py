@@ -339,6 +339,11 @@ def preset_gap(manifest: Any, preset: Any) -> str | None:
     Обязательная секретная таблица должна быть сохранена в пресете: других источников
     у планового запуска нет. Обязательное значение без `default`, которого нет в пресете,
     тоже не придёт. Секреты (`secret`) берутся из хранилища паролей и здесь не проверяются."""
+    only_at_run = [p for p in manifest.params if p.type == "table" and p.required and "preset" not in p.inputs]
+    if only_at_run:
+        names = ", ".join(f"«{p.title}»" for p in only_at_run)
+        return (f"скрипт берёт таблицу {names} только при запуске (не из пресета), поэтому по расписанию "
+                "он не запускается")
     tables = [p for p in manifest.params
               if p.type == "table" and p.secret and p.required and p.name not in preset.secret_tables]
     if tables:

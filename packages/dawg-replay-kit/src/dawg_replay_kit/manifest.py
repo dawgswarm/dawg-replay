@@ -81,6 +81,12 @@ _FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
 _TYPE_SINCE: dict[str, tuple[int, int]] = {
     "date": (1, 2), "table": (1, 2), "time": (1, 3), "datetime": (1, 3), "multi_enum": (1, 3), "file": (1, 3),
 }
+# Поля параметров, появившиеся в минорных версиях.
+_PARAM_FIELD_SINCE: dict[str, tuple[int, int]] = {"input": (1, 3), "sheet": (1, 3), "column_types": (1, 3)}
+# table: как человек задаёт таблицу; по умолчанию все способы.
+TABLE_INPUTS = ("file", "manual", "preset")
+# table: типы колонок; без column_types все значения строки.
+COLUMN_TYPES = ("string", "int", "float", "bool", "date")
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$")
@@ -97,7 +103,7 @@ TAGS_MAX = 5
 TAG_MAX = 24
 _PARAM_KEYS = (
     "name", "type", "title", "description", "required", "default", "min", "max", "min_items", "max_items",
-    "choices", "columns", "max_rows", "secret", "accept", "max_mb", "multiple",
+    "choices", "columns", "max_rows", "secret", "input", "sheet", "column_types", "accept", "max_mb", "multiple",
 )
 
 
@@ -145,6 +151,9 @@ class Param:
     columns: tuple[str, ...] | None = None  # table: колонки, которые обязаны быть в шапке
     max_rows: int | None = None  # table: предел строк, без поля DEFAULT_MAX_ROWS
     secret: bool = False  # table: таблица целиком секрет; file: файл секретный (ключ, сертификат)
+    input: tuple[str, ...] | None = None  # table: способы ввода из TABLE_INPUTS, None = все
+    sheet: str | int | None = None  # table: лист XLSX по имени или номеру с 1, None = первый
+    column_types: tuple[tuple[str, str], ...] | None = None  # table: (колонка, тип) из COLUMN_TYPES
     choice_titles: tuple[tuple[str, str], ...] | None = None  # enum, multi_enum (1.3): (value, title)
     min_items: int | None = None  # multi_enum (1.3)
     accept: tuple[str, ...] | None = None  # file (1.3): расширения (".pdf") или mime ("image/*")
@@ -170,6 +179,16 @@ class Param:
         return int((self.max_mb if self.max_mb is not None else DEFAULT_MAX_MB) * 1024 * 1024)
 
     @property
+    def inputs(self) -> tuple[str, ...]:
+        """Способы ввода таблицы, которые объявил скрипт (без поля все)."""
+        return self.input if self.input is not None else TABLE_INPUTS
+
+    @property
+    def types(self) -> dict[str, str]:
+        """Типы колонок таблицы; колонки без типа строки."""
+        return dict(self.column_types) if self.column_types else {}
+
+    @property
     def row_limit(self) -> int:
         return self.max_rows if self.max_rows is not None else DEFAULT_MAX_ROWS
 
@@ -193,6 +212,12 @@ class Param:
             d["max_mb"] = self.max_mb
         if self.multiple:
             d["multiple"] = True
+        if self.input is not None:
+            d["input"] = list(self.input)
+        if self.sheet is not None:
+            d["sheet"] = self.sheet
+        if self.column_types is not None:
+            d["column_types"] = dict(self.column_types)
         return d
 
 
@@ -479,6 +504,31 @@ def _mb(n: int) -> str:
     return f"{n / 1024 / 1024:g}".replace(".", ",")
 
 
+def _cell_empty(cell: Any) -> bool:
+    return cell is None or (isinstance(cell, str) and not cell.strip())
+
+
+def _cell_problem(kind: str, cell: Any) -> str | None:
+    """Значение ячейки по типу колонки (column_types). Пустая типизированная ячейка это null."""
+    if kind == "string":
+        return None if isinstance(cell, str) else f"ожидается строка, получено {_type_name(cell)}"
+    if cell is None:
+        return None
+    if kind == "int":
+        ok = _is_int(cell)
+    elif kind == "float":
+        ok = isinstance(cell, (int, float)) and not isinstance(cell, bool)
+    elif kind == "bool":
+        ok = isinstance(cell, bool)
+    else:  # date
+        ok = isinstance(cell, str) and _DATE_RE.fullmatch(cell) is not None
+    return None if ok else f"ожидается {COLUMN_TYPE_WORDS[kind]}, получено {cell!r}"
+
+
+COLUMN_TYPE_WORDS = {"string": "строка", "int": "целое число", "float": "число", "bool": "да или нет",
+                     "date": "дата ГГГГ-ММ-ДД"}
+
+
 def _table_problem(param: Param, value: Any) -> str | None:
     """Таблица: список строк-объектов со строковыми значениями и номером `_row`."""
     if not isinstance(value, list):
@@ -487,6 +537,7 @@ def _table_problem(param: Param, value: Any) -> str | None:
         return "в таблице нет строк"
     if len(value) > param.row_limit:
         return f"строк {len(value)}, а max_rows = {param.row_limit}"
+    types = param.types
     for i, row in enumerate(value):
         if not isinstance(row, dict):
             return f"строка {i}: ожидается объект, получено {_type_name(row)}"
@@ -494,8 +545,11 @@ def _table_problem(param: Param, value: Any) -> str | None:
         if not _is_int(n) or n < 2:
             return f"строка {i}: нет номера `{ROW_KEY}` (целое, шапка это строка 1)"
         for key, cell in row.items():
-            if key != ROW_KEY and not isinstance(cell, str):
-                return f"строка {n}, колонка «{key}»: ожидается строка, получено {_type_name(cell)}"
+            if key == ROW_KEY:
+                continue
+            problem = _cell_problem(types.get(key, "string"), cell)
+            if problem:
+                return f"строка {n}, колонка «{key}»: {problem}"
     if param.columns:
         missing = [c for c in param.columns if c not in value[0]]
         if missing:
@@ -503,7 +557,7 @@ def _table_problem(param: Param, value: Any) -> str | None:
         # Колонки из `columns` нужны скрипту в каждой строке: строка с паролем без логина
         # упала бы потом как неверный вход. Одно правило для файла, ввода вручную и --row.
         for row in value:
-            empty = [c for c in param.columns if not str(row.get(c) or "").strip()]
+            empty = [c for c in param.columns if _cell_empty(row.get(c))]
             if empty:
                 return f"строка {row[ROW_KEY]}: " + (
                     f"пустая колонка «{empty[0]}»" if len(empty) == 1
@@ -681,6 +735,42 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
         err("field_not_allowed", "choices", "`choices` бывает только у enum и multi_enum")
 
     default = raw.get("default")
+    table_input = raw.get("input")
+    if table_input is not None:
+        if t is not None and t != "table":
+            err("field_not_allowed", "input", "`input` бывает только у table")
+        elif (
+            not isinstance(table_input, list) or not table_input
+            or not all(isinstance(x, str) and x in TABLE_INPUTS for x in table_input)
+        ):
+            err("bad_value", "input", "`input` это непустой список из " + ", ".join(f'"{x}"' for x in TABLE_INPUTS))
+        elif len(set(table_input)) != len(table_input):
+            err("bad_value", "input", "в `input` есть повторы")
+        elif "file" not in table_input and "manual" not in table_input:
+            err("bad_value", "input", 'в `input` нужен "file" или "manual": таблицу из пресета сначала откуда-то берут')
+
+    sheet = raw.get("sheet")
+    if sheet is not None:
+        if t is not None and t != "table":
+            err("field_not_allowed", "sheet", "`sheet` бывает только у table")
+        elif isinstance(sheet, bool) or not (
+            (isinstance(sheet, str) and sheet.strip()) or (_is_int(sheet) and sheet >= 1)
+        ):
+            err("bad_value", "sheet", "`sheet` это имя листа XLSX или его номер с 1")
+
+    column_types = raw.get("column_types")
+    if column_types is not None:
+        if t is not None and t != "table":
+            err("field_not_allowed", "column_types", "`column_types` бывает только у table")
+        elif not isinstance(column_types, dict) or not column_types:
+            err("bad_value", "column_types", '`column_types` это таблица { колонка = "тип" }')
+        else:
+            for col, ct in column_types.items():
+                if not isinstance(col, str) or not col.strip() or col == ROW_KEY:
+                    err("bad_value", "column_types", f"имя колонки {col!r} не подходит")
+                elif ct not in COLUMN_TYPES:
+                    err("bad_value", "column_types", f"колонка «{col}»: тип {ct!r}, допустимы: {', '.join(COLUMN_TYPES)}")
+
     if default is not None and t == "secret":
         err("field_not_allowed", "default", "у secret не бывает `default`: секрет не хранится в скрипте")
         default = None
@@ -710,6 +800,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
         columns=tuple(columns) if columns is not None else None,
         max_rows=max_rows,
         secret=bool(secret),
+        input=tuple(table_input) if table_input is not None else None,
+        sheet=sheet,
+        column_types=tuple((str(c), str(v)) for c, v in column_types.items()) if column_types is not None else None,
         accept=tuple(accept) if accept is not None else None,
         max_mb=max_mb,
         multiple=bool(multiple),
@@ -781,6 +874,11 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
                 issues.append(
                     Issue("type_needs_minor", f"params[{i}].type", f"тип `{t}` есть в контракте с версии {v}: укажите contract = \"{v}\"")
                 )
+            for key, since in _PARAM_FIELD_SINCE.items():
+                if isinstance(raw, dict) and key in raw and declared < since:
+                    v = f"{since[0]}.{since[1]}"
+                    issues.append(Issue("field_needs_minor", f"params[{i}].{key}",
+                                        f"поле `{key}` есть в контракте с версии {v}: укажите contract = \"{v}\""))
             if not isinstance(raw, dict) or declared >= (1, 3):
                 continue
             if isinstance(raw.get("choices"), list) and any(isinstance(c, dict) for c in raw["choices"]):

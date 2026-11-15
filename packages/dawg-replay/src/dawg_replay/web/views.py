@@ -23,6 +23,8 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
+from dawg_replay_kit.manifest import COLUMN_TYPE_WORDS
+
 from dawg_replay import forms, imports, minutes, repair, schedules, uistate, uploads
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
@@ -213,6 +215,8 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["run_items"] = run_items
     env.filters["minutes"] = minutes.fmt
     env.filters["rows_word"] = rows_word
+    env.filters["type_words"] = lambda types: ", ".join(
+        f"«{c}» {COLUMN_TYPE_WORDS.get(t, t)}" for c, t in (types or {}).items())
     env.filters["ticks"] = ticks
     env.filters["ru_date"] = ru_moment
     env.filters["choice_title"] = lambda value, fl: dict(fl.choice_titles or ()).get(value, value)
@@ -525,6 +529,22 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             with _ui(request).open_app() as app:
                 try:
                     out = forms.upload_file(app, name, param, files, problem=problem)
+                except ReplayError as e:
+                    return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            return fragment(request, "_table_field.html", fl=out["field"], script=name)
+
+        return await run_in_threadpool(work)
+
+    async def script_table_sheet(request: Request) -> Response:
+        """Другой лист загруженного XLSX (скрипт не объявил `sheet`, листов несколько)."""
+        name, param = request.path_params["name"], request.path_params["param"]
+        form = await _form(request)
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                    out = forms.table_sheet(app, name, param, form.get("_upload", ""), form.get("_sheet", ""))
                 except ReplayError as e:
                     return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
             return fragment(request, "_table_field.html", fl=out["field"], script=name)
@@ -900,6 +920,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/_table/{param}", script_table_upload, methods=["POST"]),
         Route("/scripts/{name}/_file/{param}", script_file_upload, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}/manual", script_table_manual, methods=["POST"]),
+        Route("/scripts/{name}/_table/{param}/sheet", script_table_sheet, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
         Route("/scripts/{name}/_schedules", script_schedules),
         Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),
