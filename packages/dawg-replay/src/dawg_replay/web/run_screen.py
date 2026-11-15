@@ -136,6 +136,7 @@ class Views:
             info["suspicion"] = need["suspicion"] if need else None
             info["repair"] = fix
             info["retry"] = _retry_view(state, rec_)
+            info["table_rows"] = repair.table_size(run_dir, rec_.params)
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
@@ -300,10 +301,14 @@ def items_csv(rows: list[dict[str, Any]]) -> str:
 
     buf = io.StringIO()
     w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
-    w.writerow(["Строка", "Номер в таблице", "Статус", "Сообщение"])
+    # Ключ это номер строки (секретная таблица): вторая колонка с тем же числом не нужна.
+    numbered = any(r.get("row") is not None and str(r["key"]) != str(r["row"]) for r in rows)
+    w.writerow(["Строка", "Номер в таблице", "Статус", "Сообщение"] if numbered else ["Строка", "Статус", "Сообщение"])
     for r in rows:
-        w.writerow([_cell_csv(r["key"]), "" if r.get("row") is None else r["row"],
-                    ITEM_WORDS.get(r["status"], r["status"]), _cell_csv(r.get("msg") or "")])
+        cells = [_cell_csv(r["key"])]
+        if numbered:
+            cells.append("" if r.get("row") is None else r["row"])
+        w.writerow([*cells, ITEM_WORDS.get(r["status"], r["status"]), _cell_csv(r.get("msg") or "")])
     return "\ufeff" + buf.getvalue()
 
 
