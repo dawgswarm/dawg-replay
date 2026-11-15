@@ -136,6 +136,10 @@ class Asker:
                 if secret and isinstance(value, str) and len(value) >= MIN_MASKED:
                     self._events.add_secret(value)
                 self._events.emit("ask_closed", id=ask_id, outcome="answered", answer=None if secret else value)
+                if secret:
+                    # Удаляем только после ask_closed: без файла и без закрытия вопрос снова выглядел бы открытым,
+                    # и приложение приняло бы на него второй ответ.
+                    _remove(path)
                 return value
             if self._clock() >= until:
                 self._events.emit("ask_closed", id=ask_id, outcome="timeout")
@@ -155,13 +159,8 @@ class Asker:
         except (ValueError, KeyError):
             answer = None
         value = _accept(answer, kind, choices)
-        if secret or value is None:
-            # Секрет не лежит на диске дольше нужного; неподходящий ответ убираем, чтобы можно было ответить заново.
-            try:
-                path.unlink()
-            except OSError:
-                pass
         if value is None:
+            _remove(path)  # неподходящий ответ убираем, чтобы можно было ответить заново
             self._events.log("warn", "ответ на вопрос не подошёл по формату, ждём другой")
         return value
 
@@ -190,6 +189,13 @@ class Asker:
             if value is not None:
                 return value
             print("Ответ не подошёл, попробуйте ещё раз.", file=out, flush=True)
+
+
+def _remove(path: Path) -> None:
+    try:
+        path.unlink()
+    except OSError:
+        pass
 
 
 def _accept(answer: Any, kind: str, choices: list[str] | None) -> str | bool | None:

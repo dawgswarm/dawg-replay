@@ -291,10 +291,11 @@ def script_run(tmp_path, body, **kw):
     return ScriptRun(f, "r1", tmp_path / "runs", command=[sys.executable], **kw)
 
 
-def wait_question(run_dir, timeout=10.0):
+def wait_question(run_dir, timeout=10.0, seen=()):
     end = time.monotonic() + timeout
     while time.monotonic() < end:
         qs = asks.waiting(run_dir)
+        assert not [q for q in qs if q.id in seen], "отвеченный вопрос снова выглядит открытым"
         if qs:
             return qs[0]
         time.sleep(0.05)
@@ -313,7 +314,7 @@ def test_end_to_end_secret_and_confirm(tmp_path):
     q = wait_question(run.run_dir)
     assert (q.question, q.secret) == ("Код из SMS", True)
     path = asks.write_answer(run.run_dir, q, "482913")
-    q2 = wait_question(run.run_dir)
+    q2 = wait_question(run.run_dir, seen={q.id})
     assert not path.exists()  # секрет kit удалил сразу после чтения
     asks.write_answer(run.run_dir, q2, True)
     outcome = run.wait(30)

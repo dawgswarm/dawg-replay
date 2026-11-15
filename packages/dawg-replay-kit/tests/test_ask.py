@@ -188,3 +188,21 @@ def test_runtime_answers_dir_from_env(script_file, tmp_path):
     k.events.close()
     k = Kit.from_environment(script, ["--query", "x"], {}, stream=io.StringIO(), cwd=tmp_path)
     assert k.asker._dir is None
+
+
+def test_secret_file_removed_only_after_ask_closed(tmp_path):
+    # Иначе между удалением и ask_closed вопрос снова выглядит открытым и приложение примет второй ответ.
+    seen = {}
+
+    class Watch(ListSink):
+        def write(self, event):
+            super().write(event)
+            if event["t"] == "ask_closed":
+                seen["exists"] = (tmp_path / "answers" / f"{event['id']}.json").exists()
+
+    sink = Watch()
+    clock = Clock(lambda n: n == 1 and put_answer(tmp_path, sink, "482913"))
+    asker = Asker(Emitter(sink, auto_flush=False), tmp_path / "answers", clock=clock, sleep=clock.sleep)
+    assert asker.ask("Код", secret=True) == "482913"
+    assert seen == {"exists": True}
+    assert list((tmp_path / "answers").iterdir()) == []
