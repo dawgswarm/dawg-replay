@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
@@ -135,6 +136,12 @@ def run_items(run: dict[str, Any], summary_shown: bool = True) -> str:
     return "" if f"{counts.get('ok', 0)}из{counts['total']}" in summary else text
 
 
+def ticks(text: Any) -> Markup:
+    """Текст ошибки ядра для страницы: `имя` в обратных кавычках становится <code>имя</code>, остальное экранируется."""
+    safe = str(escape("" if text is None else text))
+    return Markup(re.sub(r"`([^`\n]+)`", r"<code>\1</code>", safe))
+
+
 def plural(n: Any, one: str, few: str, many: str) -> str:
     """Форма слова для числа: 1 сообщение, 2 сообщения, 5 сообщений."""
     try:
@@ -171,6 +178,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["run_items"] = run_items
     env.filters["minutes"] = minutes.fmt
     env.filters["rows_word"] = rows_word
+    env.filters["ticks"] = ticks
     env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
@@ -239,7 +247,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         def work() -> Response:
             try:
-                run = ui.runs.start(name, preset=preset)
+                # Быстрый запуск формы не показывает: пресет, который новая версия принимает не целиком, не запускается.
+                run = ui.runs.start(name, preset=preset, strict_preset=True)
             except ReplayError as e:
                 what = f"«{preset}»" if preset else "без пресета"
                 return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {e.message}",
@@ -427,6 +436,10 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         data = app.schedules.list(name)
         for item in data["schedules"]:
             item["next_text"] = when_next(item["next_run"])
+            try:
+                item["outdated"] = app.get_preset(name, item["preset"]).outdated()
+            except ReplayError:
+                item["outdated"] = None
         cron_ok = app.schedules.backend.kind == "cron"
         presets = [p.name for p in app.list_presets(name)]
         values = {"preset": presets[0] if presets else "", "kind": "daily", "time": "09:00", "weekday": "1", "hours": "6", "cron": ""}

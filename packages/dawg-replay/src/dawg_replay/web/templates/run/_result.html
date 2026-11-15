@@ -25,7 +25,7 @@
     {% elif run.reason == 'exit_code' %}
       <p class="result-reason">Скрипт завершился с ошибкой (код {{ run.exit_code }}).{% if not run.diagnosis and s.log_total %} Что случилось, видно в журнале ниже.{% endif %}</p>
     {% endif %}
-    {% if run.error %}<p class="result-reason">{{ run.error }}</p>{% endif %}
+    {% if run.error %}<p class="result-reason">{{ run.error | ticks }}</p>{% endif %}
     {% include "run/_minutes.html" %}
     {% set dg = run.diagnosis %}
     {% if dg and not dg.ask_timeout %}

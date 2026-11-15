@@ -141,16 +141,27 @@ def check_partial(manifest: Manifest, values: Mapping[str, Any], allow_secrets: 
 
 def filter_known(manifest: Manifest, values: Mapping[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Оставляет значения, которые подходят манифесту. Возвращает (подходящие, отброшенные имена)."""
+    kept, why = filter_explained(manifest, values)
+    return kept, list(why)
+
+
+def filter_explained(manifest: Manifest, values: Mapping[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    """Как filter_known, но для отброшенных ещё и причина для человека:
+    {"since": "«С даты»: дата 2026-11-10 раньше min = 2026-11-12"}."""
     kept: dict[str, Any] = {}
-    dropped: list[str] = []
+    why: dict[str, str] = {}
     by_name = {p.name: p for p in manifest.params}
     for name, value in values.items():
         p = by_name.get(name)
-        if p is None or p.is_secret or check_value(p, value) is not None:
-            dropped.append(name)
+        if p is None:
+            why[name] = f"`{name}`: такого параметра в текущей версии скрипта нет"
+        elif p.is_secret:
+            why[name] = f"«{p.title}»: секреты в пресете не хранятся"
+        elif (problem := check_value(p, value)) is not None:
+            why[name] = f"«{p.title}»: {problem}"
         else:
             kept[name] = value
-    return kept, dropped
+    return kept, why
 
 
 def brief(values: Mapping[str, Any], files: Mapping[str, str] | None = None) -> dict[str, Any]:
