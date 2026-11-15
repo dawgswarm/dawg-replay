@@ -371,6 +371,14 @@ def _table_problem(param: Param, value: Any) -> str | None:
         missing = [c for c in param.columns if c not in value[0]]
         if missing:
             return "в шапке нет колонок: " + ", ".join(f"«{c}»" for c in missing)
+        # Колонки из `columns` нужны скрипту в каждой строке: строка с паролем без логина
+        # упала бы потом как неверный вход. Одно правило для файла, ввода вручную и --row.
+        for row in value:
+            empty = [c for c in param.columns if not str(row.get(c) or "").strip()]
+            if empty:
+                return f"строка {row[ROW_KEY]}: " + (
+                    f"пустая колонка «{empty[0]}»" if len(empty) == 1
+                    else "пустые колонки " + ", ".join(f"«{c}»" for c in empty))
     return None
 
 

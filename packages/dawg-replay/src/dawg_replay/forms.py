@@ -512,14 +512,17 @@ def manual_table(app: Any, script: str, param: str, columns: list[str], cells: l
     elif len(cells) % len(cols):
         error = "форма прислала неполную строку, откройте ввод заново"
     rows: list[dict[str, Any]] = []
+    shown: dict[int, int] = {}  # _row -> номер строки в редакторе (пустые строки там тоже видны)
     if error is None:
         for i in range(0, len(cells), len(cols)):
             values = [str(v).strip() for v in cells[i:i + len(cols)]]
             if any(values):
+                shown[len(rows) + 2] = i // len(cols) + 1
                 rows.append({**dict(zip(cols, values)), "_row": len(rows) + 2})
         problem = "введите хотя бы одну строку" if not rows else check_value(p, rows)
         if problem:
-            error = _human(p, problem)
+            # В редакторе строки идут с первой, у файла с второй (шапка это строка 1): номер как на экране.
+            error = re.sub(r"^строка (\d+)", lambda m: f"строка {shown.get(int(m.group(1)), m.group(1))}", _human(p, problem))
         else:
             uid = Uploads(app.paths.uploads).put(p.name, MANUAL_FILE, rows, secret=p.secret)
             info = table_info(p, uid, MANUAL_FILE, rows)

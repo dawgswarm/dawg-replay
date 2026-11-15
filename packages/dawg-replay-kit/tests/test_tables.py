@@ -234,3 +234,16 @@ def test_secret_table_masked():
 
     Emitter(Sink(), secrets=p.secret_values(), auto_flush=False).emit("log", msg="вход ivan@mail.ru, пароль Pa$$w0rd, строка 1")
     assert "ivan@mail.ru" not in str(out) and "Pa$$w0rd" not in str(out) and "строка 1" in str(out)
+
+
+def test_required_columns_not_empty_in_any_row():
+    # dr-81: строка с паролем без логина не проходит проверку до запуска (форма, файл, --row, автономный режим).
+    from dawg_replay_kit.manifest import Param, check_value
+
+    p = Param(name="accounts", type="table", title="Аккаунты", columns=("login", "password"))
+    ok = [{"login": "a", "password": "x", "_row": 2}]
+    assert check_value(p, ok) is None
+    assert check_value(p, ok + [{"login": " ", "password": "y", "_row": 3}]) == "строка 3: пустая колонка «login»"
+    assert check_value(p, ok + [{"note": "z", "_row": 4}]) == "строка 4: пустые колонки «login», «password»"
+    free = Param(name="t", type="table", title="T")
+    assert check_value(free, [{"login": "", "_row": 2}]) is None  # без columns пустые значения можно
