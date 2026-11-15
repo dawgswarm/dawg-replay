@@ -306,6 +306,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     ctx = _script_ctx(app, name, preset, sub)
                 ctx["form_error"] = e.message
                 return fragment(request, "_script_form.html", f=ctx)
+            secret_tables = {k: t["id"] for k, t in sub.tables.items() if t.get("secret") and t.get("id")}
+            if secret_tables:
+                # Для «Перезапустить упавшие»: секретной таблицы нет в истории, запуск помнит загрузку.
+                with ui.open_app() as app:
+                    Uploads(app.paths.uploads).link(run.id, secret_tables)
             return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
 
         return await run_in_threadpool(work)

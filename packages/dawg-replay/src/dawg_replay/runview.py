@@ -24,8 +24,10 @@
   попадают в ленту как `level = "raw"`, состояние от них не ломается.
 - `artifacts`: путь проверяется: внутри каталога `output` и файл существует;
   путь наружу отклоняется записью в ленте.
-- `item` (контракт 1.2): отчёт по строкам входа. Повторный `item` с тем же `key`
-  заменяет прежний и остаётся на своём месте; ключи 1 и "1" это одна строка.
+- `item` (контракт 1.2): отчёт по строкам входа. Повторный `item` той же строки
+  заменяет прежний и остаётся на своём месте. Строка это `row`, если он есть, иначе
+  `key` (1 и "1" одно и то же): у секретной таблицы kit маскирует ключи в `***`,
+  и без `row` все строки слились бы в одну.
   Хранятся все строки (таблица на входе ограничена `max_rows`), счётчики по статусам.
 - браузеры: `open` открывает, `close` закрывает, `failed` закрывает
   `provisioning`; `browsers.open` показывает, сколько открыто сейчас.
@@ -50,6 +52,15 @@ SOURCE_APP = "dawg-replay"
 LOG_LEVELS = ("debug", "info", "warn", "error")
 RESULT_STATUSES = ("ok", "partial", "failed")
 ITEM_STATUSES = ("ok", "failed", "skipped")
+
+
+def item_id(key: Any, row: Any = None) -> str | None:
+    """Чем строка отчёта отличается от других: `row`, иначе `key`. None: ключ не подходит."""
+    if isinstance(key, bool) or not isinstance(key, (str, int)):
+        return None
+    if isinstance(row, int) and not isinstance(row, bool):
+        return f"row:{row}"
+    return f"key:{key}"
 DEFAULT_ROWS_LIMIT = 500
 DEFAULT_LOG_LIMIT = 2000
 DEFAULT_HISTORY = 5000
@@ -122,7 +133,7 @@ class RunView:
         self.progress: dict[str, dict[str, Any]] = {}
         self.metrics: dict[str, dict[str, Any]] = {}
         self.tables: dict[str, dict[str, Any]] = {}
-        self.items: dict[str, dict[str, Any]] = {}  # str(key) -> строка отчёта, в порядке первого появления
+        self.items: dict[str, dict[str, Any]] = {}  # item_id -> строка отчёта, в порядке первого появления
         self.item_counts: dict[str, int] = dict.fromkeys(ITEM_STATUSES, 0)
         self.log: deque[dict[str, Any]] = deque(maxlen=self.log_limit)
         self.log_total = 0
@@ -307,11 +318,13 @@ class RunView:
             "row": row if isinstance(row, int) and not isinstance(row, bool) else None,
             "ts": e.get("ts"),
         }
-        old = self.items.get(str(key))
+        ident = item_id(key, item["row"])
+        assert ident is not None
+        old = self.items.get(ident)
         if old is not None:
             self.item_counts[old["status"]] -= 1
         self.item_counts[status] += 1
-        self.items[str(key)] = item
+        self.items[ident] = item
         self._emit("item", {"item": item, "counts": self._item_counts()})
 
     def _item_counts(self) -> dict[str, int]:

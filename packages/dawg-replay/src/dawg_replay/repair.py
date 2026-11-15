@@ -8,7 +8,7 @@
 
 - отчёт по строкам `item` (контракт 1.2): сколько строк сделано, то есть `ok` и
   `skipped` (повторный запуск пропускает уже сделанное, это не поломка); повторный
-  `item` с тем же `key` заменяет прежний;
+  `item` той же строки (`row`, без него `key`) заменяет прежний;
 - иначе сумма строк всех таблиц из `rows` (`total`, не только превью);
 - если и `rows` не было, `done` первой полоски `progress`.
 
@@ -44,6 +44,7 @@ from typing import Any
 
 from dawg_replay import diagnosis
 from dawg_replay.errors import ReplayError
+from dawg_replay.runview import item_id
 from dawg_replay.values import brief
 
 MIN_HISTORY = 3
@@ -90,7 +91,7 @@ class Scan:
 
 
 CACHE_FILE = "repair.json"
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 ITEM_STATUSES = ("ok", "failed", "skipped")
 _cache: dict[str, tuple[int, int, _Raw]] = {}
 _cache_lock = threading.Lock()
@@ -208,8 +209,8 @@ def _parse(path: Path) -> _Raw:
                     done = e.get("done")
                     if isinstance(done, (int, float)) and not isinstance(done, bool):
                         s.progress[str(e["id"])] = done
-                elif t == "item" and e.get("status") in ITEM_STATUSES and _item_key(e.get("key")) is not None:
-                    items[_item_key(e["key"])] = e["status"]
+                elif t == "item" and e.get("status") in ITEM_STATUSES and item_id(e.get("key"), e.get("row")):
+                    items[item_id(e["key"], e.get("row"))] = e["status"]
                 elif t == "artifact" and e.get("path"):
                     artifacts.append(str(e["path"]))
                 elif t == "log" and e.get("level") == "error" and e.get("msg") is not None:
@@ -221,13 +222,6 @@ def _parse(path: Path) -> _Raw:
     for status in items.values():
         s.items[status] = s.items.get(status, 0) + 1
     return s
-
-
-def _item_key(key: Any) -> str | None:
-    """Ключ строки отчёта: 1 и "1" это одна строка."""
-    if isinstance(key, bool) or not isinstance(key, (str, int)):
-        return None
-    return str(key)
 
 
 def items_counts(raw: dict[str, int]) -> dict[str, int] | None:
@@ -347,6 +341,12 @@ def annotate_items(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]
             d["items"] = items_counts(scan(app.paths.run_dir(d["id"])).items)
         except (OSError, ValueError):
             d["items"] = None
+        if d["items"]:
+            # Запуск оборвался посреди таблицы: «30 из 50», а не «30 из 30». Секретной таблицы в параметрах нет.
+            tables = [v for v in (d.get("params") or {}).values()
+                      if isinstance(v, list) and v and all(isinstance(r, dict) and "_row" in r for r in v)]
+            if len(tables) == 1 and len(tables[0]) > d["items"]["total"]:
+                d["items"]["total"] = len(tables[0])
     return runs
 
 

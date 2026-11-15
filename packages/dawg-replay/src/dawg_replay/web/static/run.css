@@ -276,6 +276,10 @@ tbody tr:last-child td { border-bottom: 0; }
 .items-head h2 { margin: 0; }
 .items-counts { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0; }
 .items-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1rem; margin: 0.6rem 0 0.8rem; }
+.items-retry { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin: 0.8rem 0 0.2rem; padding: 0.8rem 0.95rem; border-radius: var(--r-block); background: var(--failed-bg); }
+.items-retry .hint { margin: 0; }
+#items-retry-notice:empty { display: none; }
+#items-retry-notice { flex-basis: 100%; }
 .items-filter { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; font-weight: 400; }
 .items-table td:first-child { min-width: 10rem; overflow-wrap: anywhere; }
 .items-table td:nth-child(2) { min-width: 0; white-space: nowrap; }

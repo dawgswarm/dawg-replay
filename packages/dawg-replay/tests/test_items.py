@@ -132,7 +132,7 @@ def test_counter_prefers_items_and_counts_skipped(make_run, home, kr):
         repair._cache.clear()
         assert repair.scan(a.paths.run_dir(rid)).items == {"ok": 3, "failed": 2, "skipped": 4}
         cache = json.loads((a.paths.run_dir(rid) / repair.CACHE_FILE).read_text("utf-8"))
-        assert cache["v"] == repair.CACHE_VERSION == 2
+        assert cache["v"] == repair.CACHE_VERSION
 
 
 def test_silent_breakage_by_items(make_run, home, kr):
@@ -214,3 +214,10 @@ def test_live_patch_redraws_items_panel(tmp_path):
     patch = run_screen.patch_for(templates, v, v.changes(seq)["changes"])
     assert list(patch["panels"]) == ["items"]
     assert "только упавшие" in patch["panels"]["items"] and 'class="item-row item-failed"' in patch["panels"]["items"]
+
+
+def test_runview_masked_keys_differ_by_row(tmp_path):
+    d = tmp_path / "r1"
+    write(d, [item("***", "ok", row=2), item("***", "failed", "нет", row=3), item("***", "ok", row=3)])
+    snap = RunView(d).snapshot()
+    assert snap["items"]["counts"] == {"ok": 2, "failed": 0, "skipped": 0, "total": 2}

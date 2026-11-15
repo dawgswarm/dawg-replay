@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import diagnosis, insurance, launch, minutes, repair
+from dawg_replay import diagnosis, insurance, launch, minutes, repair, retry
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -55,7 +55,7 @@ PANELS_BY_KIND = {
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result",),
-    "run": ("head", "result", "repair", "suspects", "files", "trail"),
+    "run": ("head", "result", "repair", "suspects", "files", "trail", "items"),
 }
 PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "items", "tables")
 
@@ -134,9 +134,25 @@ class Views:
             info["minutes"] = None if rec_.running else minutes.for_run(run_dir, rec_).to_dict()
             info["suspicion"] = need["suspicion"] if need else None
             info["repair"] = fix
+            info["retry"] = _retry_view(state, rec_)
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
+
+
+def _retry_view(state: Any, rec: Any) -> dict[str, Any] | None:
+    """Кнопка «Перезапустить упавшие»: сколько строк пойдёт или что таблицу надо загрузить заново."""
+    if rec.running:
+        return None
+    try:
+        with state.open_app() as a:
+            p = retry.plan(a, rec)
+    except (ReplayError, OSError):
+        return None
+    if p is None:
+        return None
+    return {"failed": p["failed"], "unreached": p["unreached"], "secret": p["secret"],
+            "count": len(p["rows"]) if p["rows"] is not None else None, "table_rows": p["table_rows"]}
 
 
 def views_of(request: Request) -> Views:
@@ -455,6 +471,22 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         return Response(items_csv(rows), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f"attachment; filename=\"items.csv\"; filename*=UTF-8''{quote(name)}"})
 
+    async def retry_failed(request: Request) -> Response:
+        """«Перезапустить упавшие»: новый запуск со строками таблицы, которые не получились."""
+        run_id = request.path_params["run_id"]
+        ui = request.app.state.ui
+
+        def work() -> Response:
+            try:
+                with ui.open_app() as app:
+                    rec = app.runs.get(run_id)
+                    run = retry.start(ui.runs, app, rec)
+            except ReplayError as e:
+                return notice(request, f"Перезапуск не начат: {e.message}", ok=False)
+            return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
+
+        return await run_in_threadpool(work)
+
     def stderr_log(request: Request) -> Response:
         """stderr.log запуска целиком, с той же маскировкой секретов, что и хвост на экране."""
         with request.app.state.ui.open_app() as app:
@@ -548,6 +580,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/runs/{run_id}/files/{path:path}", download),
         Route("/runs/{run_id}/stderr.log", stderr_log),
         Route("/runs/{run_id}/items.csv", items_report),
+        Route("/runs/{run_id}/retry-failed", retry_failed, methods=["POST"]),
         Route("/runs/{run_id}/open-folder", open_dir, methods=["POST"]),
         Route("/runs/{run_id}/cancel", cancel, methods=["POST"]),
         Route("/runs/{run_id}/release", release, methods=["POST"]),
