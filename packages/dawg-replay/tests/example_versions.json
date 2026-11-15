@@ -3,6 +3,10 @@
     "version": 5,
     "sha256": "0ebcf43ad455363eb3ae9bf518a40dce83c9b49de274b0b9a897c5142750a183"
   },
+  "examples/telegram-demo/script.py": {
+    "version": 1,
+    "sha256": "79167ef39b3d25c30b8d40639075869ada7e4afd1a7b733b8be72ca56b982445"
+  },
   "examples/the-internet-actions/script.py": {
     "version": 4,
     "sha256": "11349a3109bf8b27796eb69b742365c153ef8e0b379738a0460fa0c5b2518947"
