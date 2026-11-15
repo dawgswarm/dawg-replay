@@ -42,8 +42,9 @@ def test_template_passes_validate(capsys):
     assert main(["validate", str(TEMPLATE)]) == 0
     m = load_manifest(TEMPLATE)
     assert {p.type for p in m.params} >= {"string", "int", "enum", "bool"}
-    assert "dawg-replay-kit>=1.1,<2" in m.dependencies
-    assert m.contract_minor == 1 and m.site and m.tags
+    assert "dawg-replay-kit>=1.3,<2" in m.dependencies
+    assert m.contract_minor == 3 and m.site and m.tags
+    assert m.param("sort").choice_title("price") == "Сначала дешевле"
 
 
 def test_retries_and_site_check(tpl):
@@ -172,7 +173,8 @@ def test_actions_template_passes_validate():
     m = load_manifest(ACTIONS)
     (table,) = [p for p in m.params if p.type == "table"]
     assert table.secret and table.required and set(table.columns) >= {"login", "password"}
-    assert m.contract_minor == 2 and "dawg-replay-kit>=1.2,<2" in m.dependencies
+    assert m.contract_minor == 3 and "dawg-replay-kit>=1.3,<2" in m.dependencies
+    assert set(table.input) == {"file", "manual", "preset"}
 
 
 class FakeSite:
@@ -292,7 +294,7 @@ def actions_kit(tpl, site, rows, tmp_path, answers, **params):
         progress=lambda *a: events.append(("progress", a[2], a[3])),
         item=lambda key, status, msg=None, row=None: events.append(("item", key, status, msg, row)),
         artifact=lambda path, *a: events.append(("artifact", path.name)),
-        result=lambda status, summary: events.append(("result", status, summary)),
+        result=lambda status, summary, **kw: events.append(("result", status, summary)),
     )
     tpl.kit = kit
     return events
@@ -357,3 +359,130 @@ def test_actions_check_only_and_code_timeout(act, tmp_path):
     assert items[0] == ("skipped", "нужно сделать (режим проверки, ничего не менялось)")
     assert items[1] == ("failed", "не дождались кода за 10 мин")
     assert site.saves == 0 and events[-1][1] == "partial"
+
+
+# --- template_task.py: одно действие или проверка страницы ---------------------------
+
+TASK = SKILL / "template_task.py"
+
+
+def test_task_template_passes_validate():
+    assert main(["validate", str(TASK)]) == 0
+    m = load_manifest(TASK)
+    assert m.contract_minor == 3 and m.param("day").default == "today-1"
+    assert m.param("mode").choice_title("check").startswith("Только проверить")
+    assert m.param("attachment").type == "file"
+
+
+@pytest.fixture
+def task(monkeypatch):
+    spec = importlib.util.spec_from_file_location("skill_template_task", TASK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_task_number_and_condition(task):
+    assert task.number("1 299,50 ₽") == 1299.5 and task.number("цена: 990") == 990 and task.number("нет") is None
+    p = SimpleNamespace(mode="act", below=1000.0)
+    assert task.should_act(p, 990) and not task.should_act(p, 1200) and not task.should_act(p, None)
+    assert task.should_act(SimpleNamespace(mode="act", below=None), None)
+    assert not task.should_act(SimpleNamespace(mode="check", below=None), 1)
+
+
+class TaskPage:
+    def __init__(self, text, done=False):
+        self.text, self.done, self.clicked, self.files = text, done, [], []
+
+    def goto(self, url, timeout=None):
+        self.url = url
+
+    def wait_for_selector(self, sel, timeout=None):
+        return None
+
+    def locator(self, sel):
+        page = self
+
+        class L:
+            first = None
+
+            def count(self):
+                return int(page.done) if sel == page_mod.DONE else 1
+
+            def inner_text(self):
+                return page.text
+
+        loc = L()
+        loc.first = loc
+        return loc
+
+    def screenshot(self, path, full_page=False):
+        Path(path).write_bytes(b"png")
+
+    def set_input_files(self, sel, path):
+        self.files.append(path)
+
+    def click(self, sel):
+        self.clicked.append(sel)
+        self.done = True
+
+
+page_mod = None
+
+
+def task_kit(task, tmp_path, page, answers, **params):
+    global page_mod
+    page_mod = task
+    events = []
+
+    class Browser:
+        def __enter__(self):
+            self.page = page
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    defaults = {"url": "https://shop.example/item/1", "mode": "check", "below": None, "day": "2026-11-14", "attachment": None}
+    task.kit = SimpleNamespace(
+        params=SimpleNamespace(**{**defaults, **params}), output_dir=tmp_path, log=FakeLog(),
+        browser=lambda **kw: Browser(), set_browser_limit=lambda n: None, stage=lambda name: None,
+        metric=lambda *a: events.append(("metric",) + a),
+        ask=lambda q, kind="text", **kw: (events.append(("ask", kind)), answers.pop(0))[1],
+        artifact=lambda path, label, mime=None: events.append(("artifact", Path(path).name, mime)),
+        result=lambda status, summary, **kw: events.append(("result", status, summary, kw)),
+    )
+    return events
+
+
+def test_task_check_mode_takes_screenshot(task, tmp_path):
+    page = TaskPage("1 299 ₽")
+    events = task_kit(task, tmp_path, page, [])
+    task.main()
+    assert ("artifact", "before.png", "image/png") in events and not page.clicked
+    status, summary, kw = events[-1][1:]
+    assert status == "ok" and "1 299 ₽" in summary and kw["count"] == 1 and kw["main"] == "before.png"
+    assert kw["links"] == [{"title": "Страница", "url": "https://shop.example/item/1"}]
+    assert json.loads((tmp_path / "observation.json").read_text(encoding="utf-8"))["value"] == 1299.0
+
+
+def test_task_act_confirmed_then_not_repeated(task, tmp_path):
+    page = TaskPage("990 ₽")
+    events = task_kit(task, tmp_path, page, [True], mode="act", below=1000.0,
+                      attachment={"path": "/tmp/a.pdf", "name": "a.pdf", "size": 1})
+    task.main()
+    assert page.clicked == [task.ACTION] and page.files == ["/tmp/a.pdf"]
+    assert ("artifact", "after.png", "image/png") in events and events[-1][3]["main"] == "after.png"
+    assert "действие: сделано" in events[-1][2]
+    # второй запуск: на странице уже сделано, кнопка не нажимается и не спрашивается
+    events = task_kit(task, tmp_path, page, [], mode="act", below=1000.0)
+    page.clicked.clear()
+    task.main()
+    assert not page.clicked and not [e for e in events if e[0] == "ask"] and "уже сделано" in events[-1][2]
+
+
+def test_task_act_declined(task, tmp_path):
+    page = TaskPage("990 ₽")
+    events = task_kit(task, tmp_path, page, [False], mode="act")
+    task.main()
+    assert not page.clicked and "не подтверждено" in events[-1][2]

@@ -15,7 +15,7 @@ def test_manifest_and_demo_table():
     assert main(["validate", str(DIR / "script.py")]) == 0
     m = load_manifest(DIR / "script.py")
     accounts = m.param("accounts")
-    assert accounts.secret and m.contract_minor == 2
+    assert accounts.secret and m.contract_minor == 3 and set(accounts.input) == {"file", "manual", "preset"}
     rows = read_table(DIR / "accounts.csv")
     assert check_value(accounts, rows) is None and len(rows) == 5
     assert [r["login"] for r in rows].count("tomsmith") == 4 and rows[2]["_row"] == 4
@@ -26,3 +26,12 @@ def test_flash_text():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.flash_text("\n  Your password is invalid!\n  ×\n") == "Your password is invalid!"
+
+
+TASK_DIR = DIR.parent / "the-internet-task"
+
+
+def test_task_demo_manifest():
+    assert main(["validate", str(TASK_DIR / "script.py")]) == 0
+    m = load_manifest(TASK_DIR / "script.py")
+    assert m.contract_minor == 3 and m.param("mode").choice_title("act") == "Нажать Start и дождаться результата"

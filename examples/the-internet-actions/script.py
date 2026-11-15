@@ -1,16 +1,16 @@
 # /// script
 # requires-python = ">=3.10"
-# dependencies = ["dawg-replay-kit>=1.2,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
+# dependencies = ["dawg-replay-kit>=1.3,<2", "dawg-sdk-python>=0.4,<0.5", "playwright>=1.58,<2"]
 # ///
 
 # /// dawg-script
-# contract = "1.2"
+# contract = "1.3"
 # name = "the-internet-actions"
 # title = "Учебный сайт: вход и проверка кабинета по таблице"
 # description = "Демо действий по таблице на the-internet.herokuapp.com: вход, сохранённый вход, вопрос человеку, отчёт по строкам."
 # site = "the-internet"
 # tags = ["Демо", "Кабинет"]
-# version = 3
+# version = 4
 # timeout_minutes = 30
 #
 # [[params]]
@@ -22,6 +22,7 @@
 # columns = ["login", "password"]
 # max_rows = 20
 # secret = true
+# input = ["file", "manual", "preset"]
 #
 # [[params]]
 # name = "confirm_first"
@@ -110,6 +111,7 @@ def process(row: dict[str, str], code_asked: list[bool]) -> str:
                 log_in(page, row, code_asked)
             except RowFailed:
                 b.forget_login()  # неудачный вход не сохраняем
+                error_shot(page, row)
                 raise
             b.save_login()  # сразу после входа: не потеряется, даже если запуск убьют дальше
             page.goto(SECURE_URL, timeout=PAGE_TIMEOUT_MS)
@@ -117,6 +119,16 @@ def process(row: dict[str, str], code_asked: list[bool]) -> str:
         if title != "Secure Area":
             raise RowFailed(f"в кабинете неожиданный заголовок «{title}»")
         return "кабинет открыт" + (" (сохранённый вход)" if restored else ", вход выполнен")
+
+
+def error_shot(page: Any, row: dict[str, str]) -> None:
+    """Скриншот страницы, где строка упала: на экране запуска его видно миниатюрой."""
+    path = kit.output_dir / f"row-{row['_row']}-error.png"
+    try:
+        page.screenshot(path=str(path))
+    except Exception:
+        return
+    kit.artifact(path, f"Скриншот: строка {row['_row']} не получилась", "image/png")
 
 
 def rows_dative(n: int) -> str:
@@ -153,9 +165,9 @@ def main() -> None:
 
     text = f"кабинет открыт: {counts['ok']} из {total}" + (f", не вышло: {counts['failed']}" if counts["failed"] else "")
     if not counts["failed"]:
-        kit.result("ok", text)
+        kit.result("ok", text, count=counts["ok"])
     elif counts["ok"]:
-        kit.result("partial", text)
+        kit.result("partial", text, count=counts["ok"])
     else:
         kit.result("failed", text)
         raise SystemExit(1)
