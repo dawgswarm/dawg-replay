@@ -436,3 +436,12 @@ def test_real_connection_feeds_bot(app, wb, monkeypatch):
     rec = fake_run(app, status="failed", reason="timeout")
     assert tg_notify.after_finish(app, rec.id, background=False) is True
     assert sent == [(TOKEN, "555")]
+
+
+def test_tg_asks_uses_rules(app, wb):
+    from dawg_replay import tg_asks
+
+    rec = fake_run(app)
+    assert tg_asks.wants_ask(app, rec) is True
+    tg_rules.set_overrides(app, "script", wb, {"ask": "off"})
+    assert tg_asks.wants_ask(app, rec) is False
