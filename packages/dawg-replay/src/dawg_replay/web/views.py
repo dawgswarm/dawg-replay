@@ -251,7 +251,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 run = ui.runs.start(name, preset=preset, strict_preset=True)
             except ReplayError as e:
                 what = f"«{preset}»" if preset else "без пресета"
-                return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {e.message}",
+                reason = e.message[:1].lower() + e.message[1:]
+                return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {reason}",
                                 link=f"/scripts/{quote(name)}" + (f"?{urlencode({'preset': preset})}" if preset else "") + "#launch")
             return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})
 

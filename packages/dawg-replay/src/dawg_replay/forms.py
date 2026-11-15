@@ -200,11 +200,13 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
     values: dict[str, Any] = {}
     dropped: list[str] = []
     dropped_why: list[str] = []
+    missing: list[str] = []
     tables: dict[str, dict[str, Any]] = {}
     if preset:
         p = app.get_preset(script, preset)
         values, dropped = dict(p.params), list(p.dropped)
         dropped_why = [p.dropped_why.get(n, f"`{n}`") for n in p.dropped]
+        missing = list(p.missing.values())
         # Таблица пресета кладётся в загрузки: форма дальше работает с ней как с загруженной.
         store = Uploads(app.paths.uploads)
         secret_rows = app.presets.secret_rows(p)  # секретные таблицы лежат отдельно от значений
@@ -220,6 +222,7 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
         "preset": preset,
         "dropped": dropped,
         "dropped_why": dropped_why,
+        "missing": missing,
     }
 
 

@@ -127,3 +127,50 @@ def test_not_started_reason_renders_code(app, cli, stale, web):
     c, _ = web
     page = c.get(f"/runs/{rec.id}").text
     assert "Плановый запуск не начался" in page and "`" not in page.split("Плановый запуск не начался", 1)[1].split("</div>", 1)[0]
+
+
+# --- dr-80: новый обязательный параметр, подписи формы ------------------------------
+
+WAREHOUSE = '''#
+# [[params]]
+# name = "warehouse"
+# type = "string"
+# title = "Склад"
+# required = true
+'''
+
+
+def test_quick_run_names_missing_value(app, write_script, web):
+    app.registry.add(write_script())
+    app.save_preset("ozon-cards", "склады", {"query": "чайник"})
+    app.registry.add(write_script(version=2, extra_params=WAREHOUSE))
+    p = app.get_preset("ozon-cards", "склады")
+    assert p.missing == {"warehouse": "Склад"} and p.dropped == []
+    c, h = web
+    r = c.post("/scripts/ozon-cards/quick", data={"_preset": "склады"}, headers=h)
+    text = r.text
+    assert "Запуск «склады» не начат: пресет «склады» сохранён для другой версии скрипта: нет значения «Склад»" in text
+    assert "`" not in text and "параметры не подходят" not in text
+    form = c.get("/scripts/ozon-cards/_form", params={"_preset": "склады"}).text
+    assert "В пресете нет обязательного значения «Склад»: заполните его в форме." in form
+
+
+def test_form_hints_about_tables_and_secrets(app, write_script, web, tmp_path):
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location("tp", Path(__file__).with_name("test_table_params.py"))
+    tp = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(tp)
+    f = tmp_path / "acts.py"
+    f.write_text(tp.SCRIPT, encoding="utf-8")
+    app.registry.add(f)
+    c, h = web
+    page = c.get("/scripts/acts").text
+    assert "Секретная таблица сохраняется в пресете и видна только вам" in page
+    assert "Секреты в пресет не попадают." not in page and "замена действует только на этот запуск" not in page
+    r = c.post("/scripts/acts/_table/accounts", files={"_table_file": ("a.csv", tp.CSV.encode(), "text/csv")}, headers=h)
+    uid = r.text.split('name="accounts" value="', 1)[1].split('"', 1)[0]
+    c.post("/scripts/acts/presets", data={"_preset_name": "п", "accounts": uid}, headers=h)
+    form = c.get("/scripts/acts/_form", params={"_preset": "п"}).text
+    assert "замена действует только на этот запуск. Пресет «п» изменится, только если сохранить его заново" in form
