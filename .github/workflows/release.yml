@@ -2,6 +2,8 @@ name: Release
 
 # Тег vX.Y.Z: сборка, проверка и публикация на PyPI через Trusted Publishing.
 # Ручной запуск: то же самое на TestPyPI.
+# У kit свои окружения pypi-kit и testpypi-kit: PyPI не даёт двум проектам
+# одинаковый pending publisher (репо, workflow, окружение).
 # Версия в теге должна совпадать с версией dawg-replay. У kit своя версия; если
 # она не менялась, PyPI уже знает этот файл и шаг публикации kit его пропускает.
 
@@ -60,7 +62,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: pypi
+      name: pypi-kit
       url: https://pypi.org/project/dawg-replay-kit/
     permissions:
       id-token: write
@@ -97,7 +99,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment:
-      name: testpypi
+      name: testpypi-kit
       url: https://test.pypi.org/project/dawg-replay-kit/
     permissions:
       id-token: write
