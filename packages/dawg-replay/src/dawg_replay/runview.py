@@ -376,7 +376,7 @@ class RunView:
     def finished(self) -> bool:
         """Запуск завершён (по БД). Без БД: есть событие result."""
         if self._run_info is not None:
-            return bool(self.run) and self.run.get("status") != "running"
+            return bool(self.run) and self.run.get("status") not in ("running", "waiting")
         return self.result is not None
 
     def follow(
@@ -409,6 +409,7 @@ class RunView:
 _RUN_FIELDS = (
     "id", "script", "version", "draft", "status", "reason", "label", "created_at",
     "started_at", "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested",
+    "trigger", "schedule_id",
 )
 
 _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {

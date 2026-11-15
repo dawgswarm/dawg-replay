@@ -21,7 +21,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import forms, imports
+from dawg_replay import forms, imports, minutes, repair, schedules, uistate
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
@@ -43,6 +43,8 @@ STATUS = {
     "failed (cancelled)": ("отменён", "muted"),
     "failed (timeout)": ("превышено время", "failed"),
     "failed (lost)": ("прерван", "muted"),
+    "waiting": ("ждёт слот", "muted"),
+    "failed (skipped)": ("пропущен", "failed"),
 }
 MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
 
@@ -50,6 +52,15 @@ MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", 
 def status_view(label: str | None) -> dict[str, str]:
     text, kind = STATUS.get(label or "", (label or "", "muted"))
     return {"text": text, "kind": kind}
+
+
+def run_status_view(run: dict[str, Any]) -> dict[str, str]:
+    """Статус запуска для списков: тихая поломка (repair.annotate) вместо зелёного «готово»."""
+    sus = run.get("suspicion")
+    if sus:
+        # Коротко: в списках бейдж стоит в колонке статусов, длинный текст ломает выравнивание.
+        return {"text": "сайт поменялся?", "kind": "partial", "title": "Похоже, сайт поменялся. " + sus.get("text", "")}
+    return {**status_view(run.get("label")), "title": ""}
 
 
 def when(value: str | None, now: datetime | None = None) -> str:
@@ -65,6 +76,23 @@ def when(value: str | None, now: datetime | None = None) -> str:
     if local.date() == (now - timedelta(days=1)).date():
         return f"вчера {hm}"
     return f"{local.day} {MONTHS[local.month - 1]} {hm}"
+
+
+WEEKDAYS_SHORT = ("пн", "вт", "ср", "чт", "пт", "сб", "вс")
+
+
+def when_next(value: datetime | str | None, now: datetime | None = None) -> str:
+    """Будущее местное время: «сегодня 09:00», «завтра 09:00», «пн 16 ноя 09:00»."""
+    if value is None:
+        return ""
+    dt = datetime.fromisoformat(value) if isinstance(value, str) else value
+    now = now or datetime.now()
+    hm = dt.strftime("%H:%M")
+    if dt.date() == now.date():
+        return f"сегодня {hm}"
+    if dt.date() == (now + timedelta(days=1)).date():
+        return f"завтра {hm}"
+    return f"{WEEKDAYS_SHORT[dt.weekday()]} {dt.day} {MONTHS[dt.month - 1]} {hm}"
 
 
 def number(value: Any) -> str:
@@ -102,9 +130,12 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.globals["csrf_token"] = secrets_.csrf
     env.globals["runs_active"] = runs_active
     env.filters["when"] = when
+    env.filters["when_next"] = when_next
     env.filters["status"] = status_view
+    env.filters["run_status"] = run_status_view
     env.filters["number"] = number
     env.filters["plural"] = plural
+    env.filters["minutes"] = minutes.fmt
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 
 
@@ -121,12 +152,14 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
     # --- Главная ---
 
-    def _dashboard(request: Request) -> dict[str, Any]:
+    def _dashboard(request: Request, visit: bool = False) -> dict[str, Any]:
         with _ui(request).open_app() as app:
-            return home_data.dashboard(app, run_screen.views_of(request))
+            state = app.paths.home / "ui-state.json"
+            since = uistate.visit(state) if visit else uistate.peek(state)
+            return home_data.dashboard(app, run_screen.views_of(request), since)
 
     def home(request: Request) -> Response:
-        return page(request, "home.html", active="home", d=_dashboard(request))
+        return page(request, "home.html", active="home", d=_dashboard(request, visit=True))
 
     def home_live(request: Request) -> Response:
         return fragment(request, "home/_live.html", d=_dashboard(request))
@@ -134,10 +167,16 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def home_usage(request: Request) -> Response:
         """Минуты и браузеры DAWG отдельным запросом: сеть не задерживает и не ломает главную."""
         with _ui(request).open_app() as app:
+            week = minutes.period(app, days=7).to_dict()  # оценка по запускам, рядом точный остаток
+            for s in week.get("scripts") or []:
+                try:
+                    s["title"] = app.registry.get(s["script"]).title
+                except ReplayError:
+                    s["title"] = s["script"]
             try:
-                return fragment(request, "home/_usage.html", usage=app.check_api_key())
+                return fragment(request, "home/_usage.html", usage=app.check_api_key(), week=week)
             except ReplayError as e:
-                return fragment(request, "home/_usage.html", error=e.message, code=e.code)
+                return fragment(request, "home/_usage.html", error=e.message, code=e.code, week=week)
 
     # --- Скрипты ---
 
@@ -200,6 +239,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 view = app.script_view(name)
                 ctx = _script_ctx(app, name, preset)
                 meta = home_data.manifest_meta(app, name)
+                view["minutes"] = minutes.period(app, days=7, script=name).to_dict()
+                repair.annotate(app, view["runs"])  # тихая поломка в истории скрипта
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
@@ -220,7 +261,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def script_runs(request: Request) -> Response:
         name = request.path_params["name"]
         with _ui(request).open_app() as app:
-            runs = [r.to_dict() for r in app.runs.list(name, 20)]
+            runs = repair.annotate(app, [r.to_dict() for r in app.runs.list(name, 20)])
         return fragment(request, "_script_runs.html", sname=name, runs=runs)
 
     async def script_run(request: Request) -> Response:
@@ -265,7 +306,10 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     return fragment(request, "_script_form.html", f=ctx)
                 sub = forms.save_preset(app, name, preset_name, form)
                 notice = f"Пресет «{preset_name}» сохранён." if sub.ok else None
-                return fragment(request, "_script_form.html", f=_script_ctx(app, name, preset_name if sub.ok else None, sub, notice))
+                resp = fragment(request, "_script_form.html", f=_script_ctx(app, name, preset_name if sub.ok else None, sub, notice))
+                if sub.ok:
+                    resp.headers["HX-Trigger"] = "presets-changed"  # блок «Регулярный запуск» видит новый пресет
+                return resp
 
         return await run_in_threadpool(work)
 
@@ -281,6 +325,89 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     msg = e.message if isinstance(e, ReplayError) else "неверный номер версии"
                     return fragment(request, "_error.html", message=msg)
             return Response(status_code=204, headers={"HX-Redirect": f"/scripts/{name}"})
+
+        return await run_in_threadpool(work)
+
+    # --- Регулярный запуск ---
+
+    kinds = [("daily", "каждый день"), ("weekly", "раз в неделю"), ("hours", "каждые несколько часов"), ("cron", "выражение cron")]
+    weekday_titles = ["понедельник", "вторник", "среда", "четверг", "пятница", "суббота", "воскресенье"]
+
+    def _schedules_ctx(app, name: str, error: str | None = None, notice: str | None = None,
+                       form: dict[str, str] | None = None) -> dict[str, Any]:
+        app.registry.get(name)
+        data = app.schedules.list(name)
+        for item in data["schedules"]:
+            item["next_text"] = when_next(item["next_run"])
+        cron_ok = app.schedules.backend.kind == "cron"
+        presets = [p.name for p in app.list_presets(name)]
+        values = {"preset": presets[0] if presets else "", "kind": "daily", "time": "09:00", "weekday": "1", "hours": "6", "cron": ""}
+        values.update({k: v for k, v in (form or {}).items() if v})
+        return {
+            "name": name, "entries": data["schedules"], "scheduler_error": data["error"], "error": error, "notice": notice,
+            "presets": presets, "form": values, "kinds": kinds if cron_ok else kinds[:3], "cron_supported": cron_ok,
+            "weekdays": weekday_titles, "every_hours": schedules.EVERY_HOURS,
+        }
+
+    def _spec(form: dict[str, str]) -> schedules.Spec:
+        kind = form.get("kind")
+        if kind == "daily":
+            return schedules.Spec.daily(form.get("time", ""))
+        if kind == "weekly":
+            return schedules.Spec.weekly(form.get("weekday", ""), form.get("time", ""))
+        if kind == "hours":
+            return schedules.Spec.every_hours(form.get("hours", ""))
+        if kind == "cron":
+            return schedules.Spec.from_cron(form.get("cron", ""))
+        raise ReplayError("bad_schedule", "выберите, как часто запускать")
+
+    def script_schedules(request: Request) -> Response:
+        name = request.path_params["name"]
+        with _ui(request).open_app() as app:
+            try:
+                ctx = _schedules_ctx(app, name)
+            except ReplayError as e:
+                return fragment(request, "_error.html", message=e.message)
+        return fragment(request, "_schedules.html", sc=ctx)
+
+    async def script_schedule_add(request: Request) -> Response:
+        name = request.path_params["name"]
+        raw = await _form(request)
+        form = {k: str(raw.get(f"_{k}", "") or "").strip()[:200] for k in ("preset", "kind", "time", "weekday", "hours", "cron")}
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+                try:
+                    s = app.schedules.add(name, form["preset"], _spec(form))
+                except ReplayError as e:
+                    msg = e.message[:1].upper() + e.message[1:]
+                    return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, error=msg, form=form))
+                notice = f"Расписание добавлено: {s.spec.describe()}, пресет «{s.preset}»."
+                return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, notice=notice))
+
+        return await run_in_threadpool(work)
+
+    async def script_schedule_delete(request: Request) -> Response:
+        name, sid = request.path_params["name"], request.path_params["sid"]
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+                try:
+                    if app.schedules.get(sid).script != name:
+                        raise ReplayError("schedule_not_found", "это расписание другого скрипта")
+                    app.schedules.remove(sid)
+                except ReplayError as e:
+                    msg = e.message[:1].upper() + e.message[1:]
+                    return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, error=msg))
+                return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, notice="Регулярный запуск снят."))
 
         return await run_in_threadpool(work)
 
@@ -497,6 +624,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
+        Route("/scripts/{name}/_schedules", script_schedules),
+        Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),
+        Route("/scripts/{name}/schedules/{sid}/delete", script_schedule_delete, methods=["POST"]),
         *run_screen.routes(templates),
         Route("/events/runs", runs_events),
         Route("/events/active", runs_active_count),

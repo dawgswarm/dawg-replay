@@ -10,14 +10,16 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from dawg_replay import diagnosis, insurance
+from dawg_replay import diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
-ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)")
+ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)", "failed (skipped)")
 RECENT_RUNS = 8
 QUICK_PRESETS = 6
 SUSPECT_SCAN = 30  # сколько последних завершённых запусков смотреть на остаточные браузеры
+SINCE_SCAN = 100  # сколько последних запусков смотреть для блока «С прошлого визита»
+SINCE_SHOWN = 8
 
 
 def hue_for(key: str) -> str:
@@ -65,6 +67,7 @@ def library(app: Any, query: str = "", site: str = "") -> dict[str, Any]:
             "tags": list(meta["tags"]),
             "cover": cover(s["title"], meta["site"]),
         })
+    repair.annotate(app, [i["last_run"] for i in items if i["last_run"]])
     sites = sorted({i["cover"]["site"] for i in items if i["cover"]["site"]}, key=str.casefold)
     q = query.strip().casefold()
     shown = [
@@ -94,9 +97,15 @@ def _progress(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def dashboard(app: Any, views: Any) -> dict[str, Any]:
-    """Всё для главной, кроме минут DAWG (они грузятся отдельным запросом)."""
+def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
+    """Всё для главной, кроме минут DAWG (они грузятся отдельным запросом).
+    `since`: граница блока «С прошлого визита» (dawg_replay.uistate)."""
     titles: dict[str, tuple[str, dict[str, str]]] = {}
+
+    waiting = []
+    for rec in app.runs.waiting():
+        title, cov = _title(app, rec, titles)
+        waiting.append({"run": rec.to_dict(), "title": title, "cover": cov})
 
     running = []
     for rec in app.runs.running():
@@ -119,6 +128,7 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
             continue
         title, cov = _title(app, rec, titles)
         recent.append({"run": rec.to_dict(), "title": title, "cover": cov})
+    repair.annotate(app, [r["run"] for r in recent])
 
     # Требует внимания: последний запуск скрипта упал или собрал не всё.
     attention, seen = [], set()
@@ -126,13 +136,11 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
         if rec.draft or rec.script_name in seen or rec.running:
             continue
         seen.add(rec.script_name)
-        if rec.label in ATTENTION_LABELS:
+        sus = repair.suspicion(app, rec)
+        if rec.label in ATTENTION_LABELS or sus:
             title, cov = _title(app, rec, titles)
-            why = None
-            if not rec.summary and not rec.error:
-                dg = diagnosis.diagnose(app, rec, lines=10)
-                why = dg["summary"] if dg else None
-            attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": why})
+            attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
+                              "suspicion": sus})
 
     suspects = []
     for rec in recent_recs:
@@ -143,8 +151,61 @@ def dashboard(app: Any, views: Any) -> dict[str, Any]:
             title, _ = _title(app, rec, titles)
             suspects.append({"run": rec.to_dict(), "title": title, "suspects": pending})
 
+    since_block = since_last_visit(app, since, titles)
+    if since_block:  # запуск уже показан в «С прошлого визита»: во «Требует внимания» не повторяем
+        shown = {i["run"]["id"] for i in since_block["items"]}
+        attention = [a for a in attention if a["run"]["id"] not in shown]
     return {"running": running, "attention": attention[:5], "recent": recent, "suspects": suspects,
-            "quick": quick_presets(app, recent_recs, titles)}
+            "quick": quick_presets(app, recent_recs, titles), "upcoming": upcoming(app, titles),
+            "since": since_block, "waiting": waiting}
+
+
+UPCOMING = 5
+
+
+def upcoming(app: Any, titles: dict[str, tuple[str, dict[str, str]]]) -> list[dict[str, Any]]:
+    """Ближайшие запуски по расписанию. Планировщик не опрашивается: главная не ждёт crontab."""
+    out = []
+    for item in app.schedules.upcoming(UPCOMING):
+        if item["script"] not in titles:
+            title = item["script"]
+            try:
+                title = app.registry.get(item["script"]).title
+            except ReplayError:
+                pass
+            titles[item["script"]] = (title, cover(title, manifest_meta(app, item["script"])["site"]))
+        title, cov = titles[item["script"]]
+        out.append({**item, "title": title, "cover": cov})
+    return out
+
+
+def _why(app: Any, rec: Any) -> str | None:
+    if rec.summary or rec.error:
+        return None
+    dg = diagnosis.diagnose(app, rec, lines=10)
+    return dg["summary"] if dg else None
+
+
+def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, dict[str, str]]]) -> dict[str, Any] | None:
+    """Упавшие (не по отмене), пропущенные из-за очереди и подозрительные запуски после прошлого визита.
+    None, если прошлого визита не было."""
+    if since is None:
+        return None
+    items: list[dict[str, Any]] = []
+    total = 0
+    for rec in app.runs.list(None, SINCE_SCAN):
+        if rec.running or rec.draft or not rec.finished_at or rec.finished_at <= since:
+            continue
+        need = repair.needs_repair(app, rec)
+        skipped = rec.status == "failed" and rec.reason == "skipped"  # не дождался слота: показать, но без починки
+        if need is None and not skipped:
+            continue
+        total += 1
+        if len(items) < SINCE_SHOWN:
+            title, cov = _title(app, rec, titles)
+            items.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
+                          "suspicion": need["suspicion"] if need else None, "repair": need is not None})
+    return {"since": since, "items": items, "total": total}
 
 
 def quick_presets(app: Any, recs: list[Any], titles: dict[str, tuple[str, dict[str, str]]]) -> list[dict[str, Any]]:

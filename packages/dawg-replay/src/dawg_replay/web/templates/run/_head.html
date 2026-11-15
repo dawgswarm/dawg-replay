@@ -1,8 +1,20 @@
-{% set st = run.label | status %}
+{% set st = run | run_status %}{# тихая поломка: не зелёное «готово» (dawg_replay.repair) #}
 <div id="run-head" class="run-head">
   <p class="crumbs"><a href="/scripts">Скрипты</a>{% if run.script and not run.draft %} / <a href="/scripts/{{ run.script }}">{{ run.title or run.script }}</a>{% endif %}</p>
+  {# Порядок для телефона: название и статус, потом действия. На широком экране действия справа. #}
   <div class="run-title">
+    <div class="run-title-main">
     <h1>{{ run.title or run.script }}</h1>
+    <p class="run-meta">
+      <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
+      <span>начат {{ run.created_at | when }}{% if run.finished_at %}, закончен {{ run.finished_at | when }}{% endif %}</span>
+      {% if s.browsers.open or running %}
+        <span class="browsers{% if s.browsers.open %} browsers-on{% endif %}">
+          {% if s.browsers.open %}открыто браузеров: {{ s.browsers.open }}{% elif s.browsers.provisioning %}браузер запускается{% else %}браузеры не открыты{% endif %}
+        </span>
+      {% endif %}
+    </p>
+    </div>
     <div class="run-actions">
     {% if running %}
       {% if run.cancel_requested %}
@@ -16,14 +28,7 @@
     {% endif %}
     </div>
   </div>
-  <p class="run-meta">
-    <span class="status status-{{ st.kind }}">{{ st.text }}</span>
-    <span>начат {{ run.created_at | when }}{% if run.finished_at %}, закончен {{ run.finished_at | when }}{% endif %}</span>
-    {% if s.browsers.open or running %}
-      <span class="browsers{% if s.browsers.open %} browsers-on{% endif %}">
-        {% if s.browsers.open %}открыто браузеров: {{ s.browsers.open }}{% elif s.browsers.provisioning %}браузер запускается{% else %}браузеры не открыты{% endif %}
-      </span>
-    {% endif %}
-  </p>
   {% if run.draft %}<p class="hint">Черновой запуск файла, скрипт не зарегистрирован.</p>{% endif %}
+  {% if run.status == "waiting" %}<p class="hint">Ждёт свободного слота: все места для одновременных запусков заняты. Начнётся сам, когда закончится один из идущих запусков.</p>{% endif %}
+  {% if run.trigger == "schedule" %}<p class="hint">Плановый запуск: его начал системный планировщик по расписанию скрипта.</p>{% endif %}
 </div>

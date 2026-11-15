@@ -1,0 +1,25 @@
+{# Починить с агентом: упавший (не отменённый) запуск или тихая поломка. Данные из dawg_replay.repair. #}
+{% set sus = run.suspicion %}
+<div id="run-repair" data-key="{{ run.status }}-{{ sus.kind if sus else '' }}-{{ (run.repair or '') | length }}">
+{% if run.repair %}
+  <section class="{% if sus %}warning{% else %}card{% endif %} repair" aria-labelledby="repair-title">
+    {% if sus %}
+    <h2 id="repair-title">Почему похоже на поломку</h2>
+    <p>{{ sus.text }} Скорее всего, скрипт перестал находить данные на странице. Попросите агента его починить.</p>
+    {% else %}
+    <div class="card-head"><h2 id="repair-title">Починить скрипт</h2></div>
+    <p class="hint card-note">Агент прочитает журнал этого запуска, заново пройдёт проблемное место на сайте и зарегистрирует новую версию скрипта. Прежняя версия сохранится.</p>
+    {% endif %}
+    <details id="repair" class="repair-box">
+      <summary class="button">Починить с агентом</summary>
+      <p class="hint">Скопируйте текст и вставьте его в Claude Code или Codex, открытый в папке со скриптами (например, <code>~/dawg-scripts</code>). Ключ DAWG, секреты и токены в адресах в тексте скрыты.</p>
+      <textarea id="repair-text" class="repair-text" rows="12" readonly spellcheck="false" aria-label="Текст для агента">{{ run.repair }}</textarea>
+      <div class="repair-actions">
+        <button type="button" data-copy="repair-text">Скопировать</button>
+        <span class="hint-inline" data-copy-status role="status" aria-live="polite"></span>
+      </div>
+      <p class="hint">То же в терминале: <code>dawg-replay fix-prompt {{ run.id }}</code></p>
+    </details>
+  </section>
+{% endif %}
+</div>

@@ -1,5 +1,5 @@
 {% from "_icons.html" import icon, cover %}
-<div id="home-live" class="home-main" hx-get="/home/_live" hx-trigger="runs-changed from:body{% if d.running %}, every 4s{% endif %}" hx-swap="outerHTML" data-live-runs>
+<div id="home-live" class="home-main" hx-get="/home/_live" hx-trigger="runs-changed from:body{% if d.running or d.waiting %}, every 4s{% endif %}" hx-swap="outerHTML" data-live-runs>
   {% if d.suspects %}
   <section class="warning" aria-labelledby="suspects-title">
     <h2 id="suspects-title">Возможно, остался браузер</h2>
@@ -17,6 +17,8 @@
     </ul>
   </section>
   {% endif %}
+
+  {% include "home/_since.html" %}
 
   <section class="card" aria-labelledby="now-title">
     <div class="card-head"><h2 id="now-title">Идут сейчас</h2>{% if d.running %}<span class="hint-inline">{{ d.running | length }}</span>{% endif %}</div>
@@ -39,22 +41,39 @@
       </li>
       {% endfor %}
     </ul>
-    {% else %}
+    {% elif not d.waiting %}
     <p class="hint">Сейчас ничего не идёт. Запустите скрипт из <a href="/scripts">библиотеки</a> или пресетом из блока «Быстрый запуск».</p>
+    {% endif %}
+    {% if d.waiting %}
+    <h3 class="dash-sub">Ждут свободного слота</h3>
+    <ul class="dash-list">
+      {% for w in d.waiting %}
+      <li class="dash-run">
+        {{ cover(w.cover) }}
+        <div class="dash-text">
+          <a class="dash-title" href="/runs/{{ w.run.id }}">{{ w.title }}</a>
+          <span class="hint-inline">{% if w.run.trigger == "schedule" %}по расписанию, {% endif %}в очереди с {{ w.run.created_at | when }}. Начнётся, когда закончится один из идущих запусков.</span>
+        </div>
+        <button class="secondary small" hx-post="/runs/{{ w.run.id }}/cancel" hx-swap="none" hx-disabled-elt="this"
+                hx-confirm="Убрать «{{ w.title }}» из очереди? Этот запуск не начнётся.">Убрать из очереди</button>
+      </li>
+      {% endfor %}
+    </ul>
     {% endif %}
   </section>
 
   {% if d.attention %}
   <section class="card" aria-labelledby="att-title">
-    <div class="card-head"><h2 id="att-title">Требует внимания</h2><span class="hint-inline">последний запуск упал или собрал не всё</span></div>
+    <div class="card-head"><h2 id="att-title">Требует внимания</h2><span class="hint-inline">последний запуск упал, собрал не всё или, похоже, сайт поменялся</span></div>
     <ul class="dash-list">
       {% for a in d.attention %}{% set st = a.run.label | status %}
       <li class="dash-att">
         {{ cover(a.cover, "s") }}
         <div class="dash-text">
-          <span class="dash-att-top"><span class="status status-{{ st.kind }}">{{ st.text }}</span><a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
-          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
+          <span class="dash-att-top">{% if a.suspicion %}<span class="status status-partial">похоже, сайт поменялся</span>{% else %}<span class="status status-{{ st.kind }}">{{ st.text }}</span>{% endif %}<a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
+          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.suspicion %}. {{ a.suspicion.text }}{% elif a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
         </div>
+        <a class="button button-secondary small" href="/runs/{{ a.run.id }}#repair">Починить с агентом</a>
         <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
       </li>
       {% endfor %}
@@ -66,11 +85,11 @@
     <div class="card-head"><h2 id="recent-title">Последние запуски</h2></div>
     {% if d.recent %}
     <ul class="dash-list">
-      {% for r in d.recent %}{% set st = r.run.label | status %}
+      {% for r in d.recent %}{% set st = r.run | run_status %}
       <li><a class="dash-rec" href="/runs/{{ r.run.id }}">
-        <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+        <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
         <span class="dash-rec-text"><span class="dash-rec-title">{{ r.title }}{% if r.run.draft %} <span class="hint-inline">черновой</span>{% endif %}</span>
-          {% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>
+          {% if r.run.trigger == "schedule" or r.run.summary %}<span class="dash-rec-meta">{% if r.run.trigger == "schedule" %}<span class="tag-plan">по расписанию</span>{% endif %}{% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>{% endif %}</span>
         <span class="hint-inline dash-rec-when">{{ r.run.created_at | when }}</span>
       </a></li>
       {% endfor %}

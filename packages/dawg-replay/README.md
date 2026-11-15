@@ -8,10 +8,10 @@ dawg-replay config set-key     # ключ DAWG в системное храни�
 dawg-replay ui                 # веб-интерфейс в браузере
 ```
 
-Регулярные запуски из cron или Планировщика задач Windows:
+Регулярные запуски по пресету через cron или Планировщик задач Windows:
 
 ```sh
-dawg-replay run <скрипт> --preset <пресет> --follow
+dawg-replay schedule add <скрипт> --preset <пресет> --daily 09:00
 ```
 
 Полная инструкция от установки до первого скрипта: https://github.com/dawgswarm/dawg-replay#readme

@@ -1,0 +1,20 @@
+{# С прошлого визита: упавшие и подозрительные запуски после прошлого открытия UI (dawg_replay.uistate). #}
+{% from "_icons.html" import cover %}
+{% if d.since and d.since.items %}
+<section class="card since" aria-labelledby="since-title">
+  <div class="card-head"><h2 id="since-title">С прошлого визита</h2><span class="hint-inline">после {{ d.since.since | when }}: {{ d.since.total }} {{ d.since.total | plural("запуск требует", "запуска требуют", "запусков требуют") }} внимания</span></div>
+  <ul class="dash-list">
+    {% for a in d.since["items"] %}{% set st = a.run.label | status %}
+    <li class="dash-att">
+      {{ cover(a.cover, "s") }}
+      <div class="dash-text">
+        <span class="dash-att-top">{% if a.suspicion %}<span class="status status-partial">похоже, сайт поменялся</span>{% else %}<span class="status status-{{ st.kind }}">{{ st.text }}</span>{% endif %}<a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
+        <span class="hint-inline">{{ a.run.created_at | when }}{% if a.suspicion %}. {{ a.suspicion.text }}{% elif a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error | capitalize_first }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
+      </div>
+      {% if a.repair %}<a class="button button-secondary small" href="/runs/{{ a.run.id }}#repair">Починить с агентом</a>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% if d.since.total > d.since["items"] | length %}<p class="hint">Показаны последние {{ d.since["items"] | length }}. Остальные в истории запусков скриптов.</p>{% endif %}
+</section>
+{% endif %}

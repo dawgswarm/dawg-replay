@@ -1,0 +1,2 @@
+{% set m = v.minutes %}
+{% if m and m.minutes > 0 %}<p class="hint-inline" title="Оценка по событиям запусков. Точный расход в личном кабинете DAWG.">Браузеры DAWG за 7 дней: {{ m.minutes | minutes }}, примерно</p>{% endif %}

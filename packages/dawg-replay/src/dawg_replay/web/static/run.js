@@ -19,6 +19,8 @@
     var old = document.getElementById("run-" + name);
     var node = fromHtml(html);
     if (!old || !node) return;
+    // Панель починки не перерисовываем без изменений: иначе закроется раскрытый текст для агента.
+    if (name === "repair" && old.getAttribute("data-key") === node.getAttribute("data-key")) return;
     // Уведомление «папка открыта» живёт внутри панели файлов: не теряем его при обновлении.
     var keep = old.querySelector("#files-notice");
     old.replaceWith(node);
@@ -86,6 +88,45 @@
       updateEmpty();
     });
   }
+
+  // «Починить с агентом»: копирование текста для агента. Панель перерисовывается, поэтому делегирование.
+  function copyStatus(btn, text) {
+    var box = btn.parentNode && btn.parentNode.querySelector("[data-copy-status]");
+    if (box) box.textContent = text;
+  }
+
+  function copyFallback(area) {
+    area.focus();
+    area.select();
+    try { return document.execCommand("copy"); } catch (e) { return false; }
+  }
+
+  root.addEventListener("click", function (e) {
+    var btn = e.target.closest ? e.target.closest("[data-copy]") : null;
+    if (!btn) return;
+    var area = document.getElementById(btn.getAttribute("data-copy"));
+    if (!area) return;
+    var ok = "Скопировано. Вставьте в Claude Code или Codex.";
+    var manual = "Не удалось скопировать: текст выделен, нажмите Cmd+C или Ctrl+C.";
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(area.value).then(function () { copyStatus(btn, ok); }, function () {
+        copyStatus(btn, copyFallback(area) ? ok : manual);
+      });
+    } else {
+      copyStatus(btn, copyFallback(area) ? ok : manual);
+    }
+  });
+
+  function openRepair() {
+    if (window.location.hash !== "#repair") return;
+    var box = document.getElementById("repair");
+    if (!box) return;
+    box.open = true;
+    box.scrollIntoView({ block: "center" });
+  }
+
+  openRepair();
+  window.addEventListener("hashchange", openRepair);
 
   if (log) log.scrollTop = log.scrollHeight;
   updateEmpty();

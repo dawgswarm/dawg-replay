@@ -45,7 +45,7 @@ class Presets:
         self._db = conn
 
     def save(self, script: str, name: str, manifest: Manifest, values: dict[str, Any]) -> Preset:
-        if not _NAME_RE.match(name):
+        if not _NAME_RE.fullmatch(name):
             raise ReplayError("bad_preset_name", f"имя пресета {name!r}: буквы, цифры, `_`, `-`, `.`, до 64 символов")
         problems = check_partial(manifest, values, allow_secrets=False)
         if problems:

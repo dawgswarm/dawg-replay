@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import sqlite3
-from dataclasses import dataclass
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,11 +16,14 @@ from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
 
 STATUS_RUNNING = "running"
+STATUS_WAITING = "waiting"  # ждёт свободного слота (плановый запуск или run --wait)
 FINAL_STATUSES = ("ok", "partial", "failed")
 
 REASON_LOST = "lost"
 REASON_START_ERROR = "start_error"
-_LABELLED_REASONS = ("cancelled", "timeout", REASON_LOST)
+REASON_SKIPPED = "skipped"  # не дождался слота за отведённое время
+REASON_CANCELLED = "cancelled"
+_LABELLED_REASONS = (REASON_CANCELLED, "timeout", REASON_LOST, REASON_SKIPPED)
 
 
 def new_run_id() -> str:
@@ -56,10 +62,16 @@ class Run:
     timeout_seconds: int | None
     heartbeat_at: str | None
     cancel_requested_at: str | None
+    trigger: str = "manual"  # manual или schedule
+    schedule_id: str | None = None
 
     @property
     def running(self) -> bool:
         return self.status == STATUS_RUNNING
+
+    @property
+    def waiting(self) -> bool:
+        return self.status == STATUS_WAITING
 
     @property
     def label(self) -> str:
@@ -90,6 +102,8 @@ class Run:
             "killed": self.killed,
             "timeout_seconds": self.timeout_seconds,
             "cancel_requested": self.cancel_requested_at is not None,
+            "trigger": self.trigger,
+            "schedule_id": self.schedule_id,
         }
 
 
@@ -118,12 +132,66 @@ def _run(row: sqlite3.Row) -> Run:
         timeout_seconds=row["timeout_seconds"],
         heartbeat_at=row["heartbeat_at"],
         cancel_requested_at=row["cancel_requested_at"],
+        trigger=row["triggered_by"] or "manual",
+        schedule_id=row["schedule_id"],
     )
 
 
+WAITER_LOST = "процесс, ждавший свободного слота, пропал"
+WAITER_STALE_SECONDS = 60  # без времени старта процесса: ждущий мёртв, если не отмечался столько
+
+
+def waiter_process_alive(rec: Run) -> bool:
+    """Процесс, ждущий слота, жив. Чужой процесс с тем же pid живым не считается."""
+    from dawg_replay import procinfo
+
+    if rec.supervisor_pid and rec.supervisor_started is not None:
+        return procinfo.same_process(rec.supervisor_pid, rec.supervisor_started)
+    ts = parse_ts(rec.heartbeat_at) or parse_ts(rec.created_at)
+    return ts is not None and (datetime.now(timezone.utc) - ts).total_seconds() < WAITER_STALE_SECONDS
+
+
+@dataclass
+class WaitPolicy:
+    """Как ждать слота, если лимит параллельных запусков занят.
+
+    Очередь честная: свободный слот получает ждущий, который встал раньше (порядок
+    вставки строки, rowid). Каждая проверка идёт под BEGIN IMMEDIATE, поэтому два
+    ждущих процесса не займут один слот.
+    """
+
+    seconds: float
+    poll: float = 2.0
+    on_wait: Callable[[dict[str, Any]], None] | None = None  # при смене позиции в очереди и при старте
+    pid: int = field(default_factory=os.getpid)
+    pid_started: float | None = None
+    clock: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
+
+
 class RunStore:
-    def __init__(self, conn: sqlite3.Connection):
+    def __init__(self, conn: sqlite3.Connection, waiter_alive: Callable[[Run], bool] | None = None):
         self._db = conn
+        # Жив ли процесс, который ждёт слота. Мёртвый ждущий место в очереди не держит.
+        self.waiter_alive: Callable[[Run], bool] = waiter_alive or waiter_process_alive
+
+    def _live_waiters(self, before_rowid: int | None = None) -> list[str]:
+        """id ждущих в порядке очереди, мёртвые закрываются как lost. Вызывать внутри транзакции."""
+        rows = self._db.execute("SELECT rowid, * FROM runs WHERE status = ? ORDER BY rowid", (STATUS_WAITING,)).fetchall()
+        out = []
+        for row in rows:
+            if before_rowid is not None and row["rowid"] >= before_rowid:
+                break
+            rec = _run(row)
+            if self.waiter_alive(rec):
+                out.append(rec.id)
+            else:
+                self.close_waiting(rec.id, REASON_LOST, WAITER_LOST)
+        return out
+
+    def _running_ids(self) -> list[str]:
+        rows = self._db.execute("SELECT id FROM runs WHERE status = ? ORDER BY created_at", (STATUS_RUNNING,))
+        return [r["id"] for r in rows]
 
     def reserve(
         self,
@@ -137,27 +205,34 @@ class RunStore:
         params: dict[str, Any],
         timeout_seconds: int,
         limit: int,
+        schedule_id: str | None = None,
+        wait: WaitPolicy | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
         Проверка и вставка идут в одной транзакции, два CLI одновременно лимит не обойдут.
+        Ждущие слота (`waiting`) занимают место раньше новых. Без `wait` при занятом
+        лимите отказ сразу. С `wait` запись встаёт в очередь `waiting` и ждёт до
+        `wait.seconds`; не дождалась: `failed (skipped)` и ReplayError `run_skipped`.
         """
         self._db.execute("BEGIN IMMEDIATE")
         try:
-            active = [r["id"] for r in self._db.execute(
-                "SELECT id FROM runs WHERE status = ? ORDER BY created_at", (STATUS_RUNNING,)
-            )]
-            if len(active) >= limit:
+            active = self._running_ids()
+            queued = self._live_waiters()
+            free = len(active) + len(queued) < limit
+            if not free and wait is None:
+                queue = f", в очереди ждут ещё {len(queued)}" if queued else ""
                 raise ReplayError(
                     "parallel_limit",
-                    f"уже идут {len(active)} запуска(ов) при лимите {limit}: {', '.join(active)}. "
+                    f"уже идут {len(active)} запуска(ов) при лимите {limit}: {', '.join(active)}{queue}. "
                     "Дождитесь завершения или отмените лишний (dawg-replay cancel <run_id>); "
                     "поднять лимит: dawg-replay config set max_parallel_runs <N>",
-                    {"running": active, "limit": limit},
+                    {"running": active, "waiting": queued, "limit": limit},
                 )
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
-                " params_json, created_at, timeout_seconds) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " params_json, created_at, timeout_seconds, triggered_by, schedule_id)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -165,17 +240,93 @@ class RunStore:
                     script_path,
                     int(draft),
                     preset,
-                    STATUS_RUNNING,
+                    STATUS_RUNNING if free else STATUS_WAITING,
                     json.dumps(params, ensure_ascii=False),
                     utcnow(),
                     timeout_seconds,
+                    "schedule" if schedule_id else None,
+                    schedule_id,
                 ),
             )
+            if not free:
+                self._db.execute(
+                    "UPDATE runs SET supervisor_pid = ?, supervisor_started = ?, heartbeat_at = ? WHERE id = ?",
+                    (wait.pid, wait.pid_started, utcnow(), run_id),
+                )
             self._db.execute("COMMIT")
         except BaseException:
             self._db.execute("ROLLBACK")
             raise
-        return self.get(run_id)
+        if free:
+            return self.get(run_id)
+        try:
+            return self._wait_for_slot(run_id, limit, wait)
+        except BaseException as e:
+            # Ctrl+C или сбой во время ожидания: место в очереди освобождается сразу.
+            if not isinstance(e, ReplayError):
+                self.cancel_waiting(run_id, "ожидание слота прервано")
+            raise
+
+    def _wait_for_slot(self, run_id: str, limit: int, wait: WaitPolicy) -> Run:
+        started = wait.clock()
+        deadline = started + wait.seconds
+        rowid = self._db.execute("SELECT rowid FROM runs WHERE id = ?", (run_id,)).fetchone()[0]
+        last: tuple[int, int] | None = None
+        while True:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                rec = self.get(run_id)
+                if rec.status != STATUS_WAITING:  # отменили из UI или CLI
+                    self._db.execute("COMMIT")
+                    raise ReplayError("run_cancelled", f"запуск {run_id} отменён, пока ждал слота", rec.to_dict())
+                active = self._running_ids()
+                ahead = self._live_waiters(before_rowid=rowid)
+                if len(active) + len(ahead) < limit:
+                    self._db.execute(
+                        "UPDATE runs SET status = ?, heartbeat_at = ? WHERE id = ? AND status = ?",
+                        (STATUS_RUNNING, utcnow(), run_id, STATUS_WAITING),
+                    )
+                    self._db.execute("COMMIT")
+                    if wait.on_wait is not None:
+                        wait.on_wait({"state": "started", "waited_seconds": wait.clock() - started})
+                    return self.get(run_id)
+                if wait.clock() >= deadline:
+                    msg = (
+                        f"пропущен: за {round(wait.seconds / 60)} мин не освободился слот "
+                        f"(лимит {limit}, шли {', '.join(active) or 'нет'})"
+                    )
+                    self._db.execute(
+                        "UPDATE runs SET status = 'failed', reason = ?, error = ?, finished_at = ? WHERE id = ? AND status = ?",
+                        (REASON_SKIPPED, msg, utcnow(), run_id, STATUS_WAITING),
+                    )
+                    self._db.execute("COMMIT")
+                    raise ReplayError("run_skipped", msg, {"run": run_id, "running": active, "limit": limit})
+                self._db.execute("UPDATE runs SET heartbeat_at = ? WHERE id = ?", (utcnow(), run_id))
+                self._db.execute("COMMIT")
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
+            if wait.on_wait is not None and (len(active), len(ahead)) != last:
+                last = (len(active), len(ahead))
+                wait.on_wait({"state": "waiting", "running": len(active), "ahead": len(ahead), "limit": limit,
+                              "left_seconds": max(0.0, deadline - wait.clock())})
+            wait.sleep(wait.poll)
+
+    def close_waiting(self, run_id: str, reason: str, error: str) -> bool:
+        """Закрывает ждущий запуск как `failed (<reason>)`. True, если он ещё ждал."""
+        cur = self._db.execute(
+            "UPDATE runs SET status = 'failed', reason = ?, error = ?, finished_at = ? WHERE id = ? AND status = ?",
+            (reason, error, utcnow(), run_id, STATUS_WAITING),
+        )
+        return cur.rowcount == 1
+
+    def cancel_waiting(self, run_id: str, error: str = "отменён, пока ждал слота") -> bool:
+        return self.close_waiting(run_id, REASON_CANCELLED, error)
+
+    def waiting(self) -> list[Run]:
+        rows = self._db.execute("SELECT * FROM runs WHERE status = ? ORDER BY rowid", (STATUS_WAITING,))
+        return [_run(r) for r in rows]
 
     def get(self, run_id: str) -> Run:
         row = self._db.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
@@ -190,6 +341,14 @@ class RunStore:
             rows = self._db.execute(
                 "SELECT * FROM runs WHERE script_name = ? ORDER BY created_at DESC, id DESC LIMIT ?", (script, limit)
             )
+        return [_run(r) for r in rows]
+
+    def created_since(self, since: str, script: str | None = None) -> list[Run]:
+        """Запуски, созданные не раньше `since` (ISO UTC с Z), от новых к старым."""
+        sql, args = "SELECT * FROM runs WHERE created_at >= ?", [since]
+        if script is not None:
+            sql, args = sql + " AND script_name = ?", [*args, script]
+        rows = self._db.execute(sql + " ORDER BY created_at DESC, id DESC", args)
         return [_run(r) for r in rows]
 
     def running(self) -> list[Run]:

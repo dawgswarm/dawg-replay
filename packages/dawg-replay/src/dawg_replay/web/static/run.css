@@ -16,8 +16,10 @@
   justify-content: space-between;
   gap: 0.75rem 1.5rem;
 }
+.run-title-main { flex: 1 1 24rem; min-width: 0; }
 .run-title h1 { margin-bottom: 0.65rem; min-width: 0; }
 .run-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.run-head > .hint { margin-top: 0.6rem; }
 
 .run-meta {
   display: flex;
@@ -114,6 +116,7 @@ button.danger:hover { background: var(--failed-bg); color: var(--failed); border
 .result-summary ul { padding-left: 1.2rem; }
 .result-summary code { font-family: var(--mono); font-size: 0.9em; padding: 0 0.3rem; border-radius: 5px; background: var(--sunken); }
 .result-reason { margin: 0.6rem 0 0; color: var(--ink-soft); max-width: 46rem; }
+.result-minutes { margin: 0.6rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
 .result-hint { margin: 0.75rem 0 0; padding: 0.6rem 0.85rem; max-width: 46rem; border-radius: 10px; background: var(--partial-bg); color: var(--partial); font-weight: 600; }
 .stderr-tail { margin: 0.6rem 0 0; max-height: 22rem; overflow: auto; font-size: 0.82rem; white-space: pre; }
 
@@ -410,3 +413,26 @@ tbody tr:last-child td { border-bottom: 0; }
   .run-files .files li, .run-files .files .button { width: 100%; }
 }
 .log-is-empty .fold > .log-empty { margin: 0 1.25rem 1.25rem; }
+
+
+/* --- починить с агентом (dawg_replay.repair) --- */
+
+.repair { margin: 0 0 1.25rem; }
+.repair > p { max-width: 46rem; }
+.repair-box > summary { display: inline-flex; list-style: none; cursor: pointer; }
+.repair-box > summary::-webkit-details-marker { display: none; }
+.repair-box[open] > summary { margin-bottom: 0.9rem; }
+.repair-text {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 0 0 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: 0.85rem/1.45 var(--mono);
+  resize: vertical;
+}
+.repair-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin-bottom: 0.6rem; }

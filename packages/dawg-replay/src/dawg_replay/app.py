@@ -14,11 +14,18 @@ from dawg_replay.paths import Paths, default_home
 from dawg_replay.presets import Preset, Presets
 from dawg_replay.registry import Registry
 from dawg_replay.runs import STATUS_RUNNING, RunStore
+from dawg_replay.schedules import Backend as SchedulerBackend
+from dawg_replay.schedules import Schedules
 from dawg_replay.secrets import Backend, SecretStore, clean_secret
 
 
 class App:
-    def __init__(self, home: Path | None = None, keyring_backend: Backend | None = None):
+    def __init__(
+        self,
+        home: Path | None = None,
+        keyring_backend: Backend | None = None,
+        scheduler_backend: SchedulerBackend | None = None,
+    ):
         self.paths = Paths(home if home is not None else default_home())
         self.paths.ensure()
         self.db: sqlite3.Connection = connect(self.paths.db)
@@ -26,6 +33,15 @@ class App:
         self.presets = Presets(self.db)
         self.runs = RunStore(self.db)
         self.secrets = SecretStore(keyring_backend)
+        self._scheduler_backend = scheduler_backend
+        self._schedules: Schedules | None = None
+
+    @property
+    def schedules(self) -> Schedules:
+        """Регулярные запуски. Планировщик ОС создаётся при первом обращении."""
+        if self._schedules is None:
+            self._schedules = Schedules(self, self._scheduler_backend)
+        return self._schedules
 
     def close(self) -> None:
         self.db.close()
@@ -154,8 +170,9 @@ class App:
         }
 
     def remove(self, name: str) -> dict[str, Any]:
-        """Удаляет скрипт, версии, пресеты и секреты; история запусков остаётся.
-        Пока идёт запуск этого скрипта, удалять нельзя: его файл и секреты ещё нужны."""
+        """Удаляет скрипт, версии, пресеты, секреты и расписания; история запусков остаётся.
+        Пока идёт запуск этого скрипта, удалять нельзя: его файл и секреты ещё нужны.
+        Расписания снимаются из планировщика первыми: если это не удалось, скрипт остаётся."""
         from dawg_replay import launch  # launch импортирует app
 
         self.registry.get(name)
@@ -174,10 +191,16 @@ class App:
             except ReplayError:
                 continue
             secret_params |= {p.name for p in m.params if p.type == "secret"}
+        schedules = self.schedules.remove_for(name) if self.schedules.all(name) else []
         versions = self.registry.remove(name)
         for param in sorted(secret_params):
             self.secrets.delete_secret(name, param)
-        return {"name": name, "versions": [v.version for v in versions], "secrets_deleted": sorted(secret_params)}
+        return {
+            "name": name,
+            "versions": [v.version for v in versions],
+            "secrets_deleted": sorted(secret_params),
+            "schedules_removed": schedules,
+        }
 
     # --- пресеты ---
 
@@ -190,9 +213,13 @@ class App:
     def list_presets(self, script: str) -> list[Preset]:
         return self.presets.list(script, self.registry.manifest(script))
 
-    def delete_preset(self, script: str, preset: str) -> None:
+    def delete_preset(self, script: str, preset: str) -> list[str]:
+        """Удаляет пресет и снимает его расписания. Возвращает id снятых расписаний."""
         self.registry.get(script)
+        self.presets.get(script, preset, self.registry.manifest(script))
+        removed = self.schedules.remove_for(script, preset) if self.schedules.all(script) else []
         self.presets.delete(script, preset)
+        return removed
 
     # --- секреты ---
 

@@ -86,7 +86,9 @@ def test_tail_is_escaped_and_limited(client, failed_run):
     run_id = failed_run(stderr="\n".join(lines) + "\n")
     h = client.get(f"/runs/{run_id}").text
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in h and "<script>alert(1)" not in h
-    assert "строка 39" in h and "строка 21" in h and "строка 20<" not in h and "строка 20\n" not in h
+    # Хвост на экране: 20 строк. В тексте для агента (панель починки) строк больше, проверяем только хвост.
+    tail = h.split('class="code stderr-tail"', 1)[1].split("</pre>", 1)[0]
+    assert "строка 39" in tail and "строка 21" in tail and "строка 20<" not in tail and "строка 20\n" not in tail
     assert "kit не найден" not in h
 
 
@@ -119,6 +121,24 @@ def test_cli_logs_hint(home, failed_run, capsys):
     assert out.rstrip().endswith(diagnosis.KIT_HINT)
     assert main(["--json", "logs", run_id]) == 0
     assert json.loads(capsys.readouterr().out)["hint"] == diagnosis.KIT_HINT
+
+
+def test_cli_logs_mask_key_and_saved_secrets(home, failed_run, kr, capsys):
+    """Агент читает `dawg-replay logs`, чтобы чинить скрипт: ключа и секретов там быть не должно."""
+    kr.set_password("dawg-replay", "dawg-api-key", "SECRETKEY99")
+    with App(home) as app:
+        app.set_secret("ozon-cards", "sheet_token", "tok-SECRET-1")
+    run_id = failed_run(
+        stderr="key SECRETKEY99\ntoken tok-SECRET-1\n",
+        events=[{"t": "log", "ts": "2026-11-14T12:00:00Z", "level": "info", "msg": "tok-SECRET-1 и SECRETKEY99"}],
+    )
+    with App(home) as app:
+        (app.paths.run_dir(run_id) / "stdout.log").write_text("print SECRETKEY99\n", encoding="utf-8")
+    for argv in (["logs", run_id], ["--json", "logs", run_id], ["logs", run_id, "--events"], ["--json", "logs", run_id, "--events"]):
+        assert main(argv) == 0
+        out = capsys.readouterr().out
+        assert "SECRETKEY99" not in out and "tok-SECRET-1" not in out, argv
+        assert "***" in out, argv
 
 
 def test_cli_run_follow_shows_tail_and_hint(home, kr, tmp_path, monkeypatch, capsys):

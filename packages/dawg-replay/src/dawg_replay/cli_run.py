@@ -1,4 +1,4 @@
-"""Команды CLI запусков: run, runs, logs, cancel. Тонкая обёртка над dawg_replay.launch."""
+"""Команды CLI запусков: run, runs, logs, fix-prompt, cancel. Тонкая обёртка над dawg_replay.launch."""
 
 from __future__ import annotations
 
@@ -7,14 +7,16 @@ import json
 import signal
 import sys
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit.events import ConsoleSink
 
-from dawg_replay import diagnosis, launch
+from dawg_replay import diagnosis, launch, repair
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
+from dawg_replay.errors import ReplayError
 from dawg_replay.runs import Run
 
 EXIT_RUN_FAILED = 3  # run --follow: запуск закончился статусом failed
@@ -66,8 +68,45 @@ def format_event_line(line: str, sink: ConsoleSink) -> str:
 # --- команды -----------------------------------------------------------------
 
 
+def _wait_printer(args: argparse.Namespace):
+    """Строки об ожидании слота: в терминал или, у планового запуска, в лог расписания."""
+    out = sys.stderr if args.json else sys.stdout
+
+    def on_wait(info: dict[str, Any]) -> None:
+        clock = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if info["state"] == "started":
+            if info["waited_seconds"] >= 1:
+                print(f"[{clock}] слот освободился, ждали {_minutes(info['waited_seconds'])}", file=out, flush=True)
+            return
+        ahead = f", впереди в очереди {info['ahead']}" if info["ahead"] else ""
+        print(
+            f"[{clock}] лимит занят: идут {info['running']} из {info['limit']}{ahead}. "
+            f"Ждём слот, не дольше {_minutes(info['left_seconds'], up=True)}",
+            file=out,
+            flush=True,
+        )
+
+    return on_wait
+
+
+def _minutes(seconds: float, up: bool = False) -> str:
+    m = int(-(-seconds // 60)) if up else int(seconds // 60)
+    return f"{m} мин" if m else f"{int(seconds)} с"
+
+
 def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
-    prepared = launch.prepare(app, args.target, preset=args.preset, params_file=args.params, sets=args.set)
+    try:
+        prepared = launch.prepare(
+            app, args.target, preset=args.preset, params_file=args.params, sets=args.set,
+            schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args),
+        )
+    except ReplayError as e:
+        if e.code != "run_skipped":
+            raise
+        # Не дождались слота: запуск записан в историю как пропущенный.
+        args._exit_code = EXIT_RUN_FAILED
+        rec = app.runs.get(e.details["run"])
+        return {"run": rec.to_dict(), "skipped": True}, f"запуск {rec.id} {e.message}"
     run_id = prepared.run.id
     run_dir = app.paths.run_dir(run_id)
     for w in prepared.warnings:
@@ -155,8 +194,11 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     run_dir = app.paths.run_dir(rec.id)
     suspects = cli_release.suspects_for(app, rec.id)
     warning = "\n".join(cli_release.warning_lines(app, rec.id))
+    # Логи читает и агент, который чинит скрипт: ключ DAWG и сохранённые секреты скрипта
+    # маскируются так же, как в хвосте stderr на экране запуска.
+    secrets = diagnosis.known_secrets(app, rec.script_name)
     if args.events:
-        lines = _read(run_dir / "events.jsonl").splitlines()
+        lines = diagnosis.mask(_read(run_dir / "events.jsonl"), secrets).splitlines()
         events: list[Any] = []
         for line in lines:
             try:
@@ -168,7 +210,8 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         if warning:
             text += "\n\n" + warning
         return {"run": rec.to_dict(), "events": events, "suspects": suspects}, text
-    stdout, stderr = _read(run_dir / "stdout.log"), _read(run_dir / "stderr.log")
+    stdout = diagnosis.mask(_read(run_dir / "stdout.log"), secrets)
+    stderr = diagnosis.mask(_read(run_dir / "stderr.log"), secrets)
     parts = [f"запуск {rec.id}: {rec.label}"]
     if warning:
         parts.append(warning)
@@ -179,6 +222,13 @@ def _logs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         parts += ["", hint]
     data = {"run": rec.to_dict(), "stdout": stdout, "stderr": stderr, "suspects": suspects, "hint": hint}
     return data, "\n".join(parts)
+
+
+def _fix_prompt(app: App, args: argparse.Namespace) -> tuple[dict, str]:
+    launch.recover_lost(app)
+    rec = app.runs.get(args.run_id)
+    data = repair.fix_prompt(app, rec)
+    return {"run": rec.to_dict(), **{k: v for k, v in data.items() if k != "text"}, "prompt": data["text"]}, data["text"]
 
 
 def _cancel(app: App, args: argparse.Namespace) -> tuple[dict, str]:
@@ -222,6 +272,9 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--set", action="append", metavar="K=V", help="значение параметра, можно повторять")
     p.add_argument("--preset", help="пресет скрипта")
     p.add_argument("--follow", action="store_true", help="показывать события и ждать конца; Ctrl+C отменяет")
+    p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика); ждёт слота, как --wait")
+    p.add_argument("--wait", action="store_true",
+                   help="если лимит параллельных запусков занят, ждать слота (до wait_slot_minutes, по умолчанию 30 мин)")
 
     p = add("runs", _runs, "история запусков")
     p.add_argument("name", nargs="?", help="только запуски этого скрипта")
@@ -230,6 +283,16 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add("logs", _logs, "сырой stdout и stderr запуска или его события")
     p.add_argument("run_id")
     p.add_argument("--events", action="store_true", help="события из events.jsonl вместо сырого лога")
+
+    p = add(
+        "fix-prompt",
+        _fix_prompt,
+        "текст для агента: починить скрипт по упавшему запуску",
+        "Печатает готовый промпт для Claude Code или Codex: скрипт, версия, путь, параметры без секретов, "
+        "причина, хвост stderr. Ключ DAWG, секреты и токены в адресах скрыты. "
+        "Скопировать на macOS: dawg-replay fix-prompt <run_id> | pbcopy",
+    )
+    p.add_argument("run_id")
 
     p = add("cancel", _cancel, "отменить запуск: мягкий сигнал, через grace секунд kill дерева процессов")
     p.add_argument("run_id")

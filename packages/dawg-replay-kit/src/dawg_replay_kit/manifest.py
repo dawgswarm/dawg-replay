@@ -316,7 +316,7 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
     name = raw.get("name")
     if name is None:
         err("missing_field", "name", "нет обязательного поля `name`")
-    elif not isinstance(name, str) or not _PARAM_NAME_RE.match(name):
+    elif not isinstance(name, str) or not _PARAM_NAME_RE.fullmatch(name):
         err("bad_param_name", "name", f"имя {name!r} не подходит: нужны строчные латинские буквы, цифры и `_`, первая буква")
     elif name in RESERVED_PARAM_NAMES:
         err("reserved_param_name", "name", f"имя `{name}` занято аргументом автономного режима")
@@ -427,8 +427,8 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
         major = minor = None
         if _is_int(contract):
             major, minor = contract, 0
-        elif isinstance(contract, str) and _CONTRACT_STR_RE.match(contract):
-            cm = _CONTRACT_STR_RE.match(contract)
+        elif isinstance(contract, str) and _CONTRACT_STR_RE.fullmatch(contract):
+            cm = _CONTRACT_STR_RE.fullmatch(contract)
             major, minor = int(cm.group(1)), int(cm.group(2))
         if major is None:
             issues.append(Issue("bad_value", "contract", f"`contract` задаётся целым (1) или строкой \"1.2\", получено {contract!r}"))
@@ -468,7 +468,7 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
     name = data.get("name")
     if name is None:
         issues.append(Issue("missing_field", "name", "нет обязательного поля `name`"))
-    elif not isinstance(name, str) or not _SLUG_RE.match(name) or len(name) > _SLUG_MAX:
+    elif not isinstance(name, str) or not _SLUG_RE.fullmatch(name) or len(name) > _SLUG_MAX:
         issues.append(
             Issue("bad_slug", "name", f"`name` {name!r} должен быть slug: строчные латинские буквы, цифры и `-`, до {_SLUG_MAX} символов")
         )

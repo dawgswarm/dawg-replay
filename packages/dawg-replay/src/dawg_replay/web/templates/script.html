@@ -28,8 +28,14 @@
   {% endif %}
 </div>
 
+{# Регулярный запуск выше истории: история длинная, а расписание нужно видеть сразу. #}
+<section class="card" aria-labelledby="sched-title">
+  <div class="card-head"><h2 id="sched-title">Регулярный запуск</h2><span class="hint-inline">по пресету, через планировщик системы</span></div>
+  <div id="schedules" hx-get="/scripts/{{ s.name }}/_schedules" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Проверяю планировщик…</p></div>
+</section>
+
 <section class="card" aria-labelledby="runs-title">
-  <div class="card-head"><h2 id="runs-title">Запуски</h2></div>
+  <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}</div>
   {% set sname = s.name %}{% set runs = v.runs %}
   {% include "_script_runs.html" %}
 </section>
@@ -57,8 +63,8 @@
 </details>
 
 <details class="card fold danger-zone">
-  <summary><span class="fold-title">Удалить скрипт</span><span class="hint-inline">версии, пресеты и секреты</span></summary>
-  <p class="hint">Удалятся все версии скрипта, его пресеты и сохранённые секреты. История запусков и их файлы останутся. Вернуть скрипт можно, только добавив файл заново.</p>
+  <summary><span class="fold-title">Удалить скрипт</span><span class="hint-inline">версии, пресеты, секреты и расписания</span></summary>
+  <p class="hint">Удалятся все версии скрипта, его пресеты и сохранённые секреты, регулярные запуски снимутся из планировщика. История запусков и их файлы останутся. Вернуть скрипт можно, только добавив файл заново.</p>
   <form class="delete-form" hx-post="/scripts/{{ s.name }}/delete" hx-target="#delete-error" hx-disabled-elt="find button">
     <label for="delete-confirm">Чтобы подтвердить, введите имя скрипта <code>{{ s.name }}</code></label>
     <div class="row">

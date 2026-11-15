@@ -2,12 +2,13 @@
 {% if runs %}
   <ul class="runs">
   {% for r in runs %}
-    {% set st = r.label | status %}
+    {% set st = r | run_status %}
     <li>
       <a class="run-link" href="/runs/{{ r.id }}">
-        <span class="status status-{{ st.kind }}">{{ st.text }}</span>
+        <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
         <span class="last-when">{{ r.created_at | when }}</span>
         {% if r.draft %}<span class="hint-inline">черновой</span>{% endif %}
+        {% if r.trigger == "schedule" %}<span class="tag-plan">по расписанию{% if r.preset %}, «{{ r.preset }}»{% endif %}</span>{% elif r.preset %}<span class="hint-inline">«{{ r.preset }}»</span>{% endif %}
       </a>
       {% if r.summary %}<p class="last-summary">{{ r.summary | markdown | striptags }}</p>{% endif %}
     </li>

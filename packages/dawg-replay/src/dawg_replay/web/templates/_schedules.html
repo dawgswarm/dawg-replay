@@ -1,0 +1,79 @@
+{# Блок «Регулярный запуск» на странице скрипта. Контекст sc: см. views._schedules_ctx. #}
+<div id="schedules" hx-get="/scripts/{{ sc.name }}/_schedules" hx-trigger="presets-changed from:body" hx-swap="outerHTML">
+{% if sc.scheduler_error %}
+  <p class="notice notice-error" role="alert">Планировщик недоступен: {{ sc.scheduler_error }}</p>
+{% endif %}
+{% if sc.notice %}<p class="notice notice-ok" role="status">{{ sc.notice }}</p>{% endif %}
+{% if sc.entries %}
+  <ul class="schedules">
+  {% for s in sc.entries %}
+    <li class="schedule">
+      <div class="schedule-text">
+        <span class="schedule-when">{{ s.when | capitalize_first }}</span>
+        <span class="hint-inline">пресет «{{ s.preset }}»{% if s.next_run %}, следующий {{ s.next_text }}{% endif %}</span>
+        {% if s.state == "missing" %}
+        <p class="field-error schedule-warn">Задачи нет в планировщике, запуск не состоится. Удалите расписание и создайте заново или выполните <code>dawg-replay schedule sync</code>.</p>
+        {% endif %}
+      </div>
+      <form hx-post="/scripts/{{ sc.name }}/schedules/{{ s.id }}/delete" hx-target="#schedules" hx-swap="outerHTML"
+            hx-confirm="Снять регулярный запуск «{{ s.when }}» с пресетом «{{ s.preset }}»?" hx-disabled-elt="find button">
+        <button class="secondary small" type="submit">Удалить</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+{% endif %}
+
+{% if not sc.presets %}
+  <p class="hint">Регулярный запуск идёт по пресету. Сохраните пресет в <a href="#launch">форме запуска</a>, затем вернитесь сюда.</p>
+{% else %}
+  {# Когда расписания уже есть, форма свёрнута: блок короткий и не отодвигает историю запусков. #}
+  {% set form_open = not sc.entries or sc.error %}
+  <details class="schedule-add"{% if form_open %} open{% endif %}>
+  <summary{% if not sc.entries %} hidden{% endif %}>Добавить расписание</summary>
+  <form class="schedule-form" data-schedule-form hx-post="/scripts/{{ sc.name }}/schedules" hx-target="#schedules" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+    <div class="schedule-fields">
+      <div class="field">
+        <label for="sch-preset">Пресет</label>
+        <select id="sch-preset" name="_preset">
+          {% for p in sc.presets %}<option value="{{ p }}" {% if sc.form.preset == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="sch-kind">Как часто</label>
+        <select id="sch-kind" name="_kind">
+          {% for value, title in sc.kinds %}<option value="{{ value }}" {% if sc.form.kind == value %}selected{% endif %}>{{ title }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field" data-when="weekly">
+        <label for="sch-weekday">День недели</label>
+        <select id="sch-weekday" name="_weekday">
+          {% for title in sc.weekdays %}<option value="{{ loop.index }}" {% if sc.form.weekday == loop.index | string %}selected{% endif %}>{{ title }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="field" data-when="daily weekly">
+        <label for="sch-time">Время</label>
+        <input id="sch-time" name="_time" type="time" value="{{ sc.form.time }}">
+      </div>
+      <div class="field" data-when="hours">
+        <label for="sch-hours">Интервал</label>
+        <select id="sch-hours" name="_hours">
+          {% for n in sc.every_hours %}<option value="{{ n }}" {% if sc.form.hours == n | string %}selected{% endif %}>{% if n == 1 %}каждый час{% else %}каждые {{ n }} ч{% endif %}</option>{% endfor %}
+        </select>
+      </div>
+      {% if sc.cron_supported %}
+      <div class="field" data-when="cron">
+        <label for="sch-cron">Выражение cron</label>
+        <input id="sch-cron" name="_cron" type="text" value="{{ sc.form.cron }}" placeholder="30 9 * * 1-5" spellcheck="false">
+      </div>
+      {% endif %}
+    </div>
+    {% if sc.error %}<p class="field-error" role="alert">{{ sc.error }}</p>{% endif %}
+    <div class="schedule-actions">
+      <button type="submit">Добавить расписание</button>
+      <span class="hint-inline">Время этого компьютера. Он должен быть включён, а вы в системе.</span>
+    </div>
+  </form>
+  </details>
+{% endif %}
+</div>

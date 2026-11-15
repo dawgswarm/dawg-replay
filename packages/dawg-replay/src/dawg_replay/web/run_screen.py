@@ -35,7 +35,7 @@ from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.routing import Route
 from starlette.templating import Jinja2Templates
 
-from dawg_replay import diagnosis, insurance, launch
+from dawg_replay import diagnosis, insurance, launch, minutes, repair
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView
@@ -54,15 +54,17 @@ PANELS_BY_KIND = {
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result",),
-    "run": ("head", "result", "suspects", "files", "trail"),
+    "run": ("head", "result", "repair", "suspects", "files", "trail"),
 }
-PANELS = ("head", "result", "suspects", "trail", "progress", "metrics", "files", "tables")
+PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "tables")
 
 REASONS = {
     "cancelled": "Запуск отменили. Собранное до отмены осталось в файлах результатов, если скрипт успел их сохранить.",
     "timeout": "Запуск шёл дольше разрешённого и был остановлен.",
     "lost": "Запуск прервался: программа, которая его вела, закрылась или компьютер выключился.",
     "start_error": "Скрипт не удалось запустить.",
+    "skipped": "Запуск не начался: все места для одновременных запусков были заняты, а время ожидания вышло. "
+    "Данные за этот раз не собраны. Лимит меняется в настройках.",
 }
 
 LEVEL_WORDS = {"debug": "отладка", "info": "инфо", "warn": "внимание", "error": "ошибка", "raw": "сырая строка"}
@@ -111,12 +113,22 @@ class Views:
                 rec_ = a.runs.get(run_id)
                 r = rec_.to_dict()
                 dg = diagnosis.diagnose(a, rec_)
+                # «Починить с агентом»: упал не по отмене или тихая поломка (dawg_replay.repair)
+                try:
+                    need = repair.needs_repair(a, rec_)
+                    fix = repair.fix_prompt(a, rec_)["text"] if need else None
+                except (ReplayError, OSError):
+                    need = fix = None  # панель починки не должна ломать экран запуска
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
-                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested")
+                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested", "trigger", "schedule_id")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)
             info["diagnosis"] = dg  # упал, ничего не сообщив: хвост stderr и подсказка
+            # Примерные минуты браузеров DAWG: только для завершённого, у идущего число растёт само.
+            info["minutes"] = None if rec_.running else minutes.for_run(run_dir, rec_).to_dict()
+            info["suspicion"] = need["suspicion"] if need else None
+            info["repair"] = fix
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, run_info=run_info)
@@ -232,7 +244,8 @@ def setup(templates: Jinja2Templates) -> None:
 
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
     run = snapshot.get("run") or {}
-    return {"s": snapshot, "run": run, "running": run.get("status") == "running"}
+    # Ждущий слота запуск тоже «идёт»: его можно остановить (он уйдёт из очереди).
+    return {"s": snapshot, "run": run, "running": run.get("status") in ("running", "waiting")}
 
 
 def render_panels(templates: Jinja2Templates, snapshot: dict[str, Any], names: tuple[str, ...] | set[str]) -> dict[str, str]:
@@ -401,7 +414,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 text = path.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 text = ""
-            text = diagnosis.mask(text, diagnosis.known_secrets(app, rec.script_name))
+            text = diagnosis.scrub(text, diagnosis.known_secrets(app, rec.script_name))
         return Response(
             text or "stderr пуст\n",
             media_type="text/plain; charset=utf-8",
