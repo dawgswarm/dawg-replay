@@ -14,7 +14,7 @@ from dawg_replay import asks, diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
-ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)", "failed (skipped)")
+ATTENTION_LABELS = ("failed", "partial", "failed (timeout)", "failed (lost)", "failed (skipped)", "failed (not_started)")
 RECENT_RUNS = 8
 QUICK_PRESETS = 6
 SUSPECT_SCAN = 30  # сколько последних завершённых запусков смотреть на остаточные браузеры
@@ -204,7 +204,8 @@ def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, d
         if rec.running or rec.draft or not rec.finished_at or rec.finished_at <= since:
             continue
         need = repair.needs_repair(app, rec)
-        skipped = rec.status == "failed" and rec.reason == "skipped"  # не дождался слота: показать, но без починки
+        # не дождался слота или не начался по расписанию: показать, но без починки
+        skipped = rec.status == "failed" and rec.reason in ("skipped", "not_started")
         # не ответили на вопрос скрипта (kit.AskTimeout): показать, но без починки
         missed = rec.status == "failed" and need is None and asks.timed_out(app.paths.run_dir(rec.id)) is not None
         if need is None and not skipped and not missed:

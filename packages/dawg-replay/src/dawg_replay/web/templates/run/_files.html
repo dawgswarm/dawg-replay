@@ -11,11 +11,13 @@
   {% endif %}
   {% set missing = s.artifacts | rejectattr("exists") | list %}
   {% for a in missing %}<p class="hint file-missing">{{ a.label }} ({{ a.path }}): файла нет на диске.</p>{% endfor %}
+  {% if run.reason in ("not_started", "skipped") %}{# скрипт не запускался: папки и файлов нет #}{% else %}
   <div class="run-files-actions">
     <form hx-post="/runs/{{ run.id }}/open-folder" hx-target="#files-notice" hx-swap="innerHTML">
       <button class="secondary">{{ icon("folder", "ico ico-s") }}Открыть папку</button>
     </form>
     {% if not s.artifacts %}<span class="hint-inline">{% if running %}Файлы появятся здесь, когда скрипт их сохранит.{% else %}Скрипт не сохранял файлов.{% endif %}</span>{% endif %}
   </div>
+  {% endif %}
   <div id="files-notice"></div>
 </div>

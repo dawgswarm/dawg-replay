@@ -23,7 +23,8 @@ REASON_LOST = "lost"
 REASON_START_ERROR = "start_error"
 REASON_SKIPPED = "skipped"  # не дождался слота за отведённое время
 REASON_CANCELLED = "cancelled"
-_LABELLED_REASONS = (REASON_CANCELLED, "timeout", REASON_LOST, REASON_SKIPPED)
+REASON_NOT_STARTED = "not_started"  # плановый запуск упал до создания запуска (параметры, пресет)
+_LABELLED_REASONS = (REASON_CANCELLED, "timeout", REASON_LOST, REASON_SKIPPED, REASON_NOT_STARTED)
 
 
 def new_run_id() -> str:
@@ -312,6 +313,21 @@ class RunStore:
                 wait.on_wait({"state": "waiting", "running": len(active), "ahead": len(ahead), "limit": limit,
                               "left_seconds": max(0.0, deadline - wait.clock())})
             wait.sleep(wait.poll)
+
+    def record_not_started(
+        self, *, run_id: str, script_name: str, script_version: int | None, script_path: str,
+        preset: str | None, schedule_id: str | None, error: str,
+    ) -> Run:
+        """Запись о плановом запуске, который не начался: без неё причина есть только в логе расписания."""
+        now = utcnow()
+        self._db.execute(
+            "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, reason, error,"
+            " params_json, created_at, finished_at, triggered_by, schedule_id)"
+            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?)",
+            (run_id, script_name, script_version, script_path, preset, REASON_NOT_STARTED, error, now, now,
+             "schedule" if schedule_id else None, schedule_id),
+        )
+        return self.get(run_id)
 
     def close_waiting(self, run_id: str, reason: str, error: str) -> bool:
         """Закрывает ждущий запуск как `failed (<reason>)`. True, если он ещё ждал."""

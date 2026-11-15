@@ -25,6 +25,7 @@ from starlette.templating import Jinja2Templates
 from dawg_replay import forms, imports, minutes, repair, schedules, uistate, uploads
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
+from dawg_replay.presets import secret_tables_note
 from dawg_replay.runs import parse_ts
 from dawg_replay.uploads import Uploads
 from dawg_replay.values import rows_word
@@ -49,6 +50,7 @@ STATUS = {
     "failed (lost)": ("прерван", "muted"),
     "waiting": ("ждёт слот", "muted"),
     "failed (skipped)": ("пропущен", "failed"),
+    "failed (not_started)": ("не начат", "failed"),
 }
 MONTHS = ("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
 
@@ -348,7 +350,10 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     ctx["form_error"] = "Введите имя пресета."
                     return fragment(request, "_script_form.html", f=ctx)
                 sub = forms.save_preset(app, name, preset_name, form)
-                notice = f"Пресет «{preset_name}» сохранён." if sub.ok else None
+                notice = None
+                if sub.ok:
+                    note = secret_tables_note(app.registry.manifest(name))
+                    notice = f"Пресет «{preset_name}» сохранён." + (f" {note}" if note else "")
                 resp = fragment(request, "_script_form.html", f=_script_ctx(app, name, preset_name if sub.ok else None, sub, notice))
                 if sub.ok:
                     resp.headers["HX-Trigger"] = "presets-changed"  # блок «Регулярный запуск» видит новый пресет
@@ -430,6 +435,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             "name": name, "entries": data["schedules"], "scheduler_error": data["error"], "error": error, "notice": notice,
             "presets": presets, "form": values, "kinds": kinds if cron_ok else kinds[:3], "cron_supported": cron_ok,
             "weekdays": weekday_titles, "every_hours": schedules.EVERY_HOURS,
+            "blocked": schedules.secret_table_gap(app.registry.manifest(name)),
         }
 
     def _spec(form: dict[str, str]) -> schedules.Spec:
