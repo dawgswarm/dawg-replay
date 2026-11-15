@@ -53,8 +53,10 @@
 .browsers-on { color: var(--ink); font-weight: 560; }
 .browsers-on::before { border-color: var(--running); background: var(--running); }
 
-button.danger { color: var(--failed); border-color: color-mix(in srgb, var(--failed) 45%, var(--line-strong)); }
-button.danger:hover { background: var(--failed-bg); color: var(--failed); border-color: var(--failed); }
+/* «Остановить»: светлая кнопка с красным текстом. Сплошная красная button.danger из app.css
+   (удаление скрипта) сюда не должна просачиваться: красный текст на красном фоне не виден. */
+button.secondary.danger { background: var(--surface); color: var(--failed); border-color: color-mix(in srgb, var(--failed) 45%, var(--line-strong)); }
+button.secondary.danger:hover { background: var(--failed-bg); color: var(--failed); border-color: var(--failed); }
 
 /* --- разделы --- */
 

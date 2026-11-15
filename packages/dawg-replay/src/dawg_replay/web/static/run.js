@@ -68,6 +68,10 @@
       var data = JSON.parse(e.data);
       Object.keys(data.panels || {}).forEach(function (name) { replacePanel(name, data.panels[name]); });
       appendLog(data.log || []);
+      if (data.log_count) {
+        var count = document.getElementById("log-count");
+        if (count) count.textContent = data.log_count;
+      }
       document.dispatchEvent(new CustomEvent("dawg:panels"));
       if (e.lastEventId) root.setAttribute("data-after", e.lastEventId);
     });

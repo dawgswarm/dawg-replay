@@ -263,6 +263,18 @@ def size_text(n: int | None) -> str:
     return ""
 
 
+def log_count(n: int) -> str:
+    """«14 сообщений» в заголовке журнала."""
+    n = int(n or 0)
+    if n % 10 == 1 and n % 100 != 11:
+        word = "сообщение"
+    elif 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
+        word = "сообщения"
+    else:
+        word = "сообщений"
+    return f"{value_text(n)} {word}"
+
+
 def items_shown(rows: list[dict[str, Any]], limit: int = ITEMS_SHOWN) -> list[dict[str, Any]]:
     """Строки отчёта для экрана: все, если их немного, иначе все упавшие (до limit)
     и последние остальные, в исходном порядке."""
@@ -308,6 +320,7 @@ def setup(templates: Jinja2Templates) -> None:
     env.globals["ITEM_WORDS"] = ITEM_WORDS
     env.globals["ITEM_KINDS"] = ITEM_KINDS
     env.filters["items_shown"] = items_shown
+    env.filters["log_count"] = log_count
 
 
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -334,7 +347,11 @@ def patch_for(templates: Jinja2Templates, view: RunView, changes: list[dict[str,
         if c["kind"] == "log":
             entries.append(c["data"])
     snap = view.snapshot() if names else {}
-    return {"panels": render_panels(templates, snap, names) if names else {}, "log": render_log(templates, entries)}
+    out = {"panels": render_panels(templates, snap, names) if names else {}, "log": render_log(templates, entries)}
+    if entries:
+        # Счётчик в заголовке журнала рисуется при загрузке страницы; новые строки приходят патчами.
+        out["log_count"] = templates.env.filters["log_count"](view.log_total)
+    return out
 
 
 # --- файлы результатов ----------------------------------------------------------

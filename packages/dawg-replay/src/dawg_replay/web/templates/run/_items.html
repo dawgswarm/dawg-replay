@@ -35,7 +35,7 @@
       <tbody>
         {% for r in shown %}
         <tr class="item-row item-{{ r.status }}">
-          <td>{{ r.key }}{% if r.row is not none %} <span class="hint-inline item-no">№&nbsp;{{ r.row }}</span>{% endif %}</td>
+          <td>{{ r.key }}{% if r.row is not none and (r.key | string) != (r.row | string) %} <span class="hint-inline item-no">№&nbsp;{{ r.row }}</span>{% endif %}</td>
           <td><span class="status status-{{ ITEM_KINDS[r.status] }}">{{ ITEM_WORDS[r.status] }}</span></td>
           <td class="item-msg">{{ r.msg or "" }}</td>
         </tr>
