@@ -155,6 +155,7 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
             title, _ = _title(app, rec, titles)
             suspects.append({"run": rec.to_dict(), "title": title, "suspects": pending})
 
+    repair.annotate_items(app, [a["run"] for a in attention])
     since_block = since_last_visit(app, since, titles)
     if since_block:  # запуск уже показан в «С прошлого визита»: во «Требует внимания» не повторяем
         shown = {i["run"]["id"] for i in since_block["items"]}
@@ -209,6 +210,7 @@ def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, d
             title, cov = _title(app, rec, titles)
             items.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
                           "suspicion": need["suspicion"] if need else None, "repair": need is not None})
+    repair.annotate_items(app, [i["run"] for i in items])
     return {"since": since, "items": items, "total": total}
 
 

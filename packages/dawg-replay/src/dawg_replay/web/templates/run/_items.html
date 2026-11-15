@@ -1,0 +1,47 @@
+{# Отчёт по строкам: события item (контракт 1.2). Снимок s.items: counts и rows, см. RunView._items_view. #}
+{% set it = s["items"] %}
+<section id="run-items" class="run-section{% if not it %} is-empty{% endif %}" aria-labelledby="items-title">
+  {% if it %}{% set c = it.counts %}{% set shown = it.rows | items_shown %}{% set rt = run.retry %}
+  {# Запуск оборвался посреди таблицы: «2 из 7», а не «2 из 4». #}
+  {% set total = [c.total, (rt.table_rows if rt and rt.table_rows else 0)] | max %}
+  <div class="run-section-head items-head">
+    <h2 id="items-title">Строки</h2>
+    <p class="items-counts">
+      <span class="status status-ok">{{ c.ok | value }} из {{ total | value }} {{ c.ok | plural("сделана", "сделаны", "сделано") }}</span>
+      {% if c.failed %}<span class="status status-failed">{{ c.failed | value }} {{ c.failed | plural("упала", "упали", "упали") }}</span>{% endif %}
+      {% if c.skipped %}<span class="status status-muted">{{ c.skipped | value }} {{ c.skipped | plural("пропущена", "пропущены", "пропущено") }}</span>{% endif %}
+    </p>
+  </div>
+  {% if rt %}
+  <div class="items-retry">
+    {% if rt.count %}
+    <button type="button" hx-post="/runs/{{ run.id }}/retry-failed" hx-target="#items-retry-notice" hx-swap="innerHTML" hx-disabled-elt="this"
+            hx-confirm="Запустить скрипт заново только для {{ rt.count }} {{ rt.count | plural('строки', 'строк', 'строк') }}?">Перезапустить упавшие ({{ rt.count | value }})</button>
+    <span class="hint-inline">{% if rt.failed %}{{ rt.failed | value }} {{ rt.failed | plural("упала", "упали", "упали") }}{% endif %}{% if rt.failed and rt.unreached %}, {% endif %}{% if rt.unreached %}до {{ rt.unreached | value }} {{ rt.unreached | plural("строки", "строк", "строк") }} скрипт не дошёл{% endif %}. Сделанные строки не повторяются.</span>
+    {% else %}
+    <p class="hint">Таблица была секретной и хранится только сутки, перезапустить упавшие строки уже нельзя. <a href="/scripts/{{ run.script }}#launch">Загрузите файл заново</a> и запустите скрипт: сделанные строки он пропустит, если проверяет это сам.</p>
+    {% endif %}
+    <div id="items-retry-notice"></div>
+  </div>
+  {% endif %}
+  <div class="items-tools">
+    {% if c.failed %}<label class="items-filter"><input type="checkbox" data-items-failed> только упавшие</label>{% endif %}
+    <a class="button button-secondary small" href="/runs/{{ run.id }}/items.csv" download>Скачать отчёт CSV</a>
+  </div>
+  {% if shown | length < c.total %}<p class="hint">Показаны {{ shown | length | value }} из {{ c.total | value }}: все упавшие и последние сделанные. Полный отчёт в CSV.</p>{% endif %}
+  <div class="table-scroll items-scroll" tabindex="0" role="region" aria-label="Отчёт по строкам">
+    <table class="items-table">
+      <thead><tr><th scope="col">Строка</th><th scope="col">Статус</th><th scope="col">Сообщение</th></tr></thead>
+      <tbody>
+        {% for r in shown %}
+        <tr class="item-row item-{{ r.status }}">
+          <td>{{ r.key }}{% if r.row is not none %} <span class="hint-inline item-no">№&nbsp;{{ r.row }}</span>{% endif %}</td>
+          <td><span class="status status-{{ ITEM_KINDS[r.status] }}">{{ ITEM_WORDS[r.status] }}</span></td>
+          <td class="item-msg">{{ r.msg or "" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
