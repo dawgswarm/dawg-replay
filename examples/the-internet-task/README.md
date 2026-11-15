@@ -16,6 +16,6 @@
     dawg-replay add examples/the-internet-task/script.py
     dawg-replay run the-internet-task --set mode=act --follow
 
-Пока kit 1.3 не опубликован на PyPI, приложению нужен локальный kit:
+Kit приложение берёт с PyPI. Чтобы проверить правки kit из рабочей копии:
 
     dawg-replay config set dev_kit_source "$PWD/packages/dawg-replay-kit"

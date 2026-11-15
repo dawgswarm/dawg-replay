@@ -34,7 +34,7 @@
     export DAWG_API_KEY=...
     uv run examples/ozon-search-cards/script.py --query "кроссовки мужские" --max-pages 3
 
-Пока kit не опубликован на PyPI, при разработке нужен локальный kit:
+Kit приложение берёт с PyPI. Чтобы проверить правки kit из рабочей копии:
 
     dawg-replay config set dev_kit_source "$PWD/packages/dawg-replay-kit"   # для run из приложения
     eval "$(dawg-replay dev kit-env | head -1)"                             # для автономного запуска
