@@ -89,6 +89,7 @@ class Field:
     columns: list[str] | None = None  # table: обязательные колонки
     max_rows: int | None = None
     secret_table: bool = False
+    manual: dict[str, Any] | None = None  # table: введённое вручную при ошибке, чтобы не потерять
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -132,10 +133,10 @@ def display(param: Param, value: Any) -> str | bool:
 
 def table_info(param: Param, upload_id: str, file: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Что показать у поля таблицы. У секретной таблицы только имя файла и число строк."""
+    # Имена колонок не секрет: по ним строится ввод строк вручную. Значения секретной таблицы не показываются.
     info: dict[str, Any] = {"id": upload_id, "file": file, "count": len(rows), "secret": param.secret,
-                            "columns": [], "preview": []}
+                            "columns": columns_of(rows), "preview": []}
     if not param.secret:
-        info["columns"] = columns_of(rows)
         info["preview"] = [[r.get(c, "") for c in info["columns"]] for r in rows[:PREVIEW_ROWS]]
     return info
 
@@ -472,6 +473,62 @@ def upload_table(
                        tables={p.name: info} if info else None)
     if error:
         fl.table = {"file": name, "failed": True}
+    return {"field": fl}
+
+
+MANUAL_FILE = "введено вручную"
+_SECRET_COLUMN = re.compile(r"pass|парол|code|код|token|токен|secret|секрет|pin|ключ|key", re.IGNORECASE)
+
+
+def secret_column(name: str) -> bool:
+    """Колонка похожа на пароль, код или токен: в ручном вводе секретной таблицы поле пароля."""
+    return bool(_SECRET_COLUMN.search(str(name)))
+MANUAL_MAX_COLUMNS = 50
+
+
+def manual_table(app: Any, script: str, param: str, columns: list[str], cells: list[str]) -> dict[str, Any]:
+    """Строки, введённые в форме («Ввести вручную»): та же таблица, что из файла.
+
+    `columns`: имена колонок; `cells`: значения по строкам подряд (len(cells) кратно числу колонок).
+    Пустые строки отбрасываются, номера `_row` 2, 3, … как у файла. Таблица сохраняется как загрузка,
+    дальше форма, пресет и запуск работают с ней так же, как с файлом."""
+    manifest = app.registry.manifest(script)
+    try:
+        p = manifest.param(param)
+    except KeyError:
+        raise ReplayError("param_not_found", f"у скрипта `{script}` нет параметра `{param}`") from None
+    if p.type != "table":
+        raise ReplayError("param_not_found", f"параметр `{param}` не таблица")
+    error = info = None
+    cols = [str(c).strip() for c in columns]
+    if not cols or len(cols) > MANUAL_MAX_COLUMNS:
+        error = "задайте хотя бы одну колонку" if not cols else f"не больше {MANUAL_MAX_COLUMNS} колонок"
+    elif any(not c for c in cols):
+        error = "у каждой колонки нужно имя"
+    elif any(c.startswith("_") for c in cols):
+        error = "имя колонки не может начинаться с «_»"
+    elif len(set(cols)) != len(cols):
+        error = "имена колонок повторяются"
+    elif len(cells) % len(cols):
+        error = "форма прислала неполную строку, откройте ввод заново"
+    rows: list[dict[str, Any]] = []
+    if error is None:
+        for i in range(0, len(cells), len(cols)):
+            values = [str(v).strip() for v in cells[i:i + len(cols)]]
+            if any(values):
+                rows.append({**dict(zip(cols, values)), "_row": len(rows) + 2})
+        problem = "введите хотя бы одну строку" if not rows else check_value(p, rows)
+        if problem:
+            error = _human(p, problem)
+        else:
+            uid = Uploads(app.paths.uploads).put(p.name, MANUAL_FILE, rows, secret=p.secret)
+            info = table_info(p, uid, MANUAL_FILE, rows)
+    (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
+                       tables={p.name: info} if info else None)
+    if error:
+        fl.table = {"file": MANUAL_FILE, "failed": True}
+        fl.manual = {"columns": cols, "rows": [cells[i:i + len(cols)] for i in range(0, len(cells), len(cols))]
+                     if cols and not len(cells) % len(cols) else [], "open": True}
     return {"field": fl}
 
 

@@ -206,7 +206,9 @@ def test_form_upload_preview_and_submit(acts):
 
 def test_form_secret_table_shows_only_name_and_count(acts):
     fl = upload(acts, "logins", LOGINS.encode(), "входы.csv")
-    assert fl.table["count"] == 1 and fl.table["columns"] == [] and fl.table["preview"] == []
+    # Имена колонок не секрет (по ним строится ввод вручную, dr-77), значения не показываются.
+    assert fl.table["count"] == 1 and fl.table["columns"] == ["login", "pass"] and fl.table["preview"] == []
+    assert "ivan@mail.ru" not in json.dumps(fl.table, ensure_ascii=False)
     acc = upload(acts, "accounts", CSV.encode(), "a.csv")
     sub = forms.save_preset(acts, "acts", "p", {"accounts": acc.table["id"], "logins": fl.table["id"]})
     assert sub.ok

@@ -221,3 +221,111 @@
   document.addEventListener("htmx:afterSettle", offerButtons);
   document.addEventListener("dawg:panels", offerButtons);
 })();
+
+// Таблица вручную («Ввести вручную» у параметра table). Поля без name: форма запуска их не отправляет,
+// «Готово» собирает колонки и ячейки и шлёт на сервер, в ответ поле с таблицей, как после загрузки файла.
+(function () {
+  "use strict";
+  var SECRET = /pass|парол|code|код|token|токен|secret|секрет|pin|ключ|key/i;
+
+  function box(el) { return el.closest ? el.closest("[data-manual]") : null; }
+
+  function columns(m) {
+    var fixed = m.querySelectorAll("thead [data-col]");
+    if (fixed.length) return Array.prototype.map.call(fixed, function (s) { return s.getAttribute("data-col"); });
+    return Array.prototype.map.call(m.querySelectorAll("thead [data-col-input]"), function (i) { return i.value.trim(); });
+  }
+
+  function cellInput(name, secret) {
+    var td = document.createElement("td");
+    var input = document.createElement("input");
+    input.type = secret && SECRET.test(name) ? "password" : "text";
+    input.setAttribute("data-cell", "");
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", name || "значение");
+    td.appendChild(input);
+    return td;
+  }
+
+  function syncTypes(m) {
+    // Колонку назвали «пароль» или «code»: у секретной таблицы её ячейки становятся полями пароля.
+    if (!m.getAttribute("data-secret")) return;
+    var cols = columns(m);
+    Array.prototype.forEach.call(m.querySelectorAll("tbody tr"), function (tr) {
+      Array.prototype.forEach.call(tr.querySelectorAll("[data-cell]"), function (input, i) {
+        input.type = SECRET.test(cols[i] || "") ? "password" : "text";
+      });
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    var t = e.target;
+    var open = t.closest && t.closest("[data-manual-open]");
+    if (open) {
+      var m0 = open.parentNode.querySelector("[data-manual]");
+      if (!m0) return;
+      m0.hidden = !m0.hidden;
+      open.setAttribute("aria-expanded", m0.hidden ? "false" : "true");
+      if (!m0.hidden) { var first = m0.querySelector("input"); if (first) first.focus(); }
+      return;
+    }
+    var m = box(t);
+    if (!m) return;
+    var body = m.querySelector("tbody");
+    if (t.closest("[data-manual-add-row]")) {
+      var last = body.lastElementChild;
+      var row = last.cloneNode(true);
+      Array.prototype.forEach.call(row.querySelectorAll("[data-cell]"), function (i) { i.value = ""; });
+      body.appendChild(row);
+      var f = row.querySelector("[data-cell]");
+      if (f) f.focus();
+    } else if (t.closest("[data-manual-del-row]")) {
+      var tr = t.closest("tr");
+      if (body.children.length > 1) tr.remove();
+      else Array.prototype.forEach.call(tr.querySelectorAll("[data-cell]"), function (i) { i.value = ""; });
+    } else if (t.closest("[data-manual-add-col]")) {
+      var th = document.createElement("th");
+      th.scope = "col";
+      var head = document.createElement("input");
+      head.type = "text";
+      head.setAttribute("data-col-input", "");
+      head.placeholder = "колонка";
+      head.spellcheck = false;
+      head.setAttribute("aria-label", "Имя новой колонки");
+      th.appendChild(head);
+      var act = m.querySelector("thead .table-manual-act");
+      act.parentNode.insertBefore(th, act);
+      Array.prototype.forEach.call(body.children, function (r) {
+        r.insertBefore(cellInput("", false), r.querySelector(".table-manual-act"));
+      });
+      head.focus();
+    } else if (t.closest("[data-manual-done]")) {
+      var cols = columns(m);
+      var cells = [];
+      Array.prototype.forEach.call(body.children, function (r) {
+        Array.prototype.forEach.call(r.querySelectorAll("[data-cell]"), function (i) { cells.push(i.value); });
+      });
+      if (!window.htmx) return;
+      htmx.ajax("POST", m.getAttribute("data-url"), {
+        source: t, target: m.closest(".field"), swap: "outerHTML",
+        values: { _cols: cols, _cells: cells },
+      });
+    }
+  });
+
+  document.addEventListener("input", function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute("data-col-input")) {
+      var m = box(e.target);
+      if (m) syncTypes(m);
+    }
+  });
+
+  // Enter в ячейке не отправляет форму запуска.
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Enter" || !box(e.target) || e.target.tagName !== "INPUT") return;
+    e.preventDefault();
+    var done = box(e.target).querySelector("[data-manual-done]");
+    if (done) done.click();
+  });
+})();
