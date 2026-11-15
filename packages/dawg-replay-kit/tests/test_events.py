@@ -359,18 +359,32 @@ def test_concurrent_updates_from_threads(tmp_path):
     em.close()
 
 
+# Окно прореживания 1 с, а не 0,25: время задаёт сам скрипт, без фиксированных пауз.
+# 2 отправляет таймер (ждём, пока он появится в файле), 3 и 4 приходят сразу после,
+# внутри окна, и остаются отложенными до сигнала. Медленный раннер окно в 1 с не проскочит.
 SIGTERM_SCRIPT = """
-import os, signal, sys, time
-from pathlib import Path
+import json, os, signal, sys, time
 from dawg_replay_kit import cancel
 from dawg_replay_kit.events import Emitter, JsonlSink
 
-em = Emitter(JsonlSink(sys.argv[1]))
+path = sys.argv[1]
+em = Emitter(JsonlSink(path), throttle=1.0)
 cancel.install()
+
+
+def sent():
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line).get("done") for line in f if line.strip()]
+
+
 try:
     em.progress("p", "P", 1, 10)
-    em.progress("p", "P", 2, 10)
-    time.sleep(0.4)          # таймер уже отправил 2
+    em.progress("p", "P", 2, 10)  # отложено, его отправит таймер
+    deadline = time.monotonic() + 10
+    while 2 not in sent():
+        if time.monotonic() > deadline:
+            sys.exit("таймер не отправил отложенное значение")
+        time.sleep(0.01)
     em.progress("p", "P", 3, 10)  # окно после таймерной отправки 2 ещё идёт: отложено
     em.progress("p", "P", 4, 10)  # заменяет 3; сигнал приходит раньше таймера
     os.kill(os.getpid(), signal.SIGTERM)
