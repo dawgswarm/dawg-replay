@@ -46,7 +46,7 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair
+from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair, tg_asks
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -507,6 +507,8 @@ def supervise(
         _append(run.stderr_path, f"dawg-replay: {e}\n")
         return store.get(run_id)
     store.set_started(run_id, run.pid, procinfo.start_time(run.pid))
+    # Вопросы скрипта в Telegram: сеть в своих потоках, цикл её не ждёт.
+    telegram = tg_asks.start(app, store.get(run_id), dict(payload))
 
     last_beat = time.monotonic()
     cancelling = False
@@ -515,6 +517,8 @@ def supervise(
         outcome = run.wait(POLL_SECONDS)
         if on_tick is not None:
             on_tick()
+        if telegram is not None:
+            _telegram_errors(app, run.run_dir, telegram.tick())
         if outcome is not None:
             break
         if not cancelling and (
@@ -537,7 +541,15 @@ def supervise(
         error="\n".join(f"хук после выхода: {e}" for e in outcome.hook_errors) or None,
         finished_at=outcome.finished_at,
     )
+    if telegram is not None:
+        _telegram_errors(app, run.run_dir, telegram.close())
     return store.get(run_id)
+
+
+def _telegram_errors(app: App, run_dir: Path, errors: list[str]) -> None:
+    if errors:
+        tg_asks.journal(run_dir, errors)
+        tg_asks.record_error(app, errors[-1])
 
 
 def _append(path: Path, text: str) -> None:
