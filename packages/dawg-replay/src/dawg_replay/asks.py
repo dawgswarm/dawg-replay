@@ -4,7 +4,8 @@
 ответ или не дождавшись его, пишет `ask_closed`. Вопрос ждёт ответа, пока
 запуск идёт, `ask_closed` нет, файла ответа нет и срок не вышел.
 
-Ответ пишется атомарно (временный файл и os.replace), с правами 0600. Секретный
+Ответ пишется атомарно (временный файл и жёсткая ссылка), с правами 0600,
+засчитывается первый. Секретный
 ответ скрипт удаляет сразу после чтения; если скрипт не успел, файл удаляет
 `drop_secret_answers` после выхода процесса. В БД, историю и логи приложения
 ответ не попадает.
@@ -173,11 +174,17 @@ def normalize(q: Question, raw: Any) -> str | bool:
 
 
 def write_answer(run_dir: Path, q: Question, value: str | bool) -> Path:
-    """Пишет ответ атомарно, права 0600. Ответ уже есть: ReplayError `already_answered`."""
+    """Пишет ответ атомарно, права 0600. Ответ уже есть: ReplayError `already_answered`.
+
+    Первый ответ засчитывается атомарно между UI, CLI и Telegram (разные процессы):
+    готовый временный файл ставится на место жёсткой ссылкой, которая не создаётся,
+    если файл ответа уже есть. Без жёстких ссылок (редкая ФС) место занимает файл
+    `.<id>.claim`, созданный с O_EXCL.
+    """
     path = answer_path(run_dir, q.id)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     if path.exists():
-        raise ReplayError("already_answered", "на этот вопрос уже ответили, скрипт скоро продолжит")
+        raise _already()
     tmp = path.with_name(f".{q.id}.{secrets.token_hex(4)}.tmp")
     data = {"id": q.id, "answer": value, "secret": q.secret,
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}
@@ -185,14 +192,30 @@ def write_answer(run_dir: Path, q: Question, value: str | bool) -> Path:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(data, fh, ensure_ascii=False)
-        os.replace(tmp, path)
-    except BaseException:
+        try:
+            os.link(tmp, path)
+        except FileExistsError:
+            raise _already() from None
+        except OSError:
+            _claim(path)
+            os.replace(tmp, path)
+    finally:
         try:
             tmp.unlink()
         except OSError:
             pass
-        raise
     return path
+
+
+def _already() -> ReplayError:
+    return ReplayError("already_answered", "на этот вопрос уже ответили, скрипт скоро продолжит")
+
+
+def _claim(path: Path) -> None:
+    try:
+        os.close(os.open(path.with_name(f".{path.stem}.claim"), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+    except FileExistsError:
+        raise _already() from None
 
 
 def pick(run_dir: Path, ask_id: str | None = None) -> Question:
@@ -238,7 +261,7 @@ def drop_secret_answers(run_dir: Path) -> None:
         return
     for p in files:
         try:
-            if p.name.endswith(".tmp"):
+            if p.name.endswith((".tmp", ".claim")):
                 p.unlink()
                 continue
             data = json.loads(p.read_text(encoding="utf-8"))
