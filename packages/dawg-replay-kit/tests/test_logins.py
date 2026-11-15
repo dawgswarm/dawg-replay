@@ -445,3 +445,18 @@ def test_forget_then_close_is_quiet(fake, tmp_path):
         b.forget_login()
     assert LoginStore(tmp_path).list() == []
     assert not any("не подтвердил" in x for x in logs(sink))
+
+
+def test_close_right_after_save_login_logs_once(fake, tmp_path):
+    # dr-91: save_login и закрытие без изменений в браузере дают одну строку «вход сохранён».
+    m, sink, _ = make(fake, tmp_path)
+    with BrowserSession(m, login="u") as b:
+        b.context.cookies = list(STATE["cookies"])
+        b.save_login()
+    assert logs(sink).count("вход сохранён для следующих запусков") == 1
+    m2, sink2, _ = make(fake, tmp_path)
+    with BrowserSession(m2, login="u") as b:
+        b.save_login()
+        b.context.cookies.append({"name": "late", "value": "1", "domain": "x.ru", "path": "/"})
+    assert logs(sink2).count("вход сохранён для следующих запусков") == 2  # после save_login что-то поменялось
+    assert [c["name"] for c in LoginStore(tmp_path).get("u").state["cookies"]][-1] == "late"

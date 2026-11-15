@@ -1,6 +1,6 @@
 {
   "name": "dawg-replay-builder",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "description": "Скилл для агента: разведать сайт через браузер DAWG и собрать переиспользуемый скрипт для приложения dawg-replay: сбор данных или действия на сайте по таблице. Подключает MCP-сервер dawg-mcp.",
   "author": { "name": "DAWG" },
   "license": "MIT",

@@ -167,3 +167,31 @@ def test_check_value_accepts_typed_cells_only_in_typed_columns():
     assert check_value(p, [{"sku": 1, "price": 1, "name": 5, "_row": 2}]) == "строка 2, колонка «name»: ожидается строка, получено целое"
     assert "ожидается целое число" in check_value(p, [{"sku": "1", "price": 1.0, "name": "a", "_row": 2}])
     assert check_value(p, [{"sku": None, "price": 1.0, "name": "a", "_row": 2}]) == "строка 2: пустая колонка «sku»"
+
+
+# --- лист XLSX из командной строки (dr-91) ---
+
+
+def test_split_sheet():
+    from dawg_replay_kit.tables import split_sheet
+
+    assert split_sheet("книга.xlsx#Заказы") == ("книга.xlsx", "Заказы")
+    assert split_sheet("книга.XLSX#2") == ("книга.XLSX", 2)
+    assert split_sheet("a#b.csv") == ("a#b.csv", None)  # у CSV # это часть имени
+    assert split_sheet("книга.xlsx") == ("книга.xlsx", None)
+    assert split_sheet("книга.xlsx#") == ("книга.xlsx#", None)
+
+
+def test_read_table_arg_sheet_and_empty_first_sheet(tmp_path):
+    from dawg_replay_kit.tables import read_table_arg
+
+    f = tmp_path / "книга.xlsx"
+    f.write_bytes(xlsx({"Сводка": [["Итого", "10"]], "Заказы": [["order"], ["A-1"], ["A-2"]]}))
+    assert [r["order"] for r in read_table_arg(f"{f}#Заказы")] == ["A-1", "A-2"]
+    assert [r["order"] for r in read_table_arg(f"{f}#2")] == ["A-1", "A-2"]
+    with pytest.raises(TableError) as e:
+        read_table_arg(str(f))
+    assert str(e.value) == "книга.xlsx: на листе «Сводка» (первом) нет строк. Листы: «Сводка», «Заказы»; выберите нужный: книга.xlsx#Заказы"
+    with pytest.raises(TableError, match="лист задан скриптом"):
+        read_table_arg(f"{f}#Заказы", declared="Заказы")
+    assert [r["order"] for r in read_table_arg(str(f), declared="Заказы")] == ["A-1", "A-2"]

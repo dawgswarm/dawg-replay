@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
-from dawg_replay_kit.tables import TableError, convert_types, read_table
+from dawg_replay_kit.tables import TableError, convert_types, read_table_arg
 
 from dawg_replay.errors import ReplayError
 
@@ -96,7 +96,7 @@ def _table_value(p: Param, raw: str) -> list[dict[str, Any]]:
         if "file" not in p.inputs:
             raise ValueError("скрипт не принимает эту таблицу файлом" + _inputs_hint(p))
         try:
-            return convert_types(read_table(Path(raw[1:]).expanduser(), sheet=p.sheet), p.types)
+            return convert_types(read_table_arg(raw[1:], p.sheet), p.types)
         except TableError as e:
             raise ValueError(str(e)) from None
     if raw.lstrip().startswith("["):
@@ -104,7 +104,7 @@ def _table_value(p: Param, raw: str) -> list[dict[str, Any]]:
             return json.loads(raw)
         except json.JSONDecodeError as e:
             raise ValueError(f"таблица в JSON не разобрана: {e}") from None
-    raise ValueError("таблица задаётся файлом: имя=@путь/к/файлу.xlsx или .csv")
+    raise ValueError("таблица задаётся файлом: имя=@путь/к/файлу (.csv, .tsv, .xlsx, .json), лист XLSX через #: имя=@книга.xlsx#Заказы")
 
 
 INPUT_WORDS = {"file": "файлом (имя=@файл)", "manual": "строками (--row)", "preset": "из пресета (--preset)"}

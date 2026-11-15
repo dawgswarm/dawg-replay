@@ -282,6 +282,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .items-retry .hint { margin: 0; }
 #items-retry-notice:empty { display: none; }
 #items-retry-notice { flex-basis: 100%; }
+.items-download { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-left: auto; }
 .items-filter { display: inline-flex; align-items: center; gap: 0.45rem; margin: 0; font-weight: 400; }
 .items-table td:first-child { min-width: 10rem; overflow-wrap: anywhere; }
 .items-table td:nth-child(2) { min-width: 0; white-space: nowrap; }

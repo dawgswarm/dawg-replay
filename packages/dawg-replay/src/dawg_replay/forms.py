@@ -191,13 +191,28 @@ def upload_file(app: Any, script: str, param: str, files: list[tuple[str, bytes]
     return {"field": fl}
 
 
+def preview_cell(kind: str, value: Any) -> str:
+    """Ячейка превью для человека: да/нет, пусто вместо null, 10 без .0, 99,5, дата ДД.ММ.ГГГГ."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "да" if value else "нет"
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else repr(value).replace(".", ",")
+    if kind == "date" and isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        return _date(value)
+    return str(value)
+
+
 def table_info(param: Param, upload_id: str, file: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Что показать у поля таблицы. У секретной таблицы только имя файла и число строк."""
     # Имена колонок не секрет: по ним строится ввод строк вручную. Значения секретной таблицы не показываются.
     info: dict[str, Any] = {"id": upload_id, "file": file, "count": len(rows), "secret": param.secret,
                             "columns": columns_of(rows), "preview": []}
     if not param.secret:
-        info["preview"] = [[r.get(c, "") for c in info["columns"]] for r in rows[:PREVIEW_ROWS]]
+        types = param.types
+        info["preview"] = [[preview_cell(types.get(c, "string"), r.get(c, "")) for c in info["columns"]]
+                           for r in rows[:PREVIEW_ROWS]]
     return info
 
 

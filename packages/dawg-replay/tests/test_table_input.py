@@ -209,3 +209,35 @@ def test_sheet_choice_survives_bad_sheet(app, add):
     assert bad.table["failed"] and bad.table["sheets"] == ["Сводка", "Заказы"] and bad.value == ""
     back = forms.table_sheet(app, "typed", "orders", bad.table["id"], "Сводка")["field"]
     assert back.error is None and back.table["count"] == 1
+
+
+# --- после приёмки M4 (dr-91) ---
+
+
+def test_preview_cells_for_people(app, add):
+    add("typed", TYPED)
+    fl = forms.upload_table(app, "typed", "orders", CSV.encode(), "заказы.csv")["field"]
+    cols = fl.table["columns"]
+    first = dict(zip(cols, fl.table["preview"][0]))
+    second = dict(zip(cols, fl.table["preview"][1]))
+    assert first == {"order": "A-1", "qty": "2", "price": "99,5", "paid": "да", "day": "15.11.2026"}
+    assert second == {"order": "A-2", "qty": "", "price": "10", "paid": "нет", "day": "16.11.2026"}
+
+
+def test_cli_sheet_after_hash(app, add, cli, home, tmp_path):
+    add("plain")
+    f = tmp_path / "книга.xlsx"
+    f.write_bytes(xlsx({"Сводка": [["Итого", "10"]], "Заказы": [["order"], ["A-1"], ["A-2"]]}))
+    code, data = cli("run", "plain", "--set", f"orders=@{f}")
+    assert code == 1 and "на листе «Сводка» (первом) нет строк" in data["error"]["message"]
+    assert "книга.xlsx#Заказы" in data["error"]["message"]
+    code, data = cli("run", "plain", "--set", f"orders=@{f}#Заказы", "--follow")
+    assert code == 0, data
+    seen = json.loads((Path(home) / "runs" / data["run"]["id"] / "output" / "seen.json").read_text("utf-8"))
+    assert [r["order"] for r in seen] == ["A-1", "A-2"]
+
+
+def test_upload_error_text_lists_all_formats(web):
+    c, h = web
+    r = c.post("/scripts/plain/_table/orders", files={}, data={"x": "1"}, headers=h)
+    assert "один файл таблицы: .csv, .tsv, .xlsx или .json" in r.text
