@@ -26,6 +26,9 @@
   путь наружу отклоняется записью в ленте.
 - браузеры: `open` открывает, `close` закрывает, `failed` закрывает
   `provisioning`; `browsers.open` показывает, сколько открыто сейчас.
+- вопросы (`ask`, `ask_closed`, dawg_replay.asks): в снимке `asks` все вопросы
+  запуска и `question`, вопрос, который сейчас ждёт ответа. Ждёт ли он, решает
+  ещё и файл ответа в `answers/`, поэтому `question` считается при каждом снимке.
 
 Изменения нумеруются (`seq`). `changes(after)` отдаёт всё после номера; если
 клиент отстал дальше, чем хранится (`history`), он получает `resync` и должен
@@ -43,6 +46,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from dawg_replay import asks
+
 SOURCE_APP = "dawg-replay"
 LOG_LEVELS = ("debug", "info", "warn", "error")
 RESULT_STATUSES = ("ok", "partial", "failed")
@@ -58,7 +63,7 @@ RunInfo = Callable[[], "dict[str, Any] | None"]
 @dataclass
 class Change:
     seq: int
-    kind: str  # stage, progress, metric, rows, log, artifact, browsers, result, run, reset
+    kind: str  # stage, progress, metric, rows, log, artifact, browsers, result, ask, run, reset
     data: dict[str, Any]
 
     def to_dict(self) -> dict[str, Any]:
@@ -124,6 +129,7 @@ class RunView:
         self.open_sessions: dict[str, dict[str, Any]] = {}
         self.provisioning = 0
         self.result: dict[str, Any] | None = None
+        self.asks: dict[str, asks.Question] = {}
         self.run: dict[str, Any] | None = None
 
     @property
@@ -153,7 +159,25 @@ class RunView:
                 "artifacts": list(self.artifacts),
                 "browsers": self._browsers(),
                 "result": self.result,
+                "asks": [q.to_dict() for q in self.asks.values()],
+                "question": self.question(),
             }
+
+    def current_question(self) -> dict[str, Any] | None:
+        """Дочитывает файл и возвращает вопрос, который ждёт ответа (для списков и главной)."""
+        with self._lock:
+            self.poll()
+            return self.question()
+
+    def question(self) -> dict[str, Any] | None:
+        """Вопрос, который ждёт ответа, если запуск идёт. Самый ранний из открытых."""
+        with self._lock:
+            if self.run is not None and self.run.get("status") != "running":
+                return None
+            for q in self.asks.values():
+                if asks.is_waiting(self.run_dir, q):
+                    return q.to_dict()
+            return None
 
     # --- чтение файла ------------------------------------------------------------
 
@@ -322,6 +346,26 @@ class RunView:
             raise ValueError(f"действие {action!r}")
         self._emit("browsers", self._browsers())
 
+    def _on_ask(self, e: dict[str, Any]) -> None:
+        q = asks.apply(self.asks, e)
+        if q is None:
+            raise ValueError("вопрос без id, текста, вида или срока, либо повтор id")
+        self._add_log({"ts": e.get("ts"), "level": "info", "msg": f"вопрос: {q.question}", "kind": "ask"})
+        self._emit("ask", q.to_dict())
+
+    def _on_ask_closed(self, e: dict[str, Any]) -> None:
+        q = asks.apply(self.asks, e)
+        if q is None:
+            raise ValueError("ответ на неизвестный или уже закрытый вопрос")
+        if q.outcome == "answered":
+            shown = "" if q.secret or q.answer is None else f": {asks.answer_text(q.answer)}"
+            entry = {"ts": e.get("ts"), "level": "info", "msg": f"ответ получен{shown}", "kind": "ask"}
+        else:
+            entry = {"ts": e.get("ts"), "level": "warn", "msg": f"не дождались ответа на вопрос «{q.question}»",
+                     "kind": "ask"}
+        self._add_log(entry)
+        self._emit("ask", q.to_dict())
+
     def _browsers(self) -> dict[str, Any]:
         return {
             "open": len(self.open_sessions),
@@ -421,4 +465,6 @@ _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {
     "artifact": RunView._on_artifact,
     "session": RunView._on_session,
     "result": RunView._on_result,
+    "ask": RunView._on_ask,
+    "ask_closed": RunView._on_ask_closed,
 }

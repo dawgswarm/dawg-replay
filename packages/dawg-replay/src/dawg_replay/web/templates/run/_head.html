@@ -7,6 +7,7 @@
     <h1>{{ run.title or run.script }}</h1>
     <p class="run-meta">
       <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
+      {% if running and s.question %}<a class="status status-ask" href="#run-ask">ждёт ответа</a>{% endif %}
       <span>начат {{ run.created_at | when }}{% if run.finished_at %}, закончен {{ run.finished_at | when }}{% endif %}</span>
       {% if s.browsers.open or running %}
         <span class="browsers{% if s.browsers.open %} browsers-on{% endif %}">

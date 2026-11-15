@@ -21,6 +21,8 @@
     if (!old || !node) return;
     // Панель починки не перерисовываем без изменений: иначе закроется раскрытый текст для агента.
     if (name === "repair" && old.getAttribute("data-key") === node.getAttribute("data-key")) return;
+    // Тот же вопрос скрипта: не трогаем, иначе пропадёт уже набранный ответ.
+    if (name === "ask" && old.getAttribute("data-ask-id") && old.getAttribute("data-ask-id") === node.getAttribute("data-ask-id")) return;
     // Уведомление «папка открыта» живёт внутри панели файлов: не теряем его при обновлении.
     var keep = old.querySelector("#files-notice");
     old.replaceWith(node);
@@ -65,6 +67,7 @@
       var data = JSON.parse(e.data);
       Object.keys(data.panels || {}).forEach(function (name) { replacePanel(name, data.panels[name]); });
       appendLog(data.log || []);
+      document.dispatchEvent(new CustomEvent("dawg:panels"));
       if (e.lastEventId) root.setAttribute("data-after", e.lastEventId);
     });
     source.addEventListener("resync", function () {
