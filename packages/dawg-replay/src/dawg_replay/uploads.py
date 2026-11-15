@@ -1,4 +1,5 @@
-"""Таблицы параметров `table`, загруженные через форму, до запуска или сохранения пресета.
+"""Таблицы параметров `table` и файлы параметров `file`, загруженные через форму,
+до запуска или сохранения пресета.
 
 Файл разбирается сразу при загрузке (dawg_replay_kit.tables), в форме остаётся
 только id загрузки. Разобранная таблица лежит в `<home>/uploads/<id>.json`
@@ -52,6 +53,34 @@ class Uploads:
             json.dump({"param": param, "file": file, "rows": rows, "secret": secret}, f, ensure_ascii=False)
         tmp.replace(path)
         return uid
+
+    def put_file(self, param: str, name: str, data: bytes, *, secret: bool) -> str:
+        """Файл параметра `file` (dr-84): байты в `<id>.bin`, описание в `<id>.json`, оба 0600."""
+        self.cleanup()
+        self.dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.dir, 0o700)
+        uid = secrets.token_urlsafe(16)
+        _write_private(self.dir / f"{uid}.bin", data)
+        meta = {"param": param, "file": name, "size": len(data), "secret": secret, "kind": "file"}
+        _write_private(self._path(uid), json.dumps(meta, ensure_ascii=False).encode("utf-8"))
+        return uid
+
+    def get_file(self, uid: str) -> dict[str, Any] | None:
+        """{"param", "file", "size", "secret", "path"} загруженного файла или None (нет, устарел)."""
+        if not is_upload_id(uid):
+            return None
+        meta_path, bin_path = self._path(uid), self.dir / f"{uid}.bin"
+        try:
+            if self._now() - meta_path.stat().st_mtime > TTL_SECONDS:
+                meta_path.unlink(missing_ok=True)
+                bin_path.unlink(missing_ok=True)
+                return None
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(data, dict) or data.get("kind") != "file" or not bin_path.is_file():
+            return None
+        return {**data, "path": str(bin_path)}
 
     def get(self, uid: str) -> dict[str, Any] | None:
         if not is_upload_id(uid):
@@ -117,3 +146,11 @@ class Uploads:
 
     def _path(self, uid: str) -> Path:
         return self.dir / f"{uid}.json"
+
+
+def _write_private(path: Path, data: bytes) -> None:
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+    tmp.replace(path)

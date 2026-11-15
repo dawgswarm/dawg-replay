@@ -49,6 +49,7 @@ PARAM_TYPES: tuple[str, ...] = (
     "secret",
     "date",
     "table",
+    "file",
 )
 NUMBER_TYPES = ("int", "float")
 LIST_TYPES = ("url_list", "string_list")
@@ -72,9 +73,12 @@ _TOP_KEYS = ("contract", "name", "title", "description", "site", "tags", "versio
 # Поля, появившиеся в минорных версиях: поле -> (мажор, минор).
 _FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
 # Типы параметров, появившиеся в минорных версиях.
-_TYPE_SINCE: dict[str, tuple[int, int]] = {"date": (1, 2), "table": (1, 2)}
+_TYPE_SINCE: dict[str, tuple[int, int]] = {"date": (1, 2), "table": (1, 2), "file": (1, 3)}
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 DEFAULT_MAX_ROWS = 10000
+DEFAULT_MAX_MB = 25  # file: предел размера одного файла по умолчанию
+MAX_MB_LIMIT = 1024
+FILE_KEYS = ("path", "name", "size")  # значение file: {"path", "name", "size"} или их список
 ROW_KEY = "_row"
 
 SITE_MAX = 40
@@ -82,7 +86,7 @@ TAGS_MAX = 5
 TAG_MAX = 24
 _PARAM_KEYS = (
     "name", "type", "title", "description", "required", "default", "min", "max", "max_items", "choices",
-    "columns", "max_rows", "secret",
+    "columns", "max_rows", "secret", "accept", "max_mb", "multiple",
 )
 
 
@@ -129,7 +133,10 @@ class Param:
     choices: tuple[str, ...] | None = None
     columns: tuple[str, ...] | None = None  # table: колонки, которые обязаны быть в шапке
     max_rows: int | None = None  # table: предел строк, без поля DEFAULT_MAX_ROWS
-    secret: bool = False  # table: таблица целиком секрет
+    secret: bool = False  # table: таблица целиком секрет; file: файл секретный (ключ, сертификат)
+    accept: tuple[str, ...] | None = None  # file: расширения (".pdf") или mime ("image/*")
+    max_mb: float | None = None  # file: предел размера одного файла, без поля DEFAULT_MAX_MB
+    multiple: bool = False  # file: несколько файлов, значение список
 
     @property
     def has_default(self) -> bool:
@@ -138,7 +145,12 @@ class Param:
     @property
     def is_secret(self) -> bool:
         """Значение не хранится и не показывается: `secret` или `table` с `secret = true`."""
-        return self.type == "secret" or (self.type == "table" and self.secret)
+        return self.type == "secret" or (self.type in ("table", "file") and self.secret)
+
+    @property
+    def size_limit(self) -> int:
+        """file: предел размера одного файла в байтах."""
+        return int((self.max_mb if self.max_mb is not None else DEFAULT_MAX_MB) * 1024 * 1024)
 
     @property
     def row_limit(self) -> int:
@@ -326,6 +338,8 @@ def check_value(param: Param, value: Any) -> str | None:
         return None
     if t == "table":
         return _table_problem(param, value)
+    if t == "file":
+        return _file_problem(param, value)
     if t in LIST_TYPES:
         if not isinstance(value, list):
             return f"ожидается список, получено {_type_name(value)}"
@@ -348,6 +362,55 @@ def _date_problem(value: Any) -> str | None:
     except ValueError:
         return f"такой даты нет: {value}"
     return None
+
+
+def accepts(param: Param, name: str) -> bool:
+    """Подходит ли файл по `accept`: расширение (".pdf") или mime по имени ("image/*", "application/pdf")."""
+    if not param.accept:
+        return True
+    import mimetypes
+
+    low = name.lower()
+    mime = mimetypes.guess_type(low)[0] or ""
+    for a in param.accept:
+        a = a.lower()
+        if a.startswith("."):
+            if low.endswith(a):
+                return True
+        elif a.endswith("/*"):
+            if mime.startswith(a[:-1]):
+                return True
+        elif mime == a:
+            return True
+    return False
+
+
+def _file_problem(param: Param, value: Any) -> str | None:
+    """Файл: {"path", "name", "size"}; при `multiple` список таких."""
+    items = value if param.multiple else [value]
+    if param.multiple:
+        if not isinstance(value, list):
+            return f"ожидается список файлов, получено {_type_name(value)}"
+        if not value:
+            return "файлов нет"
+        if param.max_items is not None and len(value) > param.max_items:
+            return f"файлов {len(value)}, а max_items = {param.max_items}"
+    for i, item in enumerate(items):
+        where = f"файл {i + 1}: " if param.multiple else ""
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not isinstance(item.get("name"), str):
+            return f"{where}ожидается объект {{path, name, size}}, получено {_type_name(item)}"
+        size = item.get("size")
+        if not _is_int(size) or size < 0:
+            return f"{where}нет размера файла"
+        if not accepts(param, item["name"]):
+            return f"{where}«{item['name']}» не подходит, нужен: {', '.join(param.accept or ())}"
+        if size > param.size_limit:
+            return f"{where}«{item['name']}» больше {_mb(param.size_limit)} МБ"
+    return None
+
+
+def _mb(n: int) -> str:
+    return f"{n / 1024 / 1024:g}".replace(".", ",")
 
 
 def _table_problem(param: Param, value: Any) -> str | None:
@@ -474,15 +537,39 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
 
     secret = raw.get("secret", False)
     if "secret" in raw:
-        if t is not None and t != "table":
-            err("field_not_allowed", "secret", "`secret` бывает только у table; для секретной строки есть тип secret")
+        if t is not None and t not in ("table", "file"):
+            err("field_not_allowed", "secret", "`secret` бывает только у table и file; для секретной строки есть тип secret")
         elif not isinstance(secret, bool):
             err("bad_value", "secret", "`secret` должен быть true или false")
 
+    accept = raw.get("accept")
+    if accept is not None:
+        if t is not None and t != "file":
+            err("field_not_allowed", "accept", "`accept` бывает только у file")
+        elif (not isinstance(accept, list) or not accept
+              or not all(isinstance(a, str) and (a.startswith(".") and len(a) > 1 or "/" in a) for a in accept)):
+            err("bad_value", "accept", "`accept` это список расширений (\".pdf\") или типов (\"image/*\")")
+
+    max_mb = raw.get("max_mb")
+    if max_mb is not None:
+        if t is not None and t != "file":
+            err("field_not_allowed", "max_mb", "`max_mb` бывает только у file")
+        elif not _is_number(max_mb) or not 0 < max_mb <= MAX_MB_LIMIT:
+            err("bad_value", "max_mb", f"`max_mb` число больше 0 и не больше {MAX_MB_LIMIT}")
+
+    multiple = raw.get("multiple", False)
+    if "multiple" in raw:
+        if t is not None and t != "file":
+            err("field_not_allowed", "multiple", "`multiple` бывает только у file")
+        elif not isinstance(multiple, bool):
+            err("bad_value", "multiple", "`multiple` должен быть true или false")
+
     max_items = raw.get("max_items")
     if max_items is not None:
-        if t is not None and t not in LIST_TYPES:
-            err("field_not_allowed", "max_items", "`max_items` бывает только у url_list и string_list")
+        if t == "file" and not multiple:
+            err("field_not_allowed", "max_items", "`max_items` у file бывает только с `multiple = true`")
+        elif t is not None and t not in LIST_TYPES and t != "file":
+            err("field_not_allowed", "max_items", "`max_items` бывает только у url_list, string_list и file")
         elif not _is_int(max_items) or max_items < 1:
             err("bad_value", "max_items", "`max_items` должен быть целым не меньше 1")
 
@@ -508,6 +595,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
     elif default is not None and t == "table":
         err("field_not_allowed", "default", "у table не бывает `default`: таблица приходит из файла")
         default = None
+    elif default is not None and t == "file":
+        err("field_not_allowed", "default", "у file не бывает `default`: файл даёт человек при запуске")
+        default = None
 
     if len(issues) > n_before:
         return None
@@ -526,6 +616,9 @@ def _check_param(raw: Any, idx: int, seen: set[str], issues: list[Issue]) -> Par
         columns=tuple(columns) if columns is not None else None,
         max_rows=max_rows,
         secret=bool(secret),
+        accept=tuple(accept) if accept is not None else None,
+        max_mb=max_mb,
+        multiple=bool(multiple),
     )
     if default is not None:
         problem = check_value(param, default)

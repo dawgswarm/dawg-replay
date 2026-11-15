@@ -115,7 +115,7 @@ def is_blank(param: Param, value: Any) -> bool:
         return True
     if param.type in TEXT_TYPES:
         return isinstance(value, str) and not value.strip()
-    if param.type in LIST_TYPES or param.type == "table":
+    if param.type in LIST_TYPES or param.type == "table" or (param.type == "file" and param.multiple):
         return isinstance(value, (list, tuple)) and len(value) == 0
     return False
 
@@ -156,6 +156,8 @@ def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params
             value = list(value)
         elif p.type == "table":
             value = [dict(row) for row in value]
+        elif p.type == "file":
+            value = [dict(f) for f in value] if p.multiple else dict(value)
         values[p.name] = value
 
     if problems:
@@ -170,6 +172,8 @@ def _missing_hint(p: Param, source: str) -> str:
         return f"обязательный секрет «{p.title}» не задан, передайте его переменной {secret_env_name(p.name)}"
     if p.type == "table":
         return f"обязательная таблица «{p.title}» не задана, передайте {cli_flag(p.name)} файл.csv или файл.xlsx"
+    if p.type == "file":
+        return f"обязательный файл «{p.title}» не задан, передайте {cli_flag(p.name)} путь/к/файлу"
     return f"обязательный параметр «{p.title}» не задан, передайте {cli_flag(p.name)} или ключ в --params"
 
 
@@ -265,6 +269,13 @@ def build_arg_parser(manifest: Manifest, prog: str | None = None) -> argparse.Ar
         elif p.type == "table":
             kwargs["metavar"] = "FILE"
             kwargs["help"] = help_text + ". Файл .csv или .xlsx, первая строка шапка"
+        elif p.type == "file":
+            kwargs["metavar"] = "PATH"
+            if p.multiple:
+                kwargs["action"] = "extend"
+                kwargs["nargs"] = "+"
+            if p.accept:
+                kwargs["help"] = help_text + ". Подходит: " + ", ".join(p.accept)
         parser.add_argument(cli_flag(p.name), **kwargs)
     return parser
 
@@ -304,9 +315,23 @@ def from_cli(
         value = getattr(ns, p.name)
         if value is not None and p.type == "table":
             value = _read_table_arg(p, value)
+        elif value is not None and p.type == "file":
+            value = [file_record(v) for v in value] if p.multiple else file_record(value)
         if value is not None:
             given[p.name] = value
     return resolve(manifest, given, CLI_SOURCE)
+
+
+def file_record(path: str | Path) -> dict[str, Any]:
+    """Значение параметра file для пути: {"path": абсолютный, "name": имя файла, "size": байт}."""
+    p = Path(path).expanduser()
+    try:
+        size = p.stat().st_size
+    except OSError:
+        raise ParamsError(f"файла нет или он недоступен: {path}") from None
+    if not p.is_file():
+        raise ParamsError(f"это не файл: {path}")
+    return {"path": str(p.resolve()), "name": p.name, "size": size}
 
 
 def _read_table_arg(p: Param, path: str) -> list[dict[str, Any]]:
