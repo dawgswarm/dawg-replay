@@ -45,7 +45,7 @@ from typing import TYPE_CHECKING, Any
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 
-from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo
+from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -282,6 +282,9 @@ def prepare(
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)
         raise
+    # Сколько строк в таблицах запуска: секретной таблицы нет в истории, а «2 из 5» нужно и для неё.
+    repair.write_table_sizes(run_dir, {p.name: len(full[p.name]) for p in manifest.params
+                                       if p.type == "table" and isinstance(full.get(p.name), list)})
     return Prepared(
         run=run,
         values=full,

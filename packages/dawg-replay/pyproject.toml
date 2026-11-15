@@ -39,6 +39,13 @@ Issues = "https://github.com/dawgswarm/dawg-replay/issues"
 [project.scripts]
 dawg-replay = "dawg_replay.cli:main"
 
+[tool.uv]
+# uv по умолчанию пересобирает локальный пакет только при изменении pyproject.toml, а версия
+# меняется не на каждый коммит. Без этого ключа `uv tool install --from ./packages/dawg-replay`
+# берёт из кеша колесо со старым кодом той же версии (приёмка M3, dr-69): шаблоны, стили и
+# Python-код тоже входят в ключ.
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*" }]
+
 [tool.uv.sources]
 dawg-replay-kit = { workspace = true }
 

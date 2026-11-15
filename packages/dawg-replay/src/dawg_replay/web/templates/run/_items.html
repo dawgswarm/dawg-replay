@@ -3,7 +3,7 @@
 <section id="run-items" class="run-section{% if not it %} is-empty{% endif %}" aria-labelledby="items-title">
   {% if it %}{% set c = it.counts %}{% set shown = it.rows | items_shown %}{% set rt = run.retry %}
   {# Запуск оборвался посреди таблицы: «2 из 7», а не «2 из 4». #}
-  {% set total = [c.total, (rt.table_rows if rt and rt.table_rows else 0)] | max %}
+  {% set total = [c.total, run.table_rows or 0] | max %}
   <div class="run-section-head items-head">
     <h2 id="items-title">Строки</h2>
     <p class="items-counts">
