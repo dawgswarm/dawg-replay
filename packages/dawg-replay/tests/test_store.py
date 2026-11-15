@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from dawg_replay.app import App
@@ -188,12 +190,16 @@ def test_import_id_with_trailing_newline_is_not_a_file_name(app, tmp_path):
     imp = Imports(app)
     imp.dir.mkdir(parents=True, exist_ok=True)
     good = "A" * 22
-    (imp.dir / f"{good}\n.py").write_bytes(b"x")
+    trap = imp.dir / f"{good}\n.py"
+    real_file = sys.platform != "win32"  # на Windows перевод строки в имени файла недопустим
+    if real_file:
+        trap.write_bytes(b"x")
     with pytest.raises(ReplayError) as e:
         imp.load(good + "\n")
     assert e.value.code == "import_not_found"
     imp.discard(good + "\n")
-    assert (imp.dir / f"{good}\n.py").exists()
+    if real_file:
+        assert trap.exists()
 
 
 def test_preset_filtered_by_current_version(app, write_script):
