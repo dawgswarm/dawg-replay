@@ -49,9 +49,10 @@ def test_check_catches_change_without_bump(tmp_path):
     src = ROOT / "examples" / "the-internet-actions" / "script.py"
     record = dict(zip(("version", "sha256"), fingerprint(src)))
     copy = tmp_path / "script.py"
-    copy.write_bytes(src.read_bytes() + "\n# правка\n".encode())
+    copy.write_bytes(src.read_bytes().replace(b"\r\n", b"\n") + "\n# правка\n".encode())
     assert "version осталась" in problem(copy, record)
     copy.write_text(copy.read_text(encoding="utf-8").replace(f"# version = {record['version']}", f"# version = {record['version'] + 1}"), encoding="utf-8")
     assert "обновите запись" in problem(copy, record)
-    copy.write_bytes(src.read_bytes().replace(b"\n", b"\r\n"))  # перевод строки Windows не считается правкой
+    lf = src.read_bytes().replace(b"\r\n", b"\n")  # на Windows git может отдать файл с CRLF
+    copy.write_bytes(lf.replace(b"\n", b"\r\n"))  # перевод строки Windows не считается правкой
     assert problem(copy, record) is None
