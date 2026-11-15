@@ -333,27 +333,20 @@ def _cmd_arg(arg: str) -> str:
     return "".join("^" + c if c in _CMD_META else "%%" if c == "%" else c for c in "".join(out))
 
 
-def secret_table_gap(manifest: Any) -> str | None:
-    """Обязательная секретная таблица: регулярный запуск такого скрипта невозможен ни с каким пресетом."""
-    tables = [p for p in manifest.params if p.type == "table" and p.secret and p.required]
-    if not tables:
-        return None
-    names = ", ".join(f"«{p.title}»" for p in tables)
-    return (f"у скрипта обязательная секретная таблица {names}: она не сохраняется в пресетах, поэтому "
-            "запуск по расписанию её не получит. Запускайте скрипт вручную и загружайте таблицу в форме")
-
-
 def preset_gap(manifest: Any, preset: Any) -> str | None:
     """Почему плановый запуск по этому пресету не начнётся, или None.
 
-    Секретная таблица в пресетах не хранится, а других источников у планового запуска
-    нет. Обязательное значение без `default`, которого нет в пресете, тоже не придёт.
-    Секреты (`secret`) берутся из хранилища паролей и здесь не проверяются."""
-    gap = secret_table_gap(manifest)
-    if gap:
-        return gap
+    Обязательная секретная таблица должна быть сохранена в пресете: других источников
+    у планового запуска нет. Обязательное значение без `default`, которого нет в пресете,
+    тоже не придёт. Секреты (`secret`) берутся из хранилища паролей и здесь не проверяются."""
+    tables = [p for p in manifest.params
+              if p.type == "table" and p.secret and p.required and p.name not in preset.secret_tables]
+    if tables:
+        names = ", ".join(f"«{p.title}»" for p in tables)
+        return (f"в пресете «{preset.name}» нет секретной таблицы {names}. Загрузите её в форме запуска "
+                "и сохраните пресет заново")
     missing = [p for p in manifest.params
-               if p.required and p.type != "secret" and p.name not in preset.params and p.default is None]
+               if p.required and not p.is_secret and p.name not in preset.params and p.default is None]
     if missing:
         names = ", ".join(f"«{p.title}»" for p in missing)
         return f"в пресете «{preset.name}» нет обязательных значений: {names}. Сохраните пресет заново с ними"

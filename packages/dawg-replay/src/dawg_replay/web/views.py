@@ -360,7 +360,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 sub = forms.save_preset(app, name, preset_name, form)
                 notice = None
                 if sub.ok:
-                    note = secret_tables_note(app.registry.manifest(name))
+                    note = secret_tables_note(app.registry.manifest(name), app.get_preset(name, preset_name))
                     notice = f"Пресет «{preset_name}» сохранён." + (f" {note}" if note else "")
                 resp = fragment(request, "_script_form.html", f=_script_ctx(app, name, preset_name if sub.ok else None, sub, notice))
                 if sub.ok:
@@ -447,7 +447,6 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             "name": name, "entries": data["schedules"], "scheduler_error": data["error"], "error": error, "notice": notice,
             "presets": presets, "form": values, "kinds": kinds if cron_ok else kinds[:3], "cron_supported": cron_ok,
             "weekdays": weekday_titles, "every_hours": schedules.EVERY_HOURS,
-            "blocked": schedules.secret_table_gap(app.registry.manifest(name)),
         }
 
     def _spec(form: dict[str, str]) -> schedules.Spec:
