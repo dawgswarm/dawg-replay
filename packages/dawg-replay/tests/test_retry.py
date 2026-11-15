@@ -227,3 +227,43 @@ def test_uploads_link_ignores_bad_ids(tmp_path):
     up.link("r1", {"a": uid})
     assert up.linked("r1", "a")["rows"] == [{"x": "1", "_row": 2}]
     assert up.linked("r1", "b") is None and up.linked("r2", "a") is None
+
+
+def test_secret_table_size_kept_for_lists_after_upload_expired(web, home):
+    # dr-69, п.7: отменённый (оборванный) запуск с секретной таблицей на главной «2 из 5», не «2 из 2».
+    c, h = web
+    csv = "email\na@x.ru\nbad@x.ru\nstop@x.ru\nc@x.ru\nd@x.ru\n"
+    r = c.post("/scripts/acts/_table/accounts", files={"_table_file": ("a.csv", csv.encode(), "text/csv")}, headers=h)
+    uid = r.text.split('name="accounts" value="', 1)[1].split('"', 1)[0]
+    r = c.post("/scripts/acts/run", data={"accounts": uid, "note": "x"}, headers=h)
+    rid = r.headers["hx-redirect"].rsplit("/", 1)[1]
+    assert wait(home, rid).status == "failed"
+    with App(home) as a:
+        sizes = json.loads((a.paths.run_dir(rid) / "tables.json").read_text("utf-8"))
+        assert sizes == {"accounts": 5}  # только число строк, без значений
+        for f in a.paths.uploads.glob("*.json"):
+            f.unlink()  # загрузка устарела: таблицы больше нет нигде
+        (d,) = repair.annotate(a, [a.runs.get(rid).to_dict()])
+    assert d["items"]["total"] == 5 and d["items"]["ok"] == 1
+    assert "1 из 5, 1 упала" in c.get("/").text
+    panel = c.get(f"/runs/{rid}").text
+    assert "1 из 5 сделана" in panel
+
+
+def test_items_csv_without_duplicate_row_column():
+    from dawg_replay.web.run_screen import items_csv
+
+    same = items_csv([{"key": 2, "row": 2, "status": "ok", "msg": None}, {"key": "3", "row": 3, "status": "failed", "msg": "x"}])
+    assert same.splitlines()[0] == "﻿Строка;Статус;Сообщение" and "3;упала;x" in same
+    mixed = items_csv([{"key": "a@x.ru", "row": 2, "status": "ok", "msg": None}])
+    assert mixed.splitlines()[0] == "﻿Строка;Номер в таблице;Статус;Сообщение"
+
+
+def test_local_builds_are_keyed_by_sources():
+    # dr-69: без src/** в cache-keys `uv tool install --from ./packages/...` ставит старое колесо той же версии.
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    for pkg in ("dawg-replay", "dawg-replay-kit"):
+        text = (root / pkg / "pyproject.toml").read_text("utf-8")
+        assert 'cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*" }]' in text, pkg

@@ -334,6 +334,38 @@ def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return runs
 
 
+TABLES_FILE = "tables.json"
+
+
+def write_table_sizes(run_dir: Path, sizes: dict[str, int]) -> None:
+    """`tables.json` в каталоге запуска: число строк каждой таблицы-параметра. Только числа,
+    поэтому годится и для секретной таблицы, которой нет в истории."""
+    if not sizes:
+        return
+    try:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / TABLES_FILE).write_text(json.dumps(sizes), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def table_size(run_dir: Path, params: dict[str, Any] | None = None) -> int | None:
+    """Число строк единственной таблицы запуска: из `tables.json`, у старых запусков из параметров."""
+    try:
+        sizes = json.loads((run_dir / TABLES_FILE).read_text(encoding="utf-8"))
+        if isinstance(sizes, dict) and len(sizes) == 1:
+            (n,) = sizes.values()
+            if isinstance(n, int) and not isinstance(n, bool):
+                return n
+        if isinstance(sizes, dict):
+            return None
+    except (OSError, ValueError):
+        pass
+    tables = [v for v in (params or {}).values()
+              if isinstance(v, list) and v and all(isinstance(r, dict) and "_row" in r for r in v)]
+    return len(tables[0]) if len(tables) == 1 else None
+
+
 def annotate_items(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Добавляет `items` (счётчики отчёта по строкам или None) в словари запусков."""
     for d in runs:
@@ -342,11 +374,10 @@ def annotate_items(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]
         except (OSError, ValueError):
             d["items"] = None
         if d["items"]:
-            # Запуск оборвался посреди таблицы: «30 из 50», а не «30 из 30». Секретной таблицы в параметрах нет.
-            tables = [v for v in (d.get("params") or {}).values()
-                      if isinstance(v, list) and v and all(isinstance(r, dict) and "_row" in r for r in v)]
-            if len(tables) == 1 and len(tables[0]) > d["items"]["total"]:
-                d["items"]["total"] = len(tables[0])
+            # Запуск оборвался посреди таблицы: «30 из 50», а не «30 из 30».
+            n = table_size(app.paths.run_dir(d["id"]), d.get("params"))
+            if n is not None and n > d["items"]["total"]:
+                d["items"]["total"] = n
     return runs
 
 
