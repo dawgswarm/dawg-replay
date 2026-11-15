@@ -262,8 +262,12 @@ def actions_kit(tpl, site, rows, tmp_path, answers, **params):
             self.page = CabinetPage(site, self.login)
             return self
 
+        def forget_login(self):
+            events.append(("forget", self.login))
+            self.forgotten = True
+
         def __exit__(self, *exc):
-            if self.page.state == "in":
+            if self.page.state == "in" and not getattr(self, "forgotten", False):
                 site.sessions.add(self.login)
 
     def ask(question, kind="text", choices=None, secret=False, timeout_minutes=30):
@@ -315,7 +319,8 @@ def test_actions_rows_report_and_idempotent_rerun(act, tmp_path):
         (5, "ok", "сделано", 5),
     ]
     assert [e for e in events if e[0] == "ask"] == [("ask", "confirm", False), ("ask", "text", True)]
-    assert events[-1] == ("result", "partial", "сделано 2, уже было 1, упали 1 из 4")
+    assert ("forget", "ghost") in events  # неудачный вход не сохранён
+    assert events[-1] == ("result", "partial", "из 4: сделано 2, уже было 1, не вышло 1")
     with open(tmp_path / "report.csv", encoding="utf-8-sig") as f:
         report = list(csv.DictReader(f))
     assert [r["status"] for r in report] == ["ok", "skipped", "failed", "ok"]
@@ -326,7 +331,7 @@ def test_actions_rows_report_and_idempotent_rerun(act, tmp_path):
     events = actions_kit(act, site, rows_of("anna", "boris", "vera"), tmp_path, [])
     act.main()
     assert [e[2] for e in events if e[0] == "item"] == ["skipped"] * 3 and site.saves == saves
-    assert events[-1] == ("result", "ok", "сделано 0, уже было 3 из 3")
+    assert events[-1] == ("result", "ok", "из 3: сделано 0, уже было 3")
 
 
 def test_actions_not_confirmed_stops_without_changes(act, tmp_path):

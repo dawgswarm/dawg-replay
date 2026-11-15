@@ -17,7 +17,7 @@
 # name = "accounts"
 # type = "table"
 # title = "Аккаунты"
-# description = "Колонки login и password. Рабочий аккаунт учебного сайта: tomsmith / SuperSecretPassword!"
+# description = "Колонки login и password. Рабочий аккаунт написан на странице входа учебного сайта"
 # required = true
 # columns = ["login", "password"]
 # max_rows = 20
@@ -107,7 +107,11 @@ def process(row: dict[str, str], code_asked: list[bool]) -> str:
         if not restored:
             if b.login_restored:
                 kit.log.info(f"строка {row['_row']}: сохранённый вход устарел, входим заново")
-            log_in(page, row, code_asked)
+            try:
+                log_in(page, row, code_asked)
+            except RowFailed:
+                b.forget_login()  # неудачный вход не сохраняем
+                raise
             page.goto(SECURE_URL, timeout=PAGE_TIMEOUT_MS)
         title = page.locator("h2").inner_text(timeout=STEP_TIMEOUT_MS).strip()
         if title != "Secure Area":
@@ -148,7 +152,7 @@ def main() -> None:
             time.sleep(PAUSE_BETWEEN_ROWS_S)
     kit.artifact(report, "Отчёт по строкам (CSV)", "text/csv")
 
-    text = f"{counts['ok']} из {total}" + (f", {counts['failed']} упали" if counts["failed"] else "")
+    text = f"кабинет открыт: {counts['ok']} из {total}" + (f", не вышло: {counts['failed']}" if counts["failed"] else "")
     if not counts["failed"]:
         kit.result("ok", text)
     elif counts["ok"]:

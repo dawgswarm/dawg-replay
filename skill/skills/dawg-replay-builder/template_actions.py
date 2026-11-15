@@ -156,7 +156,11 @@ def process(row: dict[str, str], p: Any, allowed: Any) -> tuple[str, str]:
         if not logged_in(page):
             if b.login_restored:
                 kit.log.info(f"строка {row['_row']}: сохранённый вход устарел, входим заново")
-            log_in(page, row)
+            try:
+                log_in(page, row)
+            except RowFailed:
+                b.forget_login()  # неудачный вход не сохраняем, в списке входов его не будет
+                raise
         if already_done(page, row):
             return "skipped", ALREADY
         if p.check_only:
@@ -169,15 +173,15 @@ def process(row: dict[str, str], p: Any, allowed: Any) -> tuple[str, str]:
 
 
 def summary(counts: dict[str, int], total: int) -> str:
-    """«сделано 46, уже было 2, упали 2 из 50». Ключи: ok, already, failed, skipped."""
+    """«из 50: сделано 46, уже было 2, не вышло 2». Ключи: ok, already, failed, skipped."""
     parts = [f"сделано {counts.get('ok', 0)}"]
     if counts.get("already"):
         parts.append(f"уже было {counts['already']}")
     if counts.get("failed"):
-        parts.append(f"упали {counts['failed']}")
+        parts.append(f"не вышло {counts['failed']}")
     if counts.get("skipped"):
         parts.append(f"пропущено {counts['skipped']}")
-    return ", ".join(parts) + f" из {total}"
+    return f"из {total}: " + ", ".join(parts)
 
 
 # --- запуск -------------------------------------------------------------------------
