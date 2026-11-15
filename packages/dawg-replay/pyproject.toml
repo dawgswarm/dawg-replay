@@ -1,6 +1,6 @@
 [project]
 name = "dawg-replay"
-version = "1.2.0"
+version = "1.3.0"
 description = "Локальное приложение для запуска скриптов сбора данных через браузеры DAWG"
 readme = "README.md"
 license = "MIT"
