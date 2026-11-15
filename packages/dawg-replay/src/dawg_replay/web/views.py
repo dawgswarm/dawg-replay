@@ -141,12 +141,6 @@ def run_items(run: dict[str, Any], summary_shown: bool = True) -> str:
     return "" if f"{counts.get('ok', 0)}из{counts['total']}" in summary else text
 
 
-def ticks(text: Any) -> Markup:
-    """Текст ошибки ядра для страницы: `имя` в обратных кавычках становится <code>имя</code>, остальное экранируется."""
-    safe = str(escape("" if text is None else text))
-    return Markup(re.sub(r"`([^`\n]+)`", r"<code>\1</code>", safe))
-
-
 def plural(n: Any, one: str, few: str, many: str) -> str:
     """Форма слова для числа: 1 сообщение, 2 сообщения, 5 сообщений."""
     try:
@@ -186,7 +180,6 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["ticks"] = ticks
     env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
-    env.filters["ticks"] = ticks
 
 
 def _ui(request: Request):
