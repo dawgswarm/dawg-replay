@@ -42,7 +42,39 @@
              hx-post="/scripts/{{ script }}/_table/{{ fl.name }}" hx-encoding="multipart/form-data" hx-trigger="change"
              hx-params="_table_file" hx-disabled-elt="this" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
       <label class="file-button" for="{{ fid }}">{{ "Заменить файл" if t else "Выбрать файл" }}</label>
+      {% set mt = fl.manual or {} %}
+      <button type="button" class="file-button" data-manual-open aria-expanded="{{ 'true' if mt.open else 'false' }}">Ввести вручную</button>
       <span class="file-busy hint-inline">Читаем таблицу…</span>
+      {# Ввод строк руками. У полей нет name: в отправку формы запуска они не попадают, их собирает app.js. #}
+      {% set mcols = fl.columns or mt.columns or (t.columns if t else []) or [] %}
+      {% set fixed = fl.columns and true %}
+      <div class="table-manual" data-manual data-url="/scripts/{{ script }}/_table/{{ fl.name }}/manual"
+           data-secret="{{ '1' if fl.secret_table else '' }}"{% if not mt.open %} hidden{% endif %}>
+        <div class="table-manual-scroll" tabindex="0" role="region" aria-label="Строки таблицы «{{ fl.title }}» вручную">
+          <table>
+            <thead><tr>
+              {% for c in (mcols or [""]) %}<th scope="col">{% if fixed %}<span data-col="{{ c }}">{{ c }}</span>{% else %}<input type="text" data-col-input value="{{ c }}" placeholder="колонка" aria-label="Имя колонки {{ loop.index }}" spellcheck="false">{% endif %}</th>{% endfor %}
+              <th class="table-manual-act">{% if not fixed %}<button type="button" class="secondary small" data-manual-add-col>+ колонка</button>{% endif %}</th>
+            </tr></thead>
+            <tbody>
+              {% for r in (mt.rows or [[]]) %}
+              <tr>
+                {% for c in (mcols or [""]) %}{% set hide = fl.secret_table and c is secret_column %}
+                <td><input type="{{ 'password' if hide else 'text' }}" data-cell value="{{ '' if hide else (r[loop.index0] if r | length > loop.index0 else '') }}"
+                           aria-label="{{ c or 'значение' }}" autocomplete="off" spellcheck="false"></td>
+                {% endfor %}
+                <td class="table-manual-act"><button type="button" class="secondary small table-manual-del" data-manual-del-row aria-label="Удалить строку" title="Удалить строку">×</button></td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="table-manual-actions">
+          <button type="button" class="secondary small" data-manual-add-row>+ строка</button>
+          <button type="button" class="small" data-manual-done hx-disabled-elt="this">Готово</button>
+          <span class="hint-inline">{% if fl.secret_table %}Таблица секретная: пароли и коды вводятся скрыто, в историю запусков не попадают.{% else %}Пустые строки не учитываются.{% endif %}</span>
+        </div>
+      </div>
     {% elif fl.widget == "number" %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="number" inputmode="decimal" step="{{ fl.step }}" value="{{ fl.value }}"
              {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>

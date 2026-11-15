@@ -172,6 +172,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["status"] = status_view
     env.filters["run_status"] = run_status_view
     env.filters["number"] = number
+    env.tests["secret_column"] = forms.secret_column
     env.filters["plural"] = plural
     env.filters["items_text"] = items_text
     env.filters["run_items"] = run_items
@@ -403,6 +404,24 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 try:
                     app.registry.get(name)
                     out = forms.upload_table(app, name, param, data, filename, problem=problem)
+                except ReplayError as e:
+                    return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
+            return fragment(request, "_table_field.html", fl=out["field"], script=name)
+
+        return await run_in_threadpool(work)
+
+    async def script_table_manual(request: Request) -> Response:
+        """«Ввести вручную»: строки из формы становятся таблицей, как загруженный файл."""
+        name, param = request.path_params["name"], request.path_params["param"]
+        form = await request.form(max_files=0, max_fields=forms.MANUAL_MAX_COLUMNS * 10_001 + 10)
+        columns = [str(v) for v in form.getlist("_cols")]
+        cells = [str(v) for v in form.getlist("_cells")]
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                    out = forms.manual_table(app, name, param, columns, cells)
                 except ReplayError as e:
                     return Response(e.message, status_code=404, media_type="text/plain; charset=utf-8")
             return fragment(request, "_table_field.html", fl=out["field"], script=name)
@@ -755,6 +774,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/run", script_run, methods=["POST"]),
         Route("/scripts/{name}/presets", script_save_preset, methods=["POST"]),
         Route("/scripts/{name}/_table/{param}", script_table_upload, methods=["POST"]),
+        Route("/scripts/{name}/_table/{param}/manual", script_table_manual, methods=["POST"]),
         Route("/scripts/{name}/rollback", script_rollback, methods=["POST"]),
         Route("/scripts/{name}/_schedules", script_schedules),
         Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),
