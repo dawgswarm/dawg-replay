@@ -327,7 +327,9 @@ def from_cli(
             continue
         value = getattr(ns, p.name)
         if value is not None and p.type == "multi_enum":
-            value = [x.strip() for item in value for x in item.split(",") if x.strip()]
+            value = [_by_title(p, x.strip()) for item in value for x in item.split(",") if x.strip()]
+        elif value is not None and p.type == "enum":
+            value = _by_title(p, value)
         if value is not None and p.type == "table":
             value = _read_table_arg(p, value)
         elif value is not None and p.type == "file":
@@ -347,6 +349,14 @@ def file_record(path: str | Path) -> dict[str, Any]:
     if not p.is_file():
         raise ParamsError(f"это не файл: {path}")
     return {"path": str(p.resolve()), "name": p.name, "size": size}
+
+
+def _by_title(p: Param, raw: str) -> str:
+    """Вариант по значению или по однозначной подписи: `--sort "По рейтингу"`."""
+    if p.choices is None or raw in p.choices:
+        return raw
+    hits = [v for v in p.choices if p.choice_title(v).strip().casefold() == raw.strip().casefold()]
+    return hits[0] if len(hits) == 1 else raw
 
 
 def _read_table_arg(p: Param, path: str) -> list[dict[str, Any]]:

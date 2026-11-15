@@ -373,7 +373,7 @@ def check_value(param: Param, value: Any) -> str | None:
         if not isinstance(value, str):
             return f"ожидается строка из choices, получено {_type_name(value)}"
         if param.choices is not None and value not in param.choices:
-            return f"`{value}` нет в choices: {', '.join(param.choices)}"
+            return f"`{value}` нет в choices: {_choices_text(param)}"
         return None
     if t == "multi_enum":
         if not isinstance(value, list):
@@ -382,7 +382,7 @@ def check_value(param: Param, value: Any) -> str | None:
             if not isinstance(item, str):
                 return f"ожидается строка из choices, получено {_type_name(item)}"
             if param.choices is not None and item not in param.choices:
-                return f"`{item}` нет в choices: {', '.join(param.choices)}"
+                return f"`{item}` нет в choices: {_choices_text(param)}"
         if len(set(value)) != len(value):
             return "значения повторяются"
         if param.min_items is not None and len(value) < param.min_items:
@@ -430,6 +430,13 @@ def check_value(param: Param, value: Any) -> str | None:
             return f"элементов {len(value)}, а max_items = {param.max_items}"
         return None
     return f"неизвестный тип `{t}`"
+
+
+def _choices_text(param: Param) -> str:
+    """Варианты для ошибки: `price (Сначала дешевле), rating`; подпись только если она есть."""
+    return ", ".join(
+        f"{v} ({param.choice_title(v)})" if param.choice_title(v) != v else v for v in param.choices or ()
+    )
 
 
 def _moment_problem(t: str, value: Any) -> str | None:

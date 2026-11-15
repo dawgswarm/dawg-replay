@@ -38,7 +38,7 @@ from starlette.templating import Jinja2Templates
 from dawg_replay import asks, diagnosis, insurance, launch, minutes, repair, retry
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
-from dawg_replay.runview import RunView
+from dawg_replay.runview import RunView, again_note
 
 VIEWS_CACHE = 32  # сколько запусков держать открытыми одновременно
 SSE_INTERVAL = 0.5
@@ -141,6 +141,8 @@ class Views:
             info["repair"] = fix
             info["retry"] = _retry_view(state, rec_)
             info["table_rows"] = repair.table_size(run_dir, rec_.params)
+            with state.open_app() as a:
+                info["again_note"] = again_note(a, rec_, run_dir)  # даты из выражений: повтор возьмёт ту же дату
             return info
 
         return RunView(run_dir, rows_limit=rows_limit, log_limit=log_limit, run_info=run_info)
@@ -425,6 +427,10 @@ def params_view(app: Any, run: dict[str, Any]) -> list[dict[str, str]]:
     params = run.get("params") or {}
     if not params:
         return []
+    from dawg_replay import repair
+    from dawg_replay_kit import relative
+
+    exprs = repair.read_relative(app.paths.run_dir(run["id"]))
     try:
         manifest = app.registry.manifest(run["script"], run.get("version")) if not run.get("draft") else None
     except ReplayError:
@@ -445,6 +451,8 @@ def params_view(app: Any, run: dict[str, Any]) -> list[dict[str, str]]:
             text = ", ".join(str(v) for v in value)
         elif p is not None and p.type in ("date", "datetime"):
             text = ru_moment(value)
+            if name in exprs:
+                text += f", из выражения «{relative.title(exprs[name])}»"
         else:
             text = str(value)
         out.append({"title": p.title if p else name, "value": text})
