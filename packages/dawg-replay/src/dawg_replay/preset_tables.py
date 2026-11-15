@@ -39,6 +39,27 @@ class PresetTables:
         tmp.replace(path)
         return ref
 
+    def put_file(self, script: str, source: str | Path) -> str:
+        """Копия файла параметра `file` (dr-84) для пресета: `<ref>.bin`, 0600."""
+        d = self._dir(script)
+        for p in (self.paths.preset_tables, d):
+            p.mkdir(parents=True, exist_ok=True)
+            os.chmod(p, 0o700)
+        ref = secrets.token_urlsafe(16)
+        path = d / f"{ref}.bin"
+        tmp = path.with_suffix(".tmp")
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "wb") as dst, open(source, "rb") as src:
+            shutil.copyfileobj(src, dst)
+        tmp.replace(path)
+        return ref
+
+    def file_path(self, script: str, ref: Any) -> Path | None:
+        if not isinstance(ref, str) or not _REF_RE.fullmatch(ref):
+            return None
+        path = self._dir(script) / f"{ref}.bin"
+        return path if path.is_file() else None
+
     def get(self, script: str, ref: Any) -> list[dict[str, Any]] | None:
         if not isinstance(ref, str) or not _REF_RE.fullmatch(ref):
             return None
@@ -51,6 +72,7 @@ class PresetTables:
     def delete(self, script: str, ref: Any) -> None:
         if isinstance(ref, str) and _REF_RE.fullmatch(ref):
             (self._dir(script) / f"{ref}.json").unlink(missing_ok=True)
+            (self._dir(script) / f"{ref}.bin").unlink(missing_ok=True)
 
     def remove_script(self, script: str) -> None:
         shutil.rmtree(self._dir(script), ignore_errors=True)

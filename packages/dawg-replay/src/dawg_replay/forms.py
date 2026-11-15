@@ -37,6 +37,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field, replace
+from pathlib import Path
 from typing import Any
 
 from dawg_replay_kit import relative
@@ -61,6 +62,7 @@ WIDGETS = {
     "secret": "password",
     "date": "date",
     "table": "table",
+    "file": "file",
     "time": "time",
     "datetime": "datetime",
     "multi_enum": "checkboxes",
@@ -68,6 +70,7 @@ WIDGETS = {
 REL = "__rel"  # поле выбора относительной даты: `<имя>__rel`
 REL_TIME = "__reltime"  # время к относительной дате у datetime
 PREVIEW_ROWS = 5
+FILE_EXPIRED = "загруженный файл устарел (хранится сутки), загрузите его заново"
 TABLE_EXPIRED = "загруженная таблица устарела (хранится сутки), загрузите файл заново"
 CHECKED = ("on", "true", "1", "yes", "да")
 FORM_ERROR = "__form__"  # ошибка не конкретного поля
@@ -95,6 +98,9 @@ class Field:
     columns: list[str] | None = None  # table: обязательные колонки
     max_rows: int | None = None
     secret_table: bool = False
+    accept: list[str] | None = None  # file: что подходит
+    max_mb: float | None = None  # file: предел размера одного файла, МБ
+    multiple: bool = False  # file: несколько файлов
     manual: dict[str, Any] | None = None  # table: введённое вручную при ошибке, чтобы не потерять
     choice_titles: list[tuple[str, str]] | None = None  # enum, multi_enum: (значение, подпись)
     min_items: int | None = None
@@ -146,6 +152,42 @@ def display(param: Param, value: Any) -> str | bool:
     return str(value)
 
 
+def file_info(param: Param, uids: list[str], recs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Что показать у поля файла: имена и размеры. Значение поля: id загрузок через запятую."""
+    return {"id": ",".join(uids), "files": [{"name": r["name"], "size": r["size"]} for r in recs], "secret": param.secret}
+
+
+def upload_file(app: Any, script: str, param: str, files: list[tuple[str, bytes]], problem: str | None = None) -> dict[str, Any]:
+    """Файлы в поле параметра `file`: проверка по манифесту (accept, max_mb, max_items) и сохранение."""
+    manifest = app.registry.manifest(script)
+    try:
+        p = manifest.param(param)
+    except KeyError:
+        raise ReplayError("param_not_found", f"у скрипта `{script}` нет параметра `{param}`") from None
+    if p.type != "file":
+        raise ReplayError("param_not_found", f"параметр `{param}` не файл")
+    error = info = None
+    if problem is None and not files:
+        problem = "выберите файл"
+    if problem is None and not p.multiple and len(files) > 1:
+        problem = "здесь нужен один файл"
+    if problem is None:
+        recs = [{"path": "", "name": display_name(n), "size": len(d)} for n, d in files]
+        value = recs if p.multiple else recs[0]
+        check = check_value(p, value)
+        if check:
+            problem = _human(p, check)
+    if problem:
+        error = problem
+    else:
+        store = Uploads(app.paths.uploads)
+        uids = [store.put_file(p.name, display_name(n), d, secret=p.secret) for n, d in files]
+        info = file_info(p, uids, [{"name": display_name(n), "size": len(d)} for n, d in files])
+    (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
+                       tables={p.name: info} if info else None)
+    return {"field": fl}
+
+
 def table_info(param: Param, upload_id: str, file: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Что показать у поля таблицы. У секретной таблицы только имя файла и число строк."""
     # Имена колонок не секрет: по ним строится ввод строк вручную. Значения секретной таблицы не показываются.
@@ -173,7 +215,7 @@ def fields_for(
     tables = tables or {}
     out = []
     for p in manifest.params:
-        if p.type == "table":
+        if p.type in ("table", "file"):
             info = tables.get(p.name)
             value = info["id"] if info else ""
         elif p.name in raw:
@@ -199,7 +241,10 @@ def fields_for(
                 max_items=p.max_items,
                 choices=list(p.choices) if p.choices else None,
                 secret_set=bool(secret_status.get(p.name)) if p.type == "secret" else None,
-                table=tables.get(p.name) if p.type == "table" else None,
+                table=tables.get(p.name) if p.type in ("table", "file") else None,
+                accept=list(p.accept) if p.accept else None,
+                max_mb=(p.size_limit / 1024 / 1024) if p.type == "file" else None,
+                multiple=p.multiple,
                 columns=list(p.columns) if p.columns else None,
                 max_rows=p.row_limit if p.type == "table" else None,
                 secret_table=p.type == "table" and p.secret,
@@ -248,6 +293,12 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
         # Таблица пресета кладётся в загрузки: форма дальше работает с ней как с загруженной.
         store = Uploads(app.paths.uploads)
         secret_rows = app.presets.secret_rows(p)  # секретные таблицы лежат отдельно от значений
+        # Файлы пресета тоже кладутся в загрузки: дальше форма работает с ними как с загруженными.
+        for name, value in app.presets.file_values(p, manifest).items():
+            param = manifest.param(name)
+            recs = value if isinstance(value, list) else [value]
+            uids = [store.put_file(name, r["name"], Path(r["path"]).read_bytes(), secret=param.secret) for r in recs]
+            tables[name] = file_info(param, uids, recs)
         for param in manifest.params:
             rows = secret_rows.get(param.name) if param.secret else values.get(param.name)
             if param.type == "table" and isinstance(rows, list):
@@ -337,6 +388,23 @@ def parse(
                 else:
                     values[p.name] = expr
                 continue
+        if p.type == "file":
+            uids = [u for u in (items[-1] if items else "").split(",") if u.strip()]
+            if not uids:
+                continue
+            got = [uploads.get_file(u.strip()) if uploads is not None else None for u in uids]
+            if any(g is None or g.get("param") != p.name for g in got):
+                errors[p.name] = FILE_EXPIRED
+                continue
+            recs = [{"path": g["path"], "name": str(g["file"]), "size": int(g["size"])} for g in got]  # type: ignore[index]
+            tables[p.name] = file_info(p, [u.strip() for u in uids], recs)
+            value = recs if p.multiple else recs[0]
+            problem = check_value(p, value)
+            if problem:
+                errors[p.name] = _human(p, problem)
+                continue
+            values[p.name] = value
+            continue
         if p.type == "table":
             uid = (items[-1] if items else "").strip()
             if not uid:
@@ -389,7 +457,7 @@ def parse(
                 if p.name not in new_secrets and not secret_set.get(p.name):
                     errors[p.name] = "обязательный секрет не задан"
             elif p.name not in values and is_blank(p, p.default):
-                errors[p.name] = "загрузите таблицу" if p.type == "table" else "обязательное поле"
+                errors[p.name] = {"table": "загрузите таблицу", "file": "загрузите файл"}.get(p.type, "обязательное поле")
         if not errors:
             # Итоговая проверка тем же kit, что и при запуске. Секреты подставляются заглушкой:
             # их значения форма не знает, обязательность уже проверена выше.

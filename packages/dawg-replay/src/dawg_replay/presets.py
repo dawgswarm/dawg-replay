@@ -22,6 +22,7 @@ NAME_MAX = 64
 # Имена файлов таблиц хранятся рядом со значениями. Имя параметра не начинается с `_`,
 # поэтому ключ ни с чем не совпадёт.
 FILES_KEY = "_files"
+FILE_PARAMS_KEY = "_file_params"  # параметр file -> [{"ref", "name", "size"}]; сами файлы в preset-tables/
 SECRET_KEY = "_secret_tables"  # параметр -> {"ref", "file", "count"}; сама таблица в preset-tables/
 
 
@@ -74,6 +75,7 @@ class Preset:
     dropped_why: dict[str, str] = field(default_factory=dict)  # отброшенное -> почему
     secret_tables: dict[str, dict[str, Any]] = field(default_factory=dict)  # параметр -> {"ref", "file", "count"}
     missing: dict[str, str] = field(default_factory=dict)  # обязательные без значения в пресете: имя -> подпись
+    file_params: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # file -> [{"ref", "name", "size"}]
 
     def outdated(self) -> str | None:
         """Текст для человека, если пресет не подходит текущей версии скрипта: значения, которые она
@@ -99,6 +101,7 @@ class Preset:
             "missing": list(self.missing),
             "files": self.files,
             "secret_tables": {k: {"file": v["file"], "count": v["count"]} for k, v in self.secret_tables.items()},
+            "file_params": {k: [{"name": f["name"], "size": f["size"]} for f in v] for k, v in self.file_params.items()},
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -119,22 +122,29 @@ class Presets:
         Пресет с тем же именем перезаписывается целиком, прежние файлы таблиц удаляются."""
         name = clean_name(name)
         secret = {p.name: p for p in manifest.params if p.type == "table" and p.secret}
+        file_params = {p.name: p for p in manifest.params if p.type == "file"}
         tables = {k: v for k, v in values.items() if k in secret}
-        values = {k: v for k, v in values.items() if k not in secret}
+        file_vals = {k: v for k, v in values.items() if k in file_params and v not in (None, [])}
+        values = {k: v for k, v in values.items() if k not in secret and k not in file_params}
         files = files or {}
         problems = check_partial(manifest, values, allow_secrets=False)
         problems += [f"`{k}`: {pr}" for k, v in tables.items() if (pr := check_value(secret[k], v))]
+        problems += [f"`{k}`: {pr}" for k, v in file_vals.items() if (pr := check_value(file_params[k], v))]
         if problems:
             raise ReplayError(
                 "bad_params", "значения не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems
             )
-        if tables and self._tables is None:
+        if (tables or file_vals) and self._tables is None:
             raise ReplayError("internal", "хранилище секретных таблиц пресетов не подключено")
         old = self._stored_refs(script, name)
         meta = {k: {"ref": self._tables.put(script, v), "file": files.get(k) or "таблица", "count": len(v)}
                 for k, v in tables.items()} if tables else {}
+        file_meta = {k: [{"ref": self._tables.put_file(script, f["path"]), "name": f["name"], "size": f["size"]}
+                         for f in (v if isinstance(v, list) else [v])] for k, v in file_vals.items()}
         files = {k: v for k, v in files.items() if k in values}
         stored: dict[str, Any] = dict(values)
+        if file_meta:
+            stored[FILE_PARAMS_KEY] = file_meta
         if files:
             stored[FILES_KEY] = files
         if meta:
@@ -157,12 +167,32 @@ class Presets:
                 out[k] = rows
         return out
 
+    def file_values(self, preset: Preset, manifest: Manifest) -> dict[str, Any]:
+        """Файлы пресета для запуска и формы: {"path", "name", "size"} (список при multiple).
+        Пропавший файл: параметра нет, как у незаданного."""
+        multiple = {p.name: p.multiple for p in manifest.params if p.type == "file"}
+        out: dict[str, Any] = {}
+        for k, items in preset.file_params.items():
+            recs = []
+            for f in items:
+                path = self._tables.file_path(preset.script, f.get("ref")) if self._tables else None
+                if path is not None:
+                    recs.append({"path": str(path), "name": f["name"], "size": f["size"]})
+            if recs and len(recs) == len(items):
+                out[k] = recs if multiple.get(k) else recs[0]
+        return out
+
     def _stored_refs(self, script: str, name: str) -> list[str]:
         row = self._db.execute("SELECT params_json FROM presets WHERE script_name = ? AND name = ?", (script, name)).fetchone()
         if row is None:
             return []
-        meta = json.loads(row["params_json"]).get(SECRET_KEY)
-        return [t.get("ref") for t in meta.values() if isinstance(t, dict)] if isinstance(meta, dict) else []
+        stored = json.loads(row["params_json"])
+        meta = stored.get(SECRET_KEY)
+        refs = [t.get("ref") for t in meta.values() if isinstance(t, dict)] if isinstance(meta, dict) else []
+        fmeta = stored.get(FILE_PARAMS_KEY)
+        if isinstance(fmeta, dict):
+            refs += [f.get("ref") for v in fmeta.values() if isinstance(v, list) for f in v if isinstance(f, dict)]
+        return refs
 
     def _drop_refs(self, script: str, refs: list[str]) -> None:
         if self._tables is not None:
@@ -195,6 +225,13 @@ class Presets:
         stored = json.loads(row["params_json"])
         files = stored.pop(FILES_KEY, None)
         meta = stored.pop(SECRET_KEY, None)
+        fmeta = stored.pop(FILE_PARAMS_KEY, None)
+        file_now = {p.name for p in manifest.params if p.type == "file"}
+        file_params = {
+            k: [{"ref": f.get("ref"), "name": str(f.get("name") or "файл"), "size": int(f.get("size") or 0)}
+                for f in v if isinstance(f, dict)]
+            for k, v in (fmeta.items() if isinstance(fmeta, dict) else ()) if k in file_now and isinstance(v, list)
+        }
         secret_now = {p.name for p in manifest.params if p.type == "table" and p.secret}
         secret_tables = {
             k: {"ref": t.get("ref"), "file": str(t.get("file") or "таблица"), "count": int(t.get("count") or 0)}
@@ -209,6 +246,7 @@ class Presets:
             p.name: p.title for p in manifest.params
             if p.required and p.type != "secret" and p.default is None and p.name not in kept
             and not (p.type == "table" and p.secret and p.name in secret_tables) and p.name not in why
+            and not (p.type == "file" and p.name in file_params)
         }
         return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files, why,
-                      secret_tables, missing)
+                      secret_tables, missing, file_params)

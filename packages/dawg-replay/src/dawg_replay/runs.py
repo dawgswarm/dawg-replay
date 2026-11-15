@@ -394,6 +394,10 @@ class RunStore:
             (utcnow(), run_id),
         )
 
+    def set_params(self, run_id: str, params: dict[str, Any]) -> None:
+        """Значения в истории после подготовки (файлы параметров `file` уже скопированы в каталог запуска)."""
+        self._db.execute("UPDATE runs SET params_json = ? WHERE id = ?", (json.dumps(params, ensure_ascii=False), run_id))
+
     def cancel_requested(self, run_id: str) -> bool:
         row = self._db.execute("SELECT cancel_requested_at FROM runs WHERE id = ?", (run_id,)).fetchone()
         return row is not None and row[0] is not None

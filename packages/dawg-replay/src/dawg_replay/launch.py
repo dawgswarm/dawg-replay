@@ -121,11 +121,13 @@ class Prepared:
     command: list[str]
     warnings: list[str] = field(default_factory=list)
     env: dict[str, str] = field(default_factory=dict)
+    secret_files: list[str] = field(default_factory=list)  # параметры file с secret: копирует раннер
 
     def payload(self) -> dict[str, Any]:
         return {
             "values": self.values,
             "secret_names": self.secret_names,
+            "secret_files": self.secret_files,
             "api_key": self.api_key,
             "base_url": self.base_url,
             "command": self.command,
@@ -152,6 +154,41 @@ def _target(app: App, target: str) -> tuple[Manifest, Path, bool, int | None]:
         return manifest, path.resolve(), True, None
     version = app.registry.version(target)
     return app.registry.manifest(target), version.path, False, version.version
+
+
+def _as_list(value: Any) -> list[dict[str, Any]]:
+    return value if isinstance(value, list) else [value]
+
+
+def _has_paths(value: Any) -> bool:
+    items = _as_list(value)
+    return bool(items) and all(isinstance(f, dict) and isinstance(f.get("path"), str) for f in items)
+
+
+def _safe_name(name: str) -> str:
+    """Имя файла для копии: без каталогов и управляющих символов."""
+    base = Path(str(name).replace("\\", "/")).name
+    base = "".join(ch for ch in base if ch.isprintable() and ch not in '<>:"|?*').strip(" .")
+    return base[:120] or "file"
+
+
+def copy_files_into(dest_dir: Path, value: Any) -> Any:
+    """Копирует файлы значения параметра `file` в каталог; возвращает значение с новыми путями."""
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = []
+    for f in _as_list(value):
+        target = dest_dir / _safe_name(f["name"])
+        n = 1
+        while target.exists():
+            n += 1
+            target = dest_dir / f"{n}-{_safe_name(f['name'])}"
+        shutil.copyfile(f["path"], target)
+        out.append({"path": str(target.resolve()), "name": f["name"], "size": f["size"]})
+    return out if isinstance(value, list) else out[0]
+
+
+def _copy_inputs(run_dir: Path, files: Mapping[str, Any]) -> dict[str, Any]:
+    return {name: copy_files_into(run_dir / "input" / name, value) for name, value in files.items()}
 
 
 def merge_values(
@@ -260,7 +297,12 @@ def prepare(
     if outdated and (strict_preset or schedule_id is not None):
         raise ReplayError("preset_outdated", outdated[:1].upper() + outdated[1:])
     preset_tables = app.presets.secret_rows(app.presets.get(manifest.name, preset, manifest)) if preset else {}
-    values = merge_values(app, manifest, preset, params_file, sets, values, preset_tables)
+    preset_files = app.presets.file_values(app.presets.get(manifest.name, preset, manifest), manifest) if preset else {}
+    values = merge_values(app, manifest, preset, params_file, sets, values, {**preset_tables, **preset_files})
+    # Файл без пути (секретный файл из истории для «Запустить снова»): не задан, его дают заново.
+    for p in manifest.params:
+        if p.type == "file" and p.name in values and not _has_paths(values[p.name]):
+            del values[p.name]
     # Секретные таблицы, взятые из пресета: запуск запомнит их для «Перезапустить упавшие».
     from_preset = {k: v for k, v in preset_tables.items() if values.get(k) is v}
 
@@ -302,6 +344,11 @@ def prepare(
         shutil.copyfile(script_path, dest)
         script_path = dest
     full = params.to_dict(mask_secrets=False)
+    file_params = [p for p in manifest.params if p.type == "file" and p.name in full]
+    history = {k: v for k, v in full.items() if k not in secret_names}
+    for p in file_params:
+        if p.secret:  # в историю только имена: ни пути, ни содержимого
+            history[p.name] = [{"name": f["name"]} for f in _as_list(full[p.name])]
     try:
         run = app.runs.reserve(
             run_id=run_id,
@@ -310,7 +357,7 @@ def prepare(
             script_path=str(script_path),
             draft=draft,
             preset=preset,
-            params={k: v for k, v in full.items() if k not in secret_names},
+            params=history,
             timeout_seconds=timeout_minutes * 60,
             limit=cfg.max_parallel_runs,
             schedule_id=schedule_id,
@@ -323,6 +370,13 @@ def prepare(
     except BaseException:
         shutil.rmtree(run_dir, ignore_errors=True)
         raise
+    # Обычный файл копируется в каталог запуска: история и «Запустить снова» ссылаются на копию.
+    # Секретный копирует раннер во временный каталог секретов, он удаляется после выхода.
+    plain_files = [p for p in file_params if not p.secret]
+    if plain_files:
+        copied = _copy_inputs(run_dir, {p.name: full[p.name] for p in plain_files})
+        full.update(copied)
+        app.runs.set_params(run.id, {**history, **copied})
     # Сколько строк в таблицах запуска: секретной таблицы нет в истории, а «2 из 5» нужно и для неё.
     repair.write_table_sizes(run_dir, {p.name: len(full[p.name]) for p in manifest.params
                                        if p.type == "table" and isinstance(full.get(p.name), list)})
@@ -334,6 +388,7 @@ def prepare(
         run=run,
         values=full,
         secret_names=secret_names,
+        secret_files=[p.name for p in file_params if p.secret],
         api_key=api_key,
         base_url=cfg.base_url or None,
         command=command,
@@ -367,6 +422,7 @@ def supervise(
         app.paths.runs,
         values=payload.get("values") or {},
         secret_names=payload.get("secret_names") or (),
+        secret_files=payload.get("secret_files") or (),
         api_key=payload.get("api_key"),
         base_url=payload.get("base_url"),
         timeout=rec.timeout_seconds,
