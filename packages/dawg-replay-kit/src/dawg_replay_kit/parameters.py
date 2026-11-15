@@ -17,6 +17,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from dawg_replay_kit import relative
 from dawg_replay_kit.manifest import LIST_TYPES, ROW_KEY, Manifest, Param, check_value
 
 SECRET_ENV_PREFIX = "DAWG_SECRET_"
@@ -102,7 +103,7 @@ class Params:
         return f"Params({self.to_dict()!r})"
 
 
-TEXT_TYPES = ("string", "text", "url", "secret", "enum", "date")
+TEXT_TYPES = ("string", "text", "url", "secret", "enum", "date", "time", "datetime")
 
 
 def is_blank(param: Param, value: Any) -> bool:
@@ -115,16 +116,18 @@ def is_blank(param: Param, value: Any) -> bool:
         return True
     if param.type in TEXT_TYPES:
         return isinstance(value, str) and not value.strip()
-    if param.type in LIST_TYPES or param.type == "table" or (param.type == "file" and param.multiple):
+    if param.type in LIST_TYPES or param.type in ("table", "multi_enum") or (param.type == "file" and param.multiple):
         return isinstance(value, (list, tuple)) and len(value) == 0
     return False
 
 
-def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params:
+def resolve(manifest: Manifest, given: Mapping[str, Any], source: str, today: Any = None) -> Params:
     """Проверяет значения и подставляет default. Все ошибки собираются в одну ParamsError.
 
     Пустое значение (`is_blank`) считается незаданным: берётся default, у обязательного
     параметра без default это ошибка, у необязательного значения нет.
+    Относительная дата (`today-1`, `month_start`, dawg_replay_kit.relative) у date и datetime
+    вычисляется здесь по местному времени (`today` для тестов), дальше идёт готовая дата.
     """
     problems: list[str] = []
     known = {p.name for p in manifest.params}
@@ -146,13 +149,15 @@ def resolve(manifest: Manifest, given: Mapping[str, Any], source: str) -> Params
             continue
         else:
             continue
+        if p.type in ("date", "datetime") and relative.is_relative(value, p.type):
+            value = relative.resolve(value, p.type, today)
         problem = check_value(p, value)
         if problem:
             problems.append(f"`{p.name}`: {problem}")
             continue
         if p.type == "float":
             value = float(value)
-        elif p.type in LIST_TYPES:
+        elif p.type in LIST_TYPES or p.type == "multi_enum":
             value = list(value)
         elif p.type == "table":
             value = [dict(row) for row in value]
@@ -266,6 +271,14 @@ def build_arg_parser(manifest: Manifest, prog: str | None = None) -> argparse.Ar
             kwargs["nargs"] = "+"
         elif p.type == "date":
             kwargs["metavar"] = "ГГГГ-ММ-ДД"
+        elif p.type == "time":
+            kwargs["metavar"] = "ЧЧ:ММ"
+        elif p.type == "datetime":
+            kwargs["metavar"] = "ГГГГ-ММ-ДДTЧЧ:ММ"
+        elif p.type == "multi_enum":
+            # --stores ozon --stores wb или --stores ozon,wb
+            kwargs["action"] = "append"
+            kwargs["metavar"] = "{" + ",".join(p.choices or ()) + "}"
         elif p.type == "table":
             kwargs["metavar"] = "FILE"
             kwargs["help"] = help_text + ". Файл .csv или .xlsx, первая строка шапка"
@@ -313,6 +326,8 @@ def from_cli(
                 given[p.name] = value
             continue
         value = getattr(ns, p.name)
+        if value is not None and p.type == "multi_enum":
+            value = [x.strip() for item in value for x in item.split(",") if x.strip()]
         if value is not None and p.type == "table":
             value = _read_table_arg(p, value)
         elif value is not None and p.type == "file":
