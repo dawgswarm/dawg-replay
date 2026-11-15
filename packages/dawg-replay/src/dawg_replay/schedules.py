@@ -308,6 +308,31 @@ def _text(data: bytes) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+_CMD_META = set('^&|<>()"')
+
+
+def _cmd_arg(arg: str) -> str:
+    """Аргумент для строки .cmd: имя пресета может содержать кавычки, скобки, `&`, `%`.
+    Аргумент с пробелом или кавычкой берётся в кавычки по правилам разбора argv
+    в Windows (CommandLineToArgvW), затем
+    каждый спецсимвол cmd экранируется `^`, поэтому cmd ни разу не входит в режим
+    кавычек и передаёт программе строку как есть. `%` в .cmd удваивается."""
+    if arg and not any(c in arg for c in ' \t"'):
+        return "".join("^" + c if c in _CMD_META else "%%" if c == "%" else c for c in arg)
+    out, slashes = ['"'], 0
+    for ch in arg:
+        if ch == "\\":
+            slashes += 1
+            continue
+        if ch == '"':
+            out.append("\\" * (slashes * 2 + 1) + ch)
+        else:
+            out.append("\\" * slashes + ch)
+        slashes = 0
+    out.append("\\" * (slashes * 2) + '"')
+    return "".join("^" + c if c in _CMD_META else "%%" if c == "%" else c for c in "".join(out))
+
+
 class CronTab:
     """crontab пользователя. Читается целиком, свои строки меняются, чужие остаются как были."""
 
@@ -389,7 +414,8 @@ class Schtasks:
 
         lines = ["@echo off", "chcp 65001 >nul", f'set "PATH={";".join(plan.path_dirs).replace("%", "%%")};%PATH%"']
         lines += [f'set "{k}={v.replace("%", "%%")}"' for k, v in plan.env.items()]
-        lines.append(" ".join(q(a) for a in plan.argv) + f" >> {q(str(plan.log))} 2>&1")
+        program, *rest = plan.argv
+        lines.append(" ".join([q(program), *(_cmd_arg(a) for a in rest)]) + f" >> {q(str(plan.log))} 2>&1")
         return "\r\n".join(lines) + "\r\n"
 
     @staticmethod
@@ -495,7 +521,7 @@ class Schedules:
 
     def add(self, script: str, preset: str, spec: Spec) -> Schedule:
         self.app.registry.get(script)
-        self.app.get_preset(script, preset)  # пресет должен быть
+        preset = self.app.get_preset(script, preset).name  # пресет должен быть
         if self.backend.kind == "schtasks":
             Schtasks.schedule_args(spec)  # cron на Windows: отказ до записи
         sid = secrets.token_hex(4)

@@ -23,6 +23,7 @@ from starlette.templating import Jinja2Templates
 
 from dawg_replay import forms, imports, minutes, repair, schedules, uistate
 from dawg_replay.errors import ReplayError
+from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.runs import parse_ts
 from dawg_replay.web import home as home_data
 from dawg_replay.web import run_screen
@@ -294,7 +295,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     async def script_save_preset(request: Request) -> Response:
         name = request.path_params["name"]
         form = await request.form()
-        preset_name = (form.get("_preset_name") or "").strip()
+        preset_name = normalize_preset(form.get("_preset_name"))
 
         def work() -> Response:
             with _ui(request).open_app() as app:

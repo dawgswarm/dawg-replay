@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 from dataclasses import dataclass
 from typing import Any
@@ -14,7 +13,28 @@ from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
 from dawg_replay.values import check_partial, filter_known
 
-_NAME_RE = re.compile(r"^[\w.-]{1,64}$")
+NAME_MAX = 64
+
+
+def normalize(name: str | None) -> str:
+    """Пробелы по краям убираются, неразрывный пробел из копипасты становится обычным."""
+    return (name or "").replace("\u00a0", " ").replace("\u202f", " ").strip()
+
+
+def clean_name(name: str) -> str:
+    """Имя пресета без пробелов по краям. Любые печатные символы, включая пробелы и
+    кириллицу. Нельзя: пустое, длиннее 64, управляющие символы, `-` в начале
+    (в `run --preset -x` такое имя примут за флаг)."""
+    name = normalize(name)
+    if not name:
+        raise ReplayError("bad_preset_name", "имя пресета пустое")
+    if len(name) > NAME_MAX:
+        raise ReplayError("bad_preset_name", f"имя пресета длиннее {NAME_MAX} символов")
+    if not name.isprintable():
+        raise ReplayError("bad_preset_name", "в имени пресета есть перевод строки, табуляция или другой непечатный символ")
+    if name.startswith("-"):
+        raise ReplayError("bad_preset_name", "имя пресета не может начинаться с «-»")
+    return name
 
 
 @dataclass(frozen=True)
@@ -45,8 +65,7 @@ class Presets:
         self._db = conn
 
     def save(self, script: str, name: str, manifest: Manifest, values: dict[str, Any]) -> Preset:
-        if not _NAME_RE.fullmatch(name):
-            raise ReplayError("bad_preset_name", f"имя пресета {name!r}: буквы, цифры, `_`, `-`, `.`, до 64 символов")
+        name = clean_name(name)
         problems = check_partial(manifest, values, allow_secrets=False)
         if problems:
             raise ReplayError(
@@ -61,6 +80,7 @@ class Presets:
         return self.get(script, name, manifest)
 
     def get(self, script: str, name: str, manifest: Manifest) -> Preset:
+        name = normalize(name)
         row = self._db.execute(
             "SELECT * FROM presets WHERE script_name = ? AND name = ?", (script, name)
         ).fetchone()
@@ -73,6 +93,7 @@ class Presets:
         return [self._preset(r, manifest) for r in rows]
 
     def delete(self, script: str, name: str) -> None:
+        name = normalize(name)
         cur = self._db.execute("DELETE FROM presets WHERE script_name = ? AND name = ?", (script, name))
         if cur.rowcount == 0:
             raise ReplayError("preset_not_found", f"у скрипта `{script}` нет пресета `{name}`")

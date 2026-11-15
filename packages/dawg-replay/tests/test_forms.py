@@ -292,7 +292,7 @@ def test_preset_dropped_shown(app, registered, tmp_path):
 
 
 def test_bad_preset_name(app, registered):
-    sub = forms.save_preset(app, registered, "плохое имя!", {"query": "x"})
+    sub = forms.save_preset(app, registered, "-плохое имя", {"query": "x"})
     assert forms.FORM_ERROR in sub.errors
 
 

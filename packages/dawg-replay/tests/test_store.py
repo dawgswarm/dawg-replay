@@ -177,11 +177,25 @@ def test_preset_rejects(app, write_script, values, fragment):
     assert app.list_presets("ozon-cards") == []
 
 
-def test_preset_bad_name(app, write_script):
+@pytest.mark.parametrize("name, fragment", [
+    ("", "пустое"), ("   ", "пустое"), ("-x", "«-»"), ("a\nb", "непечатный"), ("a\tb", "непечатный"),
+    ("a\x00b", "непечатный"), ("x" * 65, "длиннее 64"),
+])
+def test_preset_bad_name(app, write_script, name, fragment):
     app.registry.add(write_script(version=1))
-    assert err(app.save_preset, "ozon-cards", "a b", {}).code == "bad_preset_name"
-    # `$` в регулярном выражении пропускал перевод строки в конце имени.
-    assert err(app.save_preset, "ozon-cards", "night\n", {}).code == "bad_preset_name"
+    e = err(app.save_preset, "ozon-cards", name, {})
+    assert e.code == "bad_preset_name" and fragment in e.message
+    assert app.list_presets("ozon-cards") == []
+
+
+@pytest.mark.parametrize("name", ["macbook m5 max", "Москва (центр)", "50% & «скидки» \"best\"", "x" * 64])
+def test_preset_free_name(app, write_script, name):
+    app.registry.add(write_script(version=1))
+    assert app.save_preset("ozon-cards", f"  {name}\u00a0", {"query": "q"}).name == name
+    assert [p.name for p in app.list_presets("ozon-cards")] == [name]
+    assert app.get_preset("ozon-cards", f" {name} ").params == {"query": "q"}
+    app.delete_preset("ozon-cards", name)
+    assert app.list_presets("ozon-cards") == []
 
 
 def test_import_id_with_trailing_newline_is_not_a_file_name(app, tmp_path):
