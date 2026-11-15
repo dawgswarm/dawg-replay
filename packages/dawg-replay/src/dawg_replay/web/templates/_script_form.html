@@ -21,7 +21,7 @@
 
   <form id="params-form" hx-post="/scripts/{{ f.name }}/run" hx-target="#script-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" novalidate>
     <input type="hidden" name="_preset" value="{{ f.preset or '' }}">
-    {% for fl in f.fields %}{{ field(fl) }}{% else %}<p class="hint">У скрипта нет параметров.</p>{% endfor %}
+    {% for fl in f.fields %}{{ field(fl, f.name) }}{% else %}<p class="hint">У скрипта нет параметров.</p>{% endfor %}
     <div class="form-actions">
       <button type="submit" class="run-button">Запустить</button>
     </div>

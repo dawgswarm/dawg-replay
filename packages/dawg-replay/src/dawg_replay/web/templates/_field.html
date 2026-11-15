@@ -1,4 +1,4 @@
-{% macro field(fl) %}
+{% macro field(fl, script=None) %}
 {% set fid = "p-" ~ fl.name %}
 <div class="field field-{{ fl.widget }}{% if fl.error %} field-invalid{% endif %}">
   {% if fl.widget == "checkbox" %}
@@ -18,6 +18,31 @@
     {% elif fl.widget == "password" %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="password" autocomplete="new-password" spellcheck="false"
              placeholder="{{ 'задан, оставьте пустым, чтобы не менять' if fl.secret_set else 'введите значение' }}"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+    {% elif fl.widget == "date" %}
+      <input id="{{ fid }}" name="{{ fl.name }}" type="date" value="{{ fl.value }}"
+             {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+    {% elif fl.widget == "table" %}
+      {% set t = fl.table if fl.table and not fl.table.failed else none %}
+      <input type="hidden" name="{{ fl.name }}" value="{{ fl.value }}">
+      {% if t %}
+      <div class="table-loaded">
+        <p class="table-file"><strong>{{ t.file }}</strong>, {{ t.count | rows_word }}{% if t.secret %}. Таблица секретная: содержимое не показывается и не сохраняется в пресет и историю{% endif %}</p>
+        {% if t.preview %}
+        <div class="table-preview" tabindex="0" role="region" aria-label="Первые строки таблицы {{ t.file }}">
+          <table>
+            <thead><tr>{% for c in t.columns %}<th scope="col">{{ c }}</th>{% endfor %}</tr></thead>
+            <tbody>{% for row in t.preview %}<tr>{% for v in row %}<td>{{ v }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+          </table>
+        </div>
+        {% if t.count > t.preview | length %}<p class="hint">Показаны первые {{ t.preview | length }} из {{ t.count }}.</p>{% endif %}
+        {% endif %}
+      </div>
+      {% endif %}
+      <input id="{{ fid }}" class="file-input" name="_table_file" type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+             hx-post="/scripts/{{ script }}/_table/{{ fl.name }}" hx-encoding="multipart/form-data" hx-trigger="change"
+             hx-params="_table_file" hx-target="closest .field" hx-swap="outerHTML" hx-indicator="closest .field"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
+      <label class="file-button" for="{{ fid }}">{{ "Заменить файл" if t else "Выбрать файл" }}</label>
+      <span class="file-busy hint-inline">Читаем таблицу…</span>
     {% elif fl.widget == "number" %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="number" inputmode="decimal" step="{{ fl.step }}" value="{{ fl.value }}"
              {% if fl.min is not none %}min="{{ fl.min }}"{% endif %} {% if fl.max is not none %}max="{{ fl.max }}"{% endif %}{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
@@ -31,8 +56,12 @@
   {% if fl.widget == "number" and fl.min is not none and fl.max is not none %}{% set _ = rules.append("от " ~ fl.min ~ " до " ~ fl.max) %}
   {% elif fl.widget == "number" and fl.min is not none %}{% set _ = rules.append("не меньше " ~ fl.min) %}
   {% elif fl.widget == "number" and fl.max is not none %}{% set _ = rules.append("не больше " ~ fl.max) %}{% endif %}
+  {% if fl.widget == "date" and fl.min is not none and fl.max is not none %}{% set _ = rules.append("от " ~ (fl.min | ru_date) ~ " до " ~ (fl.max | ru_date)) %}
+  {% elif fl.widget == "date" and fl.min is not none %}{% set _ = rules.append("не раньше " ~ (fl.min | ru_date)) %}
+  {% elif fl.widget == "date" and fl.max is not none %}{% set _ = rules.append("не позже " ~ (fl.max | ru_date)) %}{% endif %}
+  {% if fl.widget == "table" %}{% set _ = rules.append("файл .csv или .xlsx, первая строка шапка") %}{% if fl.columns %}{% set _ = rules.append("нужны колонки " ~ ("«" ~ fl.columns | join("», «") ~ "»")) %}{% endif %}{% set _ = rules.append("не больше " ~ fl.max_rows ~ " строк") %}{% endif %}
   {% if fl.type in ("url_list", "string_list") %}{% set _ = rules.append("по одному " ~ ("адресу" if fl.type == "url_list" else "значению") ~ " на строку" ~ (", не больше " ~ fl.max_items if fl.max_items else "")) %}{% endif %}
-  {% if fl.default is not none and fl.widget not in ("checkbox", "password") and fl.default != "" and fl.default != [] %}{% set _ = rules.append("по умолчанию " ~ (fl.default | join(", ") if fl.default is sequence and fl.default is not string else fl.default)) %}{% endif %}
+  {% if fl.default is not none and fl.widget not in ("checkbox", "password", "table") and fl.default != "" and fl.default != [] %}{% set _ = rules.append("по умолчанию " ~ (fl.default | ru_date if fl.widget == "date" else (fl.default | join(", ") if fl.default is sequence and fl.default is not string else fl.default))) %}{% endif %}
   {% if rules %}<p class="hint">{{ (rules | join(", ")) | capitalize_first }}.</p>{% endif %}
   {% if fl.widget == "password" %}<p class="hint">Секрет {{ "задан" if fl.secret_set else "не задан" }}. Он хранится в системном хранилище паролей и на экран не возвращается.</p>{% endif %}
 </div>

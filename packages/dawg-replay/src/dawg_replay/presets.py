@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from dawg_replay_kit.manifest import Manifest
@@ -14,6 +14,9 @@ from dawg_replay.errors import ReplayError
 from dawg_replay.values import check_partial, filter_known
 
 NAME_MAX = 64
+# Имена файлов таблиц хранятся рядом со значениями. Имя параметра не начинается с `_`,
+# поэтому ключ ни с чем не совпадёт.
+FILES_KEY = "_files"
 
 
 def normalize(name: str | None) -> str:
@@ -45,6 +48,7 @@ class Preset:
     dropped: list[str]  # ключи, которые текущая версия не принимает
     created_at: str
     updated_at: str
+    files: dict[str, str] = field(default_factory=dict)  # параметр table -> имя исходного файла
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -52,6 +56,7 @@ class Preset:
             "name": self.name,
             "params": self.params,
             "dropped": self.dropped,
+            "files": self.files,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -64,8 +69,14 @@ class Presets:
     def __init__(self, conn: sqlite3.Connection):
         self._db = conn
 
-    def save(self, script: str, name: str, manifest: Manifest, values: dict[str, Any]) -> Preset:
+    def save(
+        self, script: str, name: str, manifest: Manifest, values: dict[str, Any], files: dict[str, str] | None = None
+    ) -> Preset:
+        """`files`: имена файлов таблиц. Таблица с `secret = true` в пресет не попадает."""
         name = clean_name(name)
+        secret_tables = {p.name for p in manifest.params if p.type == "table" and p.secret}
+        values = {k: v for k, v in values.items() if k not in secret_tables}
+        files = {k: v for k, v in (files or {}).items() if k in values}
         problems = check_partial(manifest, values, allow_secrets=False)
         if problems:
             raise ReplayError(
@@ -75,7 +86,7 @@ class Presets:
         self._db.execute(
             "INSERT INTO presets (script_name, name, params_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
             " ON CONFLICT (script_name, name) DO UPDATE SET params_json = excluded.params_json, updated_at = excluded.updated_at",
-            (script, name, json.dumps(values, ensure_ascii=False), now, now),
+            (script, name, json.dumps({**values, FILES_KEY: files} if files else values, ensure_ascii=False), now, now),
         )
         return self.get(script, name, manifest)
 
@@ -100,5 +111,8 @@ class Presets:
 
     @staticmethod
     def _preset(row: sqlite3.Row, manifest: Manifest) -> Preset:
-        kept, dropped = filter_known(manifest, json.loads(row["params_json"]))
-        return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"])
+        stored = json.loads(row["params_json"])
+        files = stored.pop(FILES_KEY, None)
+        kept, dropped = filter_known(manifest, stored)
+        files = {k: v for k, v in files.items() if k in kept and isinstance(v, str)} if isinstance(files, dict) else {}
+        return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files)

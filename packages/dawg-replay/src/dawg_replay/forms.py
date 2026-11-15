@@ -19,6 +19,8 @@
 | bool | checkbox | отмечен или нет; поля нет в отправке = false |
 | enum | select из `choices` | строка |
 | secret | input password | значение никогда не отдаётся, только «задан/не задан» |
+| date | input date | строка ГГГГ-ММ-ДД |
+| table | загрузка файла (отдельный запрос) | id загрузки (dawg_replay.uploads) |
 
 Правила разбора: пустое или из пробелов значение = не задано (`is_blank` из kit),
 тогда действует `default`; у списков пустые строки отбрасываются. Значения проверяет
@@ -34,13 +36,16 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 from dawg_replay_kit.manifest import LIST_TYPES, Manifest, Param, check_value
 from dawg_replay_kit.parameters import ParamsError, is_blank, resolve
+from dawg_replay_kit.tables import TableError, columns_of, parse_table
 
 from dawg_replay.errors import ReplayError
+from dawg_replay.imports import display_name
+from dawg_replay.uploads import Uploads
 
 WIDGETS = {
     "string": "text",
@@ -53,7 +58,11 @@ WIDGETS = {
     "bool": "checkbox",
     "enum": "select",
     "secret": "password",
+    "date": "date",
+    "table": "table",
 }
+PREVIEW_ROWS = 5
+TABLE_EXPIRED = "загруженная таблица устарела (хранится сутки), загрузите файл заново"
 CHECKED = ("on", "true", "1", "yes", "да")
 FORM_ERROR = "__form__"  # ошибка не конкретного поля
 
@@ -70,12 +79,16 @@ class Field:
     required: bool
     value: str | bool
     default: Any = None
-    min: int | float | None = None
-    max: int | float | None = None
+    min: int | float | str | None = None
+    max: int | float | str | None = None
     step: str | None = None
     max_items: int | None = None
     choices: list[str] | None = None
     secret_set: bool | None = None  # только для secret
+    table: dict[str, Any] | None = None  # только для table: что загружено (table_info)
+    columns: list[str] | None = None  # table: обязательные колонки
+    max_rows: int | None = None
+    secret_table: bool = False
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -91,6 +104,8 @@ class Submission:
     raw: dict[str, str | bool]  # введённое, для повторной отрисовки (секреты пустые)
     secrets_saved: list[str] = field(default_factory=list)
     fields: list[Field] = field(default_factory=list)
+    files: dict[str, str] = field(default_factory=dict)  # table -> имя файла
+    tables: dict[str, dict[str, Any]] = field(default_factory=dict)  # table -> table_info для отрисовки
     # Введённые секреты: только для сохранения в keyring, не печатаются и не отдаются.
     new_secrets: dict[str, str] = field(default_factory=dict, repr=False)
 
@@ -115,21 +130,37 @@ def display(param: Param, value: Any) -> str | bool:
     return str(value)
 
 
+def table_info(param: Param, upload_id: str, file: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Что показать у поля таблицы. У секретной таблицы только имя файла и число строк."""
+    info: dict[str, Any] = {"id": upload_id, "file": file, "count": len(rows), "secret": param.secret,
+                            "columns": [], "preview": []}
+    if not param.secret:
+        info["columns"] = columns_of(rows)
+        info["preview"] = [[r.get(c, "") for c in info["columns"]] for r in rows[:PREVIEW_ROWS]]
+    return info
+
+
 def fields_for(
     manifest: Manifest,
     values: Mapping[str, Any] | None = None,
     raw: Mapping[str, str | bool] | None = None,
     errors: Mapping[str, str] | None = None,
     secret_status: Mapping[str, bool] | None = None,
+    tables: Mapping[str, dict[str, Any]] | None = None,
 ) -> list[Field]:
-    """Поля формы. Значение поля: введённое (`raw`) > `values` > `default`."""
+    """Поля формы. Значение поля: введённое (`raw`) > `values` > `default`.
+    `tables`: загруженные таблицы по имени параметра (table_info); значение поля это id загрузки."""
     values = values or {}
     raw = raw or {}
     errors = errors or {}
     secret_status = secret_status or {}
+    tables = tables or {}
     out = []
     for p in manifest.params:
-        if p.name in raw:
+        if p.type == "table":
+            info = tables.get(p.name)
+            value = info["id"] if info else ""
+        elif p.name in raw:
             value = raw[p.name] if p.type != "secret" else ""
         elif p.name in values:
             value = display(p, values[p.name])
@@ -151,6 +182,10 @@ def fields_for(
                 max_items=p.max_items,
                 choices=list(p.choices) if p.choices else None,
                 secret_set=bool(secret_status.get(p.name)) if p.type == "secret" else None,
+                table=tables.get(p.name) if p.type == "table" else None,
+                columns=list(p.columns) if p.columns else None,
+                max_rows=p.row_limit if p.type == "table" else None,
+                secret_table=p.type == "table" and p.secret,
                 error=errors.get(p.name),
             )
         )
@@ -163,11 +198,20 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
     manifest = app.registry.manifest(script)
     values: dict[str, Any] = {}
     dropped: list[str] = []
+    tables: dict[str, dict[str, Any]] = {}
     if preset:
         p = app.get_preset(script, preset)
         values, dropped = dict(p.params), list(p.dropped)
+        # Таблица пресета кладётся в загрузки: форма дальше работает с ней как с загруженной.
+        store = Uploads(app.paths.uploads)
+        for param in manifest.params:
+            rows = values.get(param.name)
+            if param.type == "table" and isinstance(rows, list):
+                file = p.files.get(param.name) or "таблица пресета"
+                uid = store.put(param.name, file, rows, secret=param.secret)
+                tables[param.name] = table_info(param, uid, file, rows)
     return {
-        "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script)),
+        "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script), tables=tables),
         "preset": preset,
         "dropped": dropped,
     }
@@ -192,20 +236,47 @@ def _getlist(form: Any, name: str) -> list[str]:
     return [str(value)]
 
 
-def parse(manifest: Manifest, form: Any, *, require: bool = True, secret_set: Mapping[str, bool] | None = None) -> Submission:
+def parse(
+    manifest: Manifest,
+    form: Any,
+    *,
+    require: bool = True,
+    secret_set: Mapping[str, bool] | None = None,
+    uploads: Uploads | None = None,
+) -> Submission:
     """Разбирает форму в типизированные значения и проверяет их через kit.
 
     `require=False` (сохранение пресета): обязательность не проверяется.
     `secret_set`: какие секреты уже есть в keyring (для проверки обязательных).
+    `uploads`: хранилище загруженных таблиц; поле таблицы несёт id загрузки.
     """
     secret_set = secret_set or {}
     values: dict[str, Any] = {}
     errors: dict[str, str] = {}
     raw: dict[str, str | bool] = {}
     new_secrets: dict[str, str] = {}
+    files: dict[str, str] = {}
+    tables: dict[str, dict[str, Any]] = {}
 
     for p in manifest.params:
         items = _getlist(form, p.name)
+        if p.type == "table":
+            uid = (items[-1] if items else "").strip()
+            if not uid:
+                continue
+            data = uploads.get(uid) if uploads is not None else None
+            if data is None or data.get("param") != p.name:
+                errors[p.name] = TABLE_EXPIRED
+                continue
+            rows, file = data["rows"], str(data.get("file") or "")
+            tables[p.name] = table_info(p, uid, file, rows)
+            problem = check_value(p, rows)
+            if problem:
+                errors[p.name] = _human(p, problem)
+                continue
+            values[p.name] = rows
+            files[p.name] = file
+            continue
         if p.type == "bool":
             checked = any(v.strip().lower() in CHECKED for v in items)
             raw[p.name] = checked
@@ -241,7 +312,7 @@ def parse(manifest: Manifest, form: Any, *, require: bool = True, secret_set: Ma
                 if p.name not in new_secrets and not secret_set.get(p.name):
                     errors[p.name] = "обязательный секрет не задан"
             elif p.name not in values and is_blank(p, p.default):
-                errors[p.name] = "обязательное поле"
+                errors[p.name] = "загрузите таблицу" if p.type == "table" else "обязательное поле"
         if not errors:
             # Итоговая проверка тем же kit, что и при запуске. Секреты подставляются заглушкой:
             # их значения форма не знает, обязательность уже проверена выше.
@@ -254,7 +325,7 @@ def parse(manifest: Manifest, form: Any, *, require: bool = True, secret_set: Ma
             except ParamsError as e:
                 errors[FORM_ERROR] = str(e)
 
-    return Submission(values=values, errors=errors, raw=raw, new_secrets=new_secrets)
+    return Submission(values=values, errors=errors, raw=raw, new_secrets=new_secrets, files=files, tables=tables)
 
 
 def _convert(p: Param, text: str) -> Any:
@@ -297,7 +368,23 @@ def _human(p: Param, problem: str) -> str:
         return re.sub(r"получено (['\"])(.*)\1$", lambda m: f"введено «{m.group(2)}»", text)
     if p.type == "string" and "переводить строку" in problem:
         return "одна строка, без переводов строки"
+    if p.type == "date":
+        if "раньше min" in problem:
+            return f"не раньше {_date(p.min)}"
+        if "позже max" in problem:
+            return f"не позже {_date(p.max)}"
+        if "такой даты нет" in problem:
+            return "такой даты нет"
+        return "нужна дата"
+    if p.type == "table" and "max_rows" in problem:
+        return f"{problem.split(',')[0]}, а можно не больше {p.row_limit}"
     return problem
+
+
+def _date(value: Any) -> str:
+    """2026-11-01 в 01.11.2026."""
+    y, m, d = str(value).split("-")
+    return f"{d}.{m}.{y}"
 
 
 def _num(v: int | float) -> str:
@@ -316,7 +403,8 @@ def submit(app: Any, script: str, form: Any) -> Submission:
     """
     manifest = app.registry.manifest(script)
     status = app.secret_status(script)
-    sub = parse(manifest, form, require=False)
+    store = Uploads(app.paths.uploads)
+    sub = parse(manifest, form, require=False, uploads=store)
     for name, value in sub.new_secrets.items():
         try:
             app.set_secret(script, name, value)
@@ -324,11 +412,11 @@ def submit(app: Any, script: str, form: Any) -> Submission:
             status[name] = True
         except ReplayError as e:
             sub.errors[name] = e.message
-    full = parse(manifest, form, require=True, secret_set=status)
+    full = parse(manifest, form, require=True, secret_set=status, uploads=store)
     full.secrets_saved = sub.secrets_saved
     full.new_secrets = {}
     full.errors.update({k: v for k, v in sub.errors.items() if k not in full.errors})
-    full.fields = fields_for(manifest, raw=full.raw, errors=full.errors, secret_status=status)
+    full.fields = fields_for(manifest, raw=full.raw, errors=full.errors, secret_status=status, tables=full.tables)
     return full
 
 
@@ -336,12 +424,51 @@ def save_preset(app: Any, script: str, preset: str, form: Any) -> Submission:
     """«Сохранить как пресет»: текущие значения без секретов. Обязательность не требуется,
     невалидные значения не сохраняются (ошибки у полей)."""
     manifest = app.registry.manifest(script)
-    sub = parse(manifest, form, require=False)
+    sub = parse(manifest, form, require=False, uploads=Uploads(app.paths.uploads))
     status = app.secret_status(script)
     if sub.ok:
         try:
-            app.save_preset(script, preset, sub.values)
+            app.save_preset(script, preset, sub.values, sub.files)
         except ReplayError as e:
             sub.errors[FORM_ERROR] = e.message
-    sub.fields = fields_for(manifest, raw=sub.raw, errors=sub.errors, secret_status=status)
+    sub.fields = fields_for(manifest, raw=sub.raw, errors=sub.errors, secret_status=status, tables=sub.tables)
     return sub
+
+
+def upload_table(
+    app: Any, script: str, param: str, data: bytes, filename: str | None, problem: str | None = None
+) -> dict[str, Any]:
+    """Загрузка файла в поле таблицы: разбор, проверка по манифесту, сохранение.
+    Возвращает поле для отрисовки; ошибка разбора или проверки видна у поля.
+    `problem`: файл не дошёл (размер, multipart), поле показывается с этой ошибкой."""
+    manifest = app.registry.manifest(script)
+    try:
+        p = manifest.param(param)
+    except KeyError:
+        raise ReplayError("param_not_found", f"у скрипта `{script}` нет параметра `{param}`") from None
+    if p.type != "table":
+        raise ReplayError("param_not_found", f"параметр `{param}` не таблица")
+    name = display_name(filename)
+    error = info = None
+    try:
+        if problem:
+            raise TableError(problem[:1].lower() + problem[1:])
+        rows = parse_table(data, name)
+    except TableError as e:
+        error = str(e).removeprefix(f"{name}: ").removeprefix(f"{name}, ")
+    else:
+        problem = check_value(p, rows)
+        if problem:
+            error = _human(p, problem)
+        else:
+            uid = Uploads(app.paths.uploads).put(p.name, name, rows, secret=p.secret)
+            info = table_info(p, uid, name, rows)
+    (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
+                       tables={p.name: info} if info else None)
+    if error:
+        fl.table = {"file": name, "failed": True}
+    return {"field": fl}
+
+
+def _only(manifest: Manifest, p: Param) -> Manifest:
+    return replace(manifest, params=(p,))

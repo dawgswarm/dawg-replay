@@ -44,6 +44,7 @@ from typing import Any
 
 from dawg_replay import diagnosis
 from dawg_replay.errors import ReplayError
+from dawg_replay.values import brief
 
 MIN_HISTORY = 3
 HISTORY = 10
@@ -395,7 +396,7 @@ def _title(app: Any, rec: Any) -> tuple[str, int | None]:
 
 
 def _params(params: dict[str, Any]) -> list[str]:
-    return [f"  {k} = {json.dumps(v, ensure_ascii=False)}" for k, v in params.items()]
+    return [f"  {k} = {json.dumps(v, ensure_ascii=False)}" for k, v in brief(params).items()]
 
 
 def _what_happened(rec: Any, sus: dict[str, Any] | None) -> list[str]:
