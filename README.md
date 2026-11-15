@@ -126,6 +126,7 @@ dawg-replay ui
 dawg-replay list                                  # скрипты
 dawg-replay run ozon-search-cards --set query="кофемолка" --follow
 dawg-replay run my-actions --param accounts=@аккаунты.xlsx --follow   # таблица из файла
+dawg-replay run my-actions --row accounts email=a@b.ru password=- --follow   # строка руками, «-» спросит пароль скрыто
 dawg-replay runs                                  # история запусков
 dawg-replay usage                                 # минуты браузеров за 7 дней по скриптам
 dawg-replay answer 20261114-091500-a1b2c3 yes     # ответ на вопрос скрипта; - вводит секрет без отображения

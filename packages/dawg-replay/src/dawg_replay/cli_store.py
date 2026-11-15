@@ -12,7 +12,7 @@ from typing import Any
 from dawg_replay.app import App
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import secret_tables_note
-from dawg_replay.values import brief, parse_set_args, read_params_file, table_files
+from dawg_replay.values import brief, parse_row_args, parse_set_args, read_params_file, table_files
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -192,12 +192,40 @@ def _logins_forget(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 # --- пресеты ---
 
 
+def add_row_argument(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--row", action="append", nargs="+", metavar=("TABLE", "COL=VALUE"),
+                   help="строка таблицы вручную, можно повторять: --row accounts email=a@b.ru password=- "
+                        "(«-» спросит значение без отображения или возьмёт строку из stdin)")
+
+
+def read_hidden(prompt: str) -> str:
+    """Значение ячейки `-`: с терминала без эха, иначе очередная строка stdin (агент, пайп)."""
+    import getpass
+
+    if sys.stdin is not None and sys.stdin.isatty():
+        return getpass.getpass(prompt)
+    line = sys.stdin.readline() if sys.stdin is not None else ""
+    return line.rstrip("\r\n")
+
+
+def row_values(app: App, target: str, rows: list[list[str]] | None, sets: list[str] | None) -> dict[str, Any]:
+    """Таблицы из --row для launch.prepare; пусто без --row."""
+    if not rows:
+        return {}
+    from dawg_replay import launch  # launch тянет app и runner, здесь он нужен только для --row
+
+    manifest = launch.target_manifest(app, target)
+    return parse_row_args(manifest, rows, read_hidden, sets or ())
+
+
 def _collect_values(app: App, script: str, args: argparse.Namespace) -> dict[str, Any]:
     values: dict[str, Any] = {}
     if args.params:
         values.update(read_params_file(args.params))
     if args.set:
         values.update(parse_set_args(app.registry.manifest(script), args.set))
+    if getattr(args, "row", None):
+        values.update(row_values(app, script, args.row, args.set))
     return values
 
 
@@ -284,6 +312,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--params", metavar="FILE", help="JSON со значениями")
     p.add_argument("--set", "--param", dest="set", action="append", metavar="K=V",
                    help="значение параметра, можно повторять; таблица из файла: имя=@файл.xlsx")
+    add_row_argument(p)
     p = add(pre, "list", _preset_list, "пресеты скрипта")
     p.add_argument("script")
     p = add(pre, "delete", _preset_delete, "удалить пресет и его регулярные запуски")

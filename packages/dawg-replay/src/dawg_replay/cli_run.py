@@ -15,7 +15,7 @@ from dawg_replay_kit.events import ConsoleSink
 
 from dawg_replay import asks, diagnosis, launch, repair
 from dawg_replay.app import App
-from dawg_replay.cli_store import Handler, run_handler
+from dawg_replay.cli_store import Handler, add_row_argument, row_values, run_handler
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import Run
 
@@ -163,8 +163,9 @@ def _minutes(seconds: float, up: bool = False) -> str:
 
 def _run(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     try:
+        rows = row_values(app, args.target, args.row, args.set)
         prepared = launch.prepare(
-            app, args.target, preset=args.preset, params_file=args.params, sets=args.set,
+            app, args.target, preset=args.preset, params_file=args.params, sets=args.set, values=rows or None,
             schedule_id=args.schedule, wait=args.wait, on_wait=_wait_printer(args),
         )
     except ReplayError as e:
@@ -376,6 +377,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p.add_argument("--params", metavar="FILE", help="JSON со значениями")
     p.add_argument("--set", "--param", dest="set", action="append", metavar="K=V",
                    help="значение параметра, можно повторять; таблица из файла: имя=@файл.xlsx")
+    add_row_argument(p)
     p.add_argument("--preset", help="пресет скрипта")
     p.add_argument("--follow", action="store_true", help="показывать события и ждать конца; Ctrl+C отменяет")
     p.add_argument("--schedule", metavar="ID", help="запуск по расписанию ID (так вызывает задача планировщика); ждёт слота, как --wait")

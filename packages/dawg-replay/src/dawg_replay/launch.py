@@ -132,6 +132,11 @@ class Prepared:
         }
 
 
+def target_manifest(app: App, target: str) -> Manifest:
+    """Манифест зарегистрированного скрипта или файла script.py, как его видит prepare."""
+    return _target(app, target)[0]
+
+
 def _target(app: App, target: str) -> tuple[Manifest, Path, bool, int | None]:
     """`name` зарегистрированного скрипта или путь к файлу (черновой запуск)."""
     path = Path(target)

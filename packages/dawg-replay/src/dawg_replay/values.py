@@ -1,4 +1,4 @@
-"""Разбор значений параметров из `--params p.json` и `--set k=v`.
+"""Разбор значений параметров из `--params p.json`, `--set k=v` и `--row таблица k=v ...`.
 
 Общий для пресетов и запуска. Проверка значений идёт через check_value из kit.
 """
@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -90,6 +90,57 @@ def table_files(manifest: Manifest, items: Iterable[str]) -> dict[str, str]:
         name = name.strip().replace("-", "_")
         if sep and name in tables and raw.startswith("@"):
             out[name] = Path(raw[1:]).name
+    return out
+
+
+HIDDEN = "-"  # значение ячейки в --row: прочитать без отображения
+
+
+def parse_row_args(
+    manifest: Manifest,
+    rows: Sequence[Sequence[str]],
+    read_hidden: Callable[[str], str],
+    sets: Iterable[str] = (),
+) -> dict[str, list[dict[str, Any]]]:
+    """`--row accounts email=a@b.ru password=-` (повторяемый) в таблицы параметров.
+
+    Строка это словарь ячеек плюс `_row`: номера 2, 3, … как у файла, где шапка строка 1.
+    Значение `-` читается через `read_hidden(подсказка)`: с терминала без эха, иначе из stdin.
+    Таблицу задают либо строками, либо файлом (`--set имя=@файл`), не тем и другим сразу."""
+    tables = {p.name: p for p in manifest.params if p.type == "table"}
+    from_set = {item.partition("=")[0].strip().replace("-", "_") for item in sets}
+    out: dict[str, list[dict[str, Any]]] = {}
+    problems: list[str] = []
+    for row in rows:
+        if not row:
+            continue
+        name = row[0].strip().replace("-", "_")
+        if name not in tables:
+            known = ", ".join(tables) or "нет"
+            problems.append(f"--row {row[0]}: такой таблицы у скрипта нет (таблицы: {known})")
+            continue
+        if name in from_set:
+            problems.append(f"`{name}`: таблица задана и файлом (--set), и строками (--row); выберите что-то одно")
+            continue
+        cells: dict[str, Any] = {}
+        for token in row[1:]:
+            col, sep, value = token.partition("=")
+            col = col.strip()
+            if not sep or not col:
+                problems.append(f"--row {name}: ячейка задаётся как колонка=значение, получено «{token}»")
+                continue
+            if col.startswith("_"):
+                problems.append(f"--row {name}: колонка не может начинаться с «_» ({col})")
+                continue
+            if value == HIDDEN:
+                value = read_hidden(f"{name}, строка {len(out.get(name, [])) + 2}, {col}: ")
+            cells[col] = value
+        if not cells:
+            problems.append(f"--row {name}: в строке нет ни одной ячейки")
+            continue
+        out.setdefault(name, []).append({**cells, "_row": len(out.get(name, [])) + 2})
+    if problems:
+        raise ReplayError("bad_params", "строки таблиц не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems)
     return out
 
 
