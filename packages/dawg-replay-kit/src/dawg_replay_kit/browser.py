@@ -295,6 +295,7 @@ class BrowserSession:
         self._forgotten = False
         self.login_restored = False
         self._last_saved: dict[str, Any] | None = None  # что сохранено в этом браузере последним
+        self._logged_save = False  # «вход сохранён» уже в журнале этого браузера
         self._restore_done = False  # отмена посреди восстановления: неполный вход не сохраняется
         self._async = False
         self._payload = build_payload(proxy, geo)
@@ -498,7 +499,13 @@ class BrowserSession:
         self._last_saved = state
         # Следующее сохранение (при закрытии) сливается уже с этим: localStorage прежних источников не теряется.
         self._previous = self._store.save(self.login, state, self._previous)
-        self._m.events.log("info", "вход сохранён для следующих запусков")
+        if self._logged_save:
+            # Тот же браузер уже сказал «вход сохранён» (save_login после входа). Сайт после этого обычно
+            # обновляет cookie сессии, и при закрытии сохраняется свежее состояние: человеку это не новость.
+            self._m.events.log("debug", "вход обновлён при закрытии браузера")
+        else:
+            self._logged_save = True
+            self._m.events.log("info", "вход сохранён для следующих запусков")
 
     def _save_failed(self, e: Exception) -> None:
         self._m.events.log("warn", f"вход не сохранён ({type(e).__name__}): браузер уже закрыт или недоступен")

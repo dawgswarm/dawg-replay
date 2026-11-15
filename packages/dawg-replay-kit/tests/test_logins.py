@@ -458,5 +458,8 @@ def test_close_right_after_save_login_logs_once(fake, tmp_path):
     with BrowserSession(m2, login="u") as b:
         b.save_login()
         b.context.cookies.append({"name": "late", "value": "1", "domain": "x.ru", "path": "/"})
-    assert logs(sink2).count("вход сохранён для следующих запусков") == 2  # после save_login что-то поменялось
+    # После save_login сайт обновил cookie: при закрытии сохраняется свежее, но в журнале одна строка
+    # «вход сохранён», повтор только на уровне debug (dr-94, демо the-internet-actions).
+    assert logs(sink2).count("вход сохранён для следующих запусков") == 1
+    assert [e["level"] for e in sink2.events if e["t"] == "log" and e["msg"] == "вход обновлён при закрытии браузера"] == ["debug"]
     assert [c["name"] for c in LoginStore(tmp_path).get("u").state["cookies"]][-1] == "late"

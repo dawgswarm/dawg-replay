@@ -241,3 +241,23 @@ def test_upload_error_text_lists_all_formats(web):
     c, h = web
     r = c.post("/scripts/plain/_table/orders", files={}, data={"x": "1"}, headers=h)
     assert "один файл таблицы: .csv, .tsv, .xlsx или .json" in r.text
+
+
+def test_empty_first_sheet_same_message_in_form_and_cli(app, add, cli, tmp_path):
+    # dr-94: совсем пустой первый лист (без шапки) объясняется одинаково: форма и CLI называют листы.
+    add("plain")
+    data = xlsx({"Пусто": [], "Заказы": [["order"], ["A-1"]]})
+    fl = forms.upload_table(app, "plain", "orders", data, "книга.xlsx")["field"]
+    assert fl.error == "на листе «Пусто» (первом) нет строк. Листы: «Пусто», «Заказы»"
+    assert fl.table["sheets"] == ["Пусто", "Заказы"]  # выбор листа остаётся
+    f = tmp_path / "книга.xlsx"
+    f.write_bytes(data)
+    code, out = cli("run", "plain", "--set", f"orders=@{f}")
+    assert code == 1
+    assert "книга.xlsx: на листе «Пусто» (первом) нет строк. Листы: «Пусто», «Заказы»; выберите нужный: книга.xlsx#Заказы" in out["error"]["message"]
+
+
+def test_single_sheet_empty_book(app, add):
+    add("plain")
+    fl = forms.upload_table(app, "plain", "orders", xlsx({"Лист1": []}), "пусто.xlsx")["field"]
+    assert fl.error == "таблица пустая"

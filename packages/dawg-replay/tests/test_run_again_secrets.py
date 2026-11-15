@@ -124,5 +124,17 @@ def test_web_run_again(certs, cli, home, web):
     for f in (Path(home) / "uploads").glob("*.bin"):
         f.unlink()
     r = c.post(f"/runs/{run_id}/again", headers=h)
-    assert r.status_code == 200 and "Запуск не начат" in r.text and "загрузите заново" in r.text.lower()
+    assert r.status_code == 200 and "Запуск не начат" in r.text and "загрузите его заново" in r.text.lower()
+    assert "он не хранится" in r.text and "они не хранятся" not in r.text  # один файл: согласование числа (dr-94)
     assert "Открыть форму запуска" in r.text
+
+
+def test_lost_message_agreement():
+    from dawg_replay.launch import _lost_message
+
+    assert "файла «Ключ»: в истории запуска он не хранится" in _lost_message(["секретного файла «Ключ»"])
+    one_table = _lost_message(["секретной таблицы «Аккаунты»"])
+    assert "она не хранится" in one_table and "Загрузите её заново" in one_table
+    both = _lost_message(["секретного файла «Ключ»", "секретной таблицы «Аккаунты»"])
+    assert "файла «Ключ», секретной таблицы «Аккаунты»: в истории запуска они не хранятся" in both
+    assert "копии для повтора живут сутки и уже удалены. Загрузите их заново" in both
