@@ -1,0 +1,33 @@
+{# Сохранённые входы скрипта (kit.browser(login=...)). Контекст lg: см. views._logins_ctx. Без входов блока нет. #}
+{% if lg["items"] or lg.notice or lg.error %}
+<details id="logins" class="card fold"{% if lg.open %} open{% endif %}>
+  <summary><span class="fold-title">Сохранённые входы</span><span class="hint-inline">{{ lg["items"] | length }} {{ lg["items"] | length | plural("вход", "входа", "входов") }}</span></summary>
+  <p class="hint">Скрипт сохраняет cookies кабинета после работы и подставляет их в следующий раз, чтобы не входить заново. Если вход перестал работать или аккаунт больше не нужен, сотрите его: скрипт войдёт заново при следующем запуске.</p>
+  {% if lg.notice %}<p class="notice notice-ok" role="status">{{ lg.notice }}</p>{% endif %}
+  {% if lg.error %}<p class="notice notice-error" role="alert">{{ lg.error }}</p>{% endif %}
+  {% if lg["items"] %}
+  <ul class="logins">
+  {% for l in lg["items"] %}
+    <li class="login">
+      <div class="login-text">
+        <span class="login-name">{{ l.name }}</span>
+        <span class="hint-inline">сохранён {{ l.saved_at | when if l.saved_at else "—" }}{% if l.used_at %}, использован {{ l.used_at | when }}{% endif %}</span>
+      </div>
+      <form hx-post="/scripts/{{ lg.name }}/logins/forget" hx-target="#logins" hx-swap="outerHTML"
+            hx-confirm="Забыть вход «{{ l.name }}»? Скрипту придётся войти заново." hx-disabled-elt="find button">
+        <input type="hidden" name="_login" value="{{ l.name }}">
+        <button class="secondary small" type="submit">Забыть</button>
+      </form>
+    </li>
+  {% endfor %}
+  </ul>
+  {% if lg["items"] | length > 1 %}
+  <form hx-post="/scripts/{{ lg.name }}/logins/forget" hx-target="#logins" hx-swap="outerHTML"
+        hx-confirm="Забыть все сохранённые входы скрипта ({{ lg['items'] | length }})?" hx-disabled-elt="find button">
+    <input type="hidden" name="_all" value="1">
+    <button class="secondary small" type="submit">Забыть все</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</details>
+{% endif %}
