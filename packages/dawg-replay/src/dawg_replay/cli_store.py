@@ -215,7 +215,8 @@ def row_values(app: App, target: str, rows: list[list[str]] | None, sets: list[s
     from dawg_replay import launch  # launch тянет app и runner, здесь он нужен только для --row
 
     manifest = launch.target_manifest(app, target)
-    return parse_row_args(manifest, rows, read_hidden, sets or ())
+    return parse_row_args(manifest, rows, read_hidden, sets or (),
+                          warn=lambda text: print(f"предупреждение: {text}", file=sys.stderr))
 
 
 def _collect_values(app: App, script: str, args: argparse.Namespace) -> dict[str, Any]:

@@ -370,7 +370,8 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
         _run,
         "запустить скрипт",
         "Запускает зарегистрированный скрипт по имени или файл script.py (черновой запуск). "
-        "Значения: default < --preset < --params < --set. Секреты берутся из хранилища паролей. "
+        "Значения: default < --preset < --params < --set и --row. Секреты берутся из хранилища паролей. "
+        "Таблицу задают файлом (--set имя=@файл.xlsx) или строками (--row имя колонка=значение …). "
         "Без --follow запуск идёт в фоне и переживает закрытие терминала.",
     )
     p.add_argument("target", metavar="name|file", help="имя скрипта или путь к script.py")

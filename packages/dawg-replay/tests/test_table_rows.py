@@ -120,3 +120,26 @@ def test_cli_preset_save_with_rows(acts, cli):
     assert code == 0, data
     assert data["preset"]["params"] == {"accounts": [{"email": "a@x.ru", "_row": 2}]}  # секретная не сохраняется
     assert "note" in data
+
+
+def test_visible_secret_values_warn(acts, capsys):
+    from dawg_replay.cli import main
+
+    code = main(["run", "acts", "--row", "accounts", "email=a@x.ru", "--row", "logins", "login=ivan", "pass=open",
+                 "--follow"])
+    assert code == 0
+    err = capsys.readouterr().err
+    assert "таблица `logins` секретная" in err and "колонка=-" in err
+    assert "open" not in err  # само значение в предупреждении не печатается
+
+
+def test_hidden_secret_values_do_not_warn(acts, capsys, monkeypatch):
+    import io
+
+    from dawg_replay.cli import main
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("ivan\nPa$$\n"))
+    code = main(["run", "acts", "--row", "accounts", "email=a@x.ru", "--row", "logins", "login=-", "pass=-", "--follow"])
+    err = capsys.readouterr().err
+    assert code == 0, err
+    assert "секретная" not in err and "Pa$$" not in err

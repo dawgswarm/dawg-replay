@@ -101,16 +101,19 @@ def parse_row_args(
     rows: Sequence[Sequence[str]],
     read_hidden: Callable[[str], str],
     sets: Iterable[str] = (),
+    warn: Callable[[str], None] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """`--row accounts email=a@b.ru password=-` (повторяемый) в таблицы параметров.
 
     Строка это словарь ячеек плюс `_row`: номера 2, 3, … как у файла, где шапка строка 1.
     Значение `-` читается через `read_hidden(подсказка)`: с терминала без эха, иначе из stdin.
-    Таблицу задают либо строками, либо файлом (`--set имя=@файл`), не тем и другим сразу."""
+    Таблицу задают либо строками, либо файлом (`--set имя=@файл`), не тем и другим сразу.
+    `warn`: значения секретной таблицы, набранные прямо в команде, видны в истории терминала."""
     tables = {p.name: p for p in manifest.params if p.type == "table"}
     from_set = {item.partition("=")[0].strip().replace("-", "_") for item in sets}
     out: dict[str, list[dict[str, Any]]] = {}
     problems: list[str] = []
+    visible_secrets: set[str] = set()
     for row in rows:
         if not row:
             continue
@@ -134,11 +137,17 @@ def parse_row_args(
                 continue
             if value == HIDDEN:
                 value = read_hidden(f"{name}, строка {len(out.get(name, [])) + 2}, {col}: ")
+            elif tables[name].secret and value:
+                visible_secrets.add(name)
             cells[col] = value
         if not cells:
             problems.append(f"--row {name}: в строке нет ни одной ячейки")
             continue
         out.setdefault(name, []).append({**cells, "_row": len(out.get(name, [])) + 2})
+    if visible_secrets and warn is not None:
+        for name in sorted(visible_secrets):
+            warn(f"таблица `{name}` секретная, а значения набраны в команде и останутся в истории терминала; "
+                 f"пароли и коды задавайте как колонка=- , тогда они спрашиваются без отображения")
     if problems:
         raise ReplayError("bad_params", "строки таблиц не подходят:\n" + "\n".join(f"  {x}" for x in problems), problems)
     return out
