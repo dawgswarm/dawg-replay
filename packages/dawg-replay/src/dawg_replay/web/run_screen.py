@@ -331,6 +331,42 @@ def setup(templates: Jinja2Templates) -> None:
     env.filters["log_count"] = log_count
 
 
+def params_view(app: Any, run: dict[str, Any]) -> list[dict[str, str]]:
+    """Значения параметров запуска для людей: подписи из манифеста этой версии, варианты enum
+    подписями, даты в местном виде (относительная дата уже вычислена), таблица числом строк.
+    Секретов и секретных таблиц в истории нет, поэтому и здесь их нет."""
+    from dawg_replay.values import rows_word
+    from dawg_replay.web.views import ru_moment
+
+    params = run.get("params") or {}
+    if not params:
+        return []
+    try:
+        manifest = app.registry.manifest(run["script"], run.get("version")) if not run.get("draft") else None
+    except ReplayError:
+        manifest = None
+    by_name = {p.name: p for p in manifest.params} if manifest else {}
+    out = []
+    for name, value in params.items():
+        p = by_name.get(name)
+        if isinstance(value, bool):
+            text = "да" if value else "нет"
+        elif p is not None and p.type == "enum":
+            text = p.choice_title(value)
+        elif p is not None and p.type == "multi_enum":
+            text = ", ".join(p.choice_title(v) for v in value) or "ничего не выбрано"
+        elif isinstance(value, list) and value and all(isinstance(r, dict) for r in value):
+            text = "таблица, " + rows_word(len(value))
+        elif isinstance(value, list):
+            text = ", ".join(str(v) for v in value)
+        elif p is not None and p.type in ("date", "datetime"):
+            text = ru_moment(value)
+        else:
+            text = str(value)
+        out.append({"title": p.title if p else name, "value": text})
+    return out
+
+
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
     run = snapshot.get("run") or {}
     # Ждущий слота запуск тоже «идёт»: его можно остановить (он уйдёт из очереди).
@@ -468,6 +504,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         ctx = context(snap)
         ctx["panels"] = render_panels(templates, snap, set(PANELS))
         ctx["log_html"] = render_log(templates, snap["log"])
+        with request.app.state.ui.open_app() as app:
+            # Параметры не входят в снимок (он идёт и в поток событий): берутся из записи запуска.
+            ctx["run_params"] = params_view(app, app.runs.get(request.path_params["run_id"]).to_dict())
         return page(request, "run/run.html", **ctx)
 
     async def run_events(request: Request) -> Response:

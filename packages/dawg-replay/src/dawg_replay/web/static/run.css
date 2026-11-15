@@ -424,6 +424,10 @@ tbody tr:last-child td { border-bottom: 0; }
 
 .run-folds { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 1.1rem; align-items: start; }
 .run-folds .fold { margin: 0; }
+.params-list { margin: 0 1.25rem 1.1rem; display: grid; gap: 0.45rem; }
+.params-list div { display: grid; grid-template-columns: minmax(8rem, 1fr) 2fr; gap: 0.75rem; }
+.params-list dt { color: var(--muted); }
+.params-list dd { margin: 0; overflow-wrap: anywhere; }
 .run-folds .run-section-head { margin: 0 1.25rem 0.8rem; justify-content: flex-start; }
 
 .trail-vertical { flex-direction: column; gap: 0; }

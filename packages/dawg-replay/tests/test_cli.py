@@ -27,7 +27,7 @@ GOOD = """\
 # ///
 """
 
-BAD = GOOD.replace("version = 2", "version = 0").replace('type = "string"', 'type = "datetime"')
+BAD = GOOD.replace("version = 2", "version = 0").replace('type = "string"', 'type = "timestamp"')
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ def test_validate_errors(script, capsys):
     err = capsys.readouterr().err
     assert "ошибок: 2" in err
     assert "version:" in err
-    assert "params[0](query).type: неизвестный тип 'datetime'" in err
+    assert "params[0](query).type: неизвестный тип 'timestamp'" in err
 
 
 def test_validate_errors_json_flag_before_command(script, capsys):
