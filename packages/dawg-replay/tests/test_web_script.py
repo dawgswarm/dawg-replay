@@ -278,7 +278,7 @@ def test_preset_dropped_keys_shown(c, secrets_, home, script):
     post(c, secrets_, "/scripts/all-types/presets", {**VALID, "_preset_name": "старый"})
     script(version=2, notes=False)
     html = c.get("/scripts/all-types?preset=старый").text
-    assert "Текущая версия не принимает поле notes" in html
+    assert "Текущая версия не принимает значение" in html and "«notes»: такого параметра в текущей версии скрипта нет" in html
     assert 'value="ноутбук"' in html
 
 

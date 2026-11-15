@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from markupsafe import Markup, escape
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
@@ -176,9 +177,9 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["run_items"] = run_items
     env.filters["minutes"] = minutes.fmt
     env.filters["rows_word"] = rows_word
+    env.filters["ticks"] = ticks
     env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
-    env.filters["ticks"] = ticks
 
 
 def _ui(request: Request):
@@ -245,7 +246,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
         def work() -> Response:
             try:
-                run = ui.runs.start(name, preset=preset)
+                # Быстрый запуск формы не показывает: пресет, который новая версия принимает не целиком, не запускается.
+                run = ui.runs.start(name, preset=preset, strict_preset=True)
             except ReplayError as e:
                 what = f"«{preset}»" if preset else "без пресета"
                 return fragment(request, "_flash.html", message=f"Запуск {what} не начат: {e.message}",
@@ -433,6 +435,10 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         data = app.schedules.list(name)
         for item in data["schedules"]:
             item["next_text"] = when_next(item["next_run"])
+            try:
+                item["outdated"] = app.get_preset(name, item["preset"]).outdated()
+            except ReplayError:
+                item["outdated"] = None
         cron_ok = app.schedules.backend.kind == "cron"
         presets = [p.name for p in app.list_presets(name)]
         values = {"preset": presets[0] if presets else "", "kind": "daily", "time": "09:00", "weekday": "1", "hours": "6", "cron": ""}

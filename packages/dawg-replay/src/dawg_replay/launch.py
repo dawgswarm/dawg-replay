@@ -237,15 +237,23 @@ def prepare(
     schedule_id: str | None = None,
     wait: bool = False,
     on_wait: Callable[[dict[str, Any]], None] | None = None,
+    strict_preset: bool = False,
 ) -> Prepared:
     """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
-    `wait`: при занятом лимите ждать слота (`wait_slot_minutes`), а не отказывать. Плановый запуск ждёт всегда."""
+    `wait`: при занятом лимите ждать слота (`wait_slot_minutes`), а не отказывать. Плановый запуск ждёт всегда.
+    `strict_preset`: пресет с значениями, которые текущая версия скрипта не принимает, запуск не начинает
+    (`preset_outdated`). Так всегда для планового запуска: без человека нельзя молча подставить `default`,
+    а у скриптов действий на сайтах это может изменить не то. Без флага такие значения пропускаются
+    с предупреждением в `warnings`."""
     recover_lost(app)
     preset = normalize_preset(preset) or None  # имя пресета хранится без пробелов по краям
     if schedule_id is not None:
         _check_schedule(app, schedule_id, target, preset)
     manifest, script_path, draft, version = _target(app, target)
+    outdated = app.presets.get(manifest.name, preset, manifest).outdated() if preset else None
+    if outdated and (strict_preset or schedule_id is not None):
+        raise ReplayError("preset_outdated", outdated[:1].upper() + outdated[1:])
     values = merge_values(app, manifest, preset, params_file, sets, values)
 
     # Секретная таблица идёт скрипту как секрет: во временный файл 0700, не в историю.
@@ -270,7 +278,7 @@ def prepare(
         raise ReplayError("bad_params", "параметры не подходят:\n" + "\n".join(f"  {x}" for x in missing), missing)
 
     cfg = app.config
-    warnings: list[str] = []
+    warnings: list[str] = [outdated + "; пока взяты значения по умолчанию"] if outdated else []
     api_key = app.secrets.get_api_key()
     if api_key is None:
         warnings.append("ключ DAWG не задан (dawg-replay config set-key): браузеры DAWG в этом запуске недоступны")

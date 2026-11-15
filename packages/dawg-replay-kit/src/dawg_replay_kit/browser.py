@@ -18,7 +18,9 @@
 убит жёстко, браузер освобождает приложение по событиям `open` без `close`.
 
 С `login="имя"` kit восстанавливает в контексте сохранённые cookies и localStorage
-этого входа и сохраняет их при закрытии браузера (dawg_replay_kit.logins).
+этого входа (dawg_replay_kit.logins). Новый вход появляется только по `b.save_login()`:
+залогинен ли браузер, знает скрипт, а не kit. Уже существующий вход (восстановленный
+или сохранённый в этом браузере) kit обновляет при закрытии браузера.
 
 Сколько браузеров одновременно держит скрипт, задаётся явно:
 `kit.set_browser_limit(n)`, по умолчанию 1. Превышение даёт ошибку сразу,
@@ -286,7 +288,11 @@ class BrowserSession:
         self.login = None if login is None else _logins.check_name(login)
         self._store = manager.login_store() if self.login is not None else None
         self._previous: _logins.Login | None = None
-        self._save_login = self.login is not None
+        # Сохранять ли при закрытии. Включает восстановленный вход или save_login(), выключает
+        # forget_login(). Иначе отмена на вопросе с кодом или неудачный вход сохранили бы
+        # cookies как вход, которого не было (приёмка M3, dr-73).
+        self._save_login = False
+        self._forgotten = False
         self.login_restored = False
         self._restore_done = False  # отмена посреди восстановления: неполный вход не сохраняется
         self._async = False
@@ -336,6 +342,7 @@ class BrowserSession:
     def _cleanup_sync(self) -> None:
         try:
             if self._conn is not None:
+                self._note_unsaved()
                 if self._wants_save():
                     try:
                         self._store_state(_logins.capture_sync(self.context))
@@ -389,6 +396,7 @@ class BrowserSession:
     async def _cleanup_async(self) -> None:
         try:
             if self._conn is not None:
+                self._note_unsaved()
                 if self._wants_save():
                     try:
                         self._store_state(await _logins.capture_async(self.context))
@@ -407,11 +415,10 @@ class BrowserSession:
     # --- сохранённый вход ---
 
     def save_login(self) -> Any:
-        """Сохраняет вход сейчас, не дожидаясь закрытия браузера: например, сразу после
-        успешного входа. Тогда вход не теряется, даже если процесс убьют жёстко.
-        В `async with` это корутина: `await b.save_login()`. Возвращает True, если сохранён;
-        ошибку пишет в лог как предупреждение. После `forget_login()` снова включает
-        сохранение при закрытии."""
+        """Сохраняет вход сейчас: зовите сразу после успешного входа. Только так появляется
+        новый вход; дальше kit обновляет его при закрытии браузера, и он не теряется, даже если
+        процесс убьют жёстко. В `async with` это корутина: `await b.save_login()`.
+        Возвращает True, если сохранён; ошибку пишет в лог как предупреждение."""
         if self._store is None:
             raise BrowserError("браузер открыт без login=, сохранять нечего", created=False)
         if self._async:
@@ -438,10 +445,12 @@ class BrowserSession:
         браузера вход больше не сохраняется."""
         if self._store is None:
             raise BrowserError("браузер открыт без login=, забывать нечего", created=False)
-        self._store.forget(self.login)
+        removed = self._store.forget(self.login)
         self._previous = None
         self._save_login = False
-        self._m.events.log("info", "сохранённый вход стёрт")
+        self._forgotten = True
+        if removed:
+            self._m.events.log("info", "сохранённый вход стёрт")
 
     def _loaded_state(self) -> dict[str, Any] | None:
         assert self._store is not None and self.login is not None
@@ -451,7 +460,7 @@ class BrowserSession:
             self._m.events.log("warn", f"сохранённый вход не прочитан ({type(e).__name__}); скрипт войдёт заново")
             return None
         if self._previous is None:
-            self._m.events.log("info", "сохранённого входа нет, он сохранится при закрытии браузера")
+            self._m.events.log("info", "сохранённого входа нет; после входа скрипт сохраняет его (b.save_login())")
             return None
         return self._previous.state
 
@@ -467,10 +476,15 @@ class BrowserSession:
 
     def _restored(self) -> None:
         self.login_restored = True
+        self._save_login = True  # вход уже есть: при закрытии обновить его cookies
         self._m.events.log("info", "сохранённый вход загружен в браузер")
 
     def _restore_failed(self, e: Exception) -> None:
         self._m.events.log("warn", f"сохранённый вход не загрузился в браузер ({type(e).__name__}); скрипт войдёт заново")
+
+    def _note_unsaved(self) -> None:
+        if self._store is not None and not self._save_login and not self._forgotten and self._restore_done:
+            self._m.events.log("info", "вход не сохранён: скрипт не подтвердил его (b.save_login() после входа)")
 
     def _wants_save(self) -> bool:
         return self._store is not None and self._save_login and self._restore_done and self.context is not None
