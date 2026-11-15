@@ -133,6 +133,47 @@ def test_pairing_only_by_exact_code_in_private_chat(tg_app, tg, kr, home):
     assert telegram.status(app)["connected"] is True
 
 
+def connect_chat(app, tg, token=TOKEN, chat_id=CHAT_ID, first_name="Иван"):
+    pairing = telegram.start_pairing(app, token)
+    tg.push_message(f"/start {pairing.code}", chat_id=chat_id, first_name=first_name)
+    assert telegram.wait_pairing(app, pairing, seconds=5, poll=1)
+
+
+def test_repairing_same_token_keeps_chat_until_success(tg_app, tg):
+    connect_chat(tg_app, tg)
+    telegram.record_error(tg_app, "сеть")
+    # Тот же токен (вставлен заново или сохранённый), привязку не дождались: чат прежний.
+    for token in (TOKEN, None):
+        pairing = telegram.start_pairing(tg_app, token)
+        assert telegram.connection(tg_app).chat_id == str(CHAT_ID)
+        assert telegram.wait_pairing(tg_app, pairing, seconds=1, poll=1) is None
+        conn = telegram.connection(tg_app)
+        assert conn is not None and conn.chat_id == str(CHAT_ID) and conn.chat_name == "Иван (@ivan)"
+    assert telegram.last_error(tg_app)["text"] == "сеть"  # ошибка того же бота не пропадает
+    # Отмена фонового ожидания тоже ничего не стирает.
+    job = telegram.PairingJob(lambda: App(tg_app.paths.home, keyring_backend=tg_app.secrets._b),
+                              telegram.start_pairing(tg_app), seconds=10, poll=1).start()
+    job.cancel(wait=5)
+    assert job.state == "cancelled" and telegram.connection(tg_app).chat_id == str(CHAT_ID)
+    # Успешная привязка с тем же токеном меняет чат.
+    connect_chat(tg_app, tg, chat_id=777, first_name="Мария")
+    conn = telegram.connection(tg_app)
+    assert conn.chat_id == "777" and conn.chat_name.startswith("Мария")
+
+
+def test_new_token_drops_chat_at_once(tg_app, tg):
+    connect_chat(tg_app, tg)
+    telegram.record_error(tg_app, "старый бот")
+    other = "555555555:BBH-other_bot_token_0123456789abc"
+    tg.token, tg.username = other, "other_bot"
+    pairing = telegram.start_pairing(tg_app, other)
+    assert pairing.bot == "other_bot" and tg_app.secrets.get_telegram_token() == other
+    assert telegram.connection(tg_app) is None and telegram.last_error(tg_app) is None
+    assert telegram.wait_pairing(tg_app, pairing, seconds=1, poll=1) is None
+    st = telegram.status(tg_app)
+    assert st["connected"] is False and st["token_set"] is True and st["bot"] == "other_bot"
+
+
 def test_pairing_timeout_and_bad_token(tg_app, tg):
     with pytest.raises(ReplayError) as ei:
         telegram.start_pairing(tg_app, "111111111:notTheRightTokenAtAll_xx")

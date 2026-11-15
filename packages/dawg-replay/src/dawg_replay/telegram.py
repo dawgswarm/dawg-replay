@@ -235,7 +235,10 @@ class Pairing:
 
 
 def start_pairing(app: App, token: str | None = None, command: str | None = None) -> Pairing:
-    """Проверяет токен (getMe), сохраняет его и сбрасывает прежний чат. Возвращает код привязки.
+    """Проверяет токен (getMe) и сохраняет его. Возвращает код привязки.
+
+    Новый токен (другой бот) сразу сбрасывает прежний чат. С тем же токеном чат меняется только
+    при успешной привязке в `wait_pairing`.
 
     Без `token` берётся уже сохранённый: привязать чат заново, не вставляя токен.
     `command`: команда для подсказки про вставку в терминал (CLI).
@@ -255,9 +258,14 @@ def start_pairing(app: App, token: str | None = None, command: str | None = None
     username = (me or {}).get("username")
     if not username:
         raise ReplayError("telegram_error", "Telegram не вернул имя бота: проверьте токен у @BotFather")
-    app.secrets.set_telegram_token(token)
-    _save(app, telegram_chat_id="", telegram_chat_name="", telegram_bot=username)
-    clear_error(app)
+    if token == app.secrets.get_telegram_token():
+        # Тот же бот: прежний чат остаётся, пока не привяжется новый (отмена или таймаут ничего не ломают).
+        _save(app, telegram_bot=username)
+    else:
+        # Другой бот: прежний чат ему чужой, уведомления до новой привязки не идут.
+        app.secrets.set_telegram_token(token)
+        _save(app, telegram_chat_id="", telegram_chat_name="", telegram_bot=username)
+        clear_error(app)
     code = _secrets.token_urlsafe(12).replace("-", "x").replace("_", "y")  # для ?start= нужны буквы и цифры
     return Pairing(code=code, bot=username, bot_title=str(me.get("first_name") or username))
 
