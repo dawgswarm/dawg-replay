@@ -39,6 +39,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol
 
+from dawg_replay import tg_rules
 from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
 
@@ -573,6 +574,7 @@ class Schedules:
             raise ReplayError("schedule_not_found", f"расписания `{sid}` нет ни в приложении, ни в планировщике")
         self.backend.remove(sid)
         self._db.execute("DELETE FROM schedules WHERE id = ?", (sid,))
+        tg_rules.drop(self.app, "schedule", sid)
         self._cleanup_files(sid)
         return {"id": sid, "was_orphan": not known}
 

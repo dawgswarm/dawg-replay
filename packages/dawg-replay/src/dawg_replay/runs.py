@@ -65,6 +65,8 @@ class Run:
     cancel_requested_at: str | None
     trigger: str = "manual"  # manual или schedule
     schedule_id: str | None = None
+    notify: str | None = None  # выбор на форме запуска: None по настройкам, always, never
+    notify_state: str | None = None  # сообщение об итоге в Telegram, см. dawg_replay.tg_notify
 
     @property
     def running(self) -> bool:
@@ -105,6 +107,7 @@ class Run:
             "cancel_requested": self.cancel_requested_at is not None,
             "trigger": self.trigger,
             "schedule_id": self.schedule_id,
+            "notify": self.notify,
         }
 
 
@@ -135,6 +138,8 @@ def _run(row: sqlite3.Row) -> Run:
         cancel_requested_at=row["cancel_requested_at"],
         trigger=row["triggered_by"] or "manual",
         schedule_id=row["schedule_id"],
+        notify=row["notify"],
+        notify_state=row["notify_state"],
     )
 
 
@@ -208,6 +213,7 @@ class RunStore:
         limit: int,
         schedule_id: str | None = None,
         wait: WaitPolicy | None = None,
+        notify: str | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
@@ -232,8 +238,8 @@ class RunStore:
                 )
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
-                " params_json, created_at, timeout_seconds, triggered_by, schedule_id)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -247,6 +253,7 @@ class RunStore:
                     timeout_seconds,
                     "schedule" if schedule_id else None,
                     schedule_id,
+                    notify,
                 ),
             )
             if not free:

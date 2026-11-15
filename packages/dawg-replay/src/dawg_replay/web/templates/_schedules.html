@@ -17,6 +17,12 @@
         {% if s.state == "missing" %}
         <p class="field-error schedule-warn">Задачи нет в планировщике, запуск не состоится. Удалите расписание и создайте заново или выполните <code>dawg-replay schedule sync</code>.</p>
         {% endif %}
+        {% if s.tg %}
+        <details class="schedule-tg">
+          <summary>Уведомления в Telegram<span class="hint-inline">{% if s.tg.own_count %}, свои правила{% else %}, как у скрипта{% endif %}</span></summary>
+          {% with tr = s.tg %}{% include "_telegram_rules.html" %}{% endwith %}
+        </details>
+        {% endif %}
       </div>
       <form hx-post="/scripts/{{ sc.name }}/schedules/{{ s.id }}/delete" hx-target="#schedules" hx-swap="outerHTML"
             hx-confirm="Снять регулярный запуск «{{ s.when }}» с пресетом «{{ s.preset }}»?" hx-disabled-elt="find button">

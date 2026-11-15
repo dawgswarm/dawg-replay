@@ -87,6 +87,21 @@ MIGRATIONS: list[str] = [
     ALTER TABLE runs ADD COLUMN triggered_by TEXT;
     ALTER TABLE runs ADD COLUMN schedule_id TEXT
     """,
+    # 4: уведомления в Telegram (dawg_replay.tg_rules, dawg_replay.tg_notify)
+    """
+    -- Выбор на форме запуска: NULL по настройкам, always или never
+    ALTER TABLE runs ADD COLUMN notify TEXT;
+    -- Сообщение об итоге: NULL ещё не решено, sending, sent, failed (повторить), none (слать нечего)
+    ALTER TABLE runs ADD COLUMN notify_state TEXT;
+    ALTER TABLE runs ADD COLUMN notify_at TEXT;
+    -- Запуски до обновления сообщений не получают
+    UPDATE runs SET notify_state = 'none';
+    -- Переопределения правил: owner script:<имя> или schedule:<id>, rules_json {ключ: значение}
+    CREATE TABLE telegram_rules (
+        owner      TEXT PRIMARY KEY,
+        rules_json TEXT NOT NULL
+    )
+    """,
 ]
 
 

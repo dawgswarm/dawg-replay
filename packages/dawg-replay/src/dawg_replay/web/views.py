@@ -25,7 +25,7 @@ from starlette.templating import Jinja2Templates
 
 from dawg_replay_kit.manifest import COLUMN_TYPE_WORDS
 
-from dawg_replay import forms, imports, launch, minutes, repair, schedules, uistate, uploads
+from dawg_replay import forms, imports, launch, minutes, repair, schedules, tg_rules, uistate, uploads
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.presets import secret_tables_note
@@ -308,9 +308,13 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         else:
             form_ctx = forms.build_fields(app, name, preset)
             errors = {}
+        tg = tg_rules.connected(app)
         return {
             "name": name,
             "presets": [p.name for p in app.list_presets(name)],
+            # Выбор «Сообщить, когда закончится»: только при подключённом Telegram
+            "notify_hint": tg_rules.manual_text(tg_rules.effective(app, name)) if tg else None,
+            "notify": None,
             "form_error": errors.get(forms.FORM_ERROR),
             "has_errors": bool(errors),
             "notice": notice,
@@ -330,10 +334,11 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             except ReplayError as e:
                 return page(request, "error.html", active="scripts", message=e.message, status_code=404)
             lg = _logins_ctx(app, name)
+            tg = _tg_script_ctx(app, name)
         run_screen.mark_questions(run_screen.views_of(request), view["runs"])
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
         view["tags"] = list(meta["tags"])
-        return page(request, "script.html", active="scripts", v=view, f=ctx, lg=lg)
+        return page(request, "script.html", active="scripts", v=view, f=ctx, lg=lg, tg=tg)
 
     def script_form(request: Request) -> Response:
         """Форма заново: выбор пресета подставляет его значения."""
@@ -394,6 +399,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         form = await request.form()
         ui = _ui(request)
         preset = form.get("_preset") or None
+        notify = form.get("_notify") if form.get("_notify") in tg_rules.RUN_CHOICES else None
 
         def work() -> Response:
             with ui.open_app() as app:
@@ -402,14 +408,15 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 except ReplayError as e:
                     return fragment(request, "_error.html", message=e.message)
                 if not sub.ok:
-                    return fragment(request, "_script_form.html", f=_script_ctx(app, name, preset, sub))
+                    return fragment(request, "_script_form.html", f={**_script_ctx(app, name, preset, sub), "notify": notify})
                 known = preset if preset in [p.name for p in app.list_presets(name)] else None
             try:
-                run = ui.runs.start(name, preset=known, values=sub.values)
+                run = ui.runs.start(name, preset=known, values=sub.values, notify=notify)
             except ReplayError as e:
                 with ui.open_app() as app:
                     ctx = _script_ctx(app, name, preset, sub)
                 ctx["form_error"] = e.message
+                ctx["notify"] = notify
                 return fragment(request, "_script_form.html", f=ctx)
             secret_tables = {k: t["id"] for k, t in sub.tables.items() if t.get("secret") and t.get("id")}
             if secret_tables:
@@ -603,6 +610,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         presets = [p.name for p in app.list_presets(name)]
         values = {"preset": presets[0] if presets else "", "kind": "daily", "time": "09:00", "weekday": "1", "hours": "6", "cron": ""}
         values.update({k: v for k, v in (form or {}).items() if v})
+        tg = tg_rules.connected(app)
+        for item in data["schedules"]:
+            item["tg"] = tg_rules.form_ctx(app, "schedule", item["id"], name) if tg else None
         return {
             "name": name, "entries": data["schedules"], "scheduler_error": data["error"], "error": error, "notice": notice,
             "presets": presets, "form": values, "kinds": kinds if cron_ok else kinds[:3], "cron_supported": cron_ok,
@@ -668,6 +678,69 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     msg = e.message[:1].upper() + e.message[1:]
                     return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, error=msg))
                 return fragment(request, "_schedules.html", sc=_schedules_ctx(app, name, notice="Регулярный запуск снят."))
+
+        return await run_in_threadpool(work)
+
+    # --- Уведомления в Telegram: правила ---
+
+    def _tg_script_ctx(app: Any, name: str, **extra: Any) -> dict[str, Any]:
+        connected = tg_rules.connected(app)
+        return {"connected": connected, "tr": tg_rules.form_ctx(app, "script", name, **extra) if connected else None}
+
+    def _tg_saved(rows: dict[str, Any]) -> str:
+        return "Сохранено." + ("" if rows else " Всё как в общих настройках.")
+
+    async def settings_tg_rules(request: Request) -> Response:
+        form = await _form(request)
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    tg_rules.update_general(app, tg_rules.parse_form("general", form))
+                    tr = tg_rules.form_ctx(app, "general", saved="Сохранено.")
+                except ReplayError as e:
+                    tr = tg_rules.form_ctx(app, "general", error=e.message[:1].upper() + e.message[1:])
+                return fragment(request, "_telegram_rules.html", tr=tr)
+
+        return await run_in_threadpool(work)
+
+    async def script_tg_rules(request: Request) -> Response:
+        name = request.path_params["name"]
+        form = await _form(request)
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    app.registry.get(name)
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+                try:
+                    own = tg_rules.set_overrides(app, "script", name, tg_rules.parse_form("script", form))
+                    tr = tg_rules.form_ctx(app, "script", name, saved=_tg_saved(own))
+                except ReplayError as e:
+                    tr = tg_rules.form_ctx(app, "script", name, error=e.message[:1].upper() + e.message[1:])
+                return fragment(request, "_telegram_rules.html", tr=tr)
+
+        return await run_in_threadpool(work)
+
+    async def schedule_tg_rules(request: Request) -> Response:
+        name, sid = request.path_params["name"], request.path_params["sid"]
+        form = await _form(request)
+
+        def work() -> Response:
+            with _ui(request).open_app() as app:
+                try:
+                    if app.schedules.get(sid).script != name:
+                        raise ReplayError("schedule_not_found", "это расписание другого скрипта")
+                except ReplayError as e:
+                    return fragment(request, "_error.html", message=e.message[:1].upper() + e.message[1:])
+                try:
+                    own = tg_rules.set_overrides(app, "schedule", sid, tg_rules.parse_form("schedule", form))
+                    saved = "Сохранено." + ("" if own else " Всё как у скрипта.")
+                    tr = tg_rules.form_ctx(app, "schedule", sid, name, saved=saved)
+                except ReplayError as e:
+                    tr = tg_rules.form_ctx(app, "schedule", sid, name, error=e.message[:1].upper() + e.message[1:])
+                return fragment(request, "_telegram_rules.html", tr=tr)
 
         return await run_in_threadpool(work)
 
@@ -926,6 +999,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/scripts/{name}/_schedules", script_schedules),
         Route("/scripts/{name}/schedules", script_schedule_add, methods=["POST"]),
         Route("/scripts/{name}/schedules/{sid}/delete", script_schedule_delete, methods=["POST"]),
+        Route("/scripts/{name}/schedules/{sid}/telegram", schedule_tg_rules, methods=["POST"]),
+        Route("/scripts/{name}/telegram", script_tg_rules, methods=["POST"]),
         Route("/scripts/{name}/logins/forget", script_logins_forget, methods=["POST"]),
         *run_screen.routes(templates),
         Route("/events/runs", runs_events),
@@ -936,6 +1011,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/settings/usage", settings_usage),
         Route("/settings/limits", settings_limits, methods=["POST"]),
         *telegram_view.routes(templates, _form),
+        Route("/settings/telegram/rules", settings_tg_rules, methods=["POST"]),
     ]
 
 

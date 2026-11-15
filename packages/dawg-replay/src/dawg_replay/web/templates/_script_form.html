@@ -30,6 +30,17 @@
   <form id="params-form" hx-post="/scripts/{{ f.name }}/run" hx-target="#script-form" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]" novalidate>
     <input type="hidden" name="_preset" value="{{ f.preset or '' }}">
     {% for fl in f.fields %}{{ field(fl, f.name) }}{% else %}<p class="hint">У скрипта нет параметров.</p>{% endfor %}
+    {% if f.notify_hint %}
+    <div class="field notify-choice">
+      <label for="notify-select">Сообщить в Telegram, когда закончится</label>
+      <select id="notify-select" name="_notify">
+        <option value=""{% if not f.notify %} selected{% endif %}>по настройкам: {{ f.notify_hint }}</option>
+        <option value="always"{% if f.notify == "always" %} selected{% endif %}>всегда</option>
+        <option value="never"{% if f.notify == "never" %} selected{% endif %}>нет</option>
+      </select>
+      <p class="hint">Только про успешный итог этого запуска. О падении и вопросах скрипта Telegram пишет по настройкам.</p>
+    </div>
+    {% endif %}
     <div class="form-actions">
       <button type="submit" class="run-button">Запустить</button>
     </div>

@@ -40,6 +40,16 @@
   {% include "_script_runs.html" %}
 </section>
 
+<details class="card fold" id="tg-card">
+  <summary><span class="fold-title">Уведомления в Telegram</span><span class="hint-inline">{% if not tg.connected %}не подключены{% elif tg.tr.own_count %}свои правила у скрипта{% else %}как в общих настройках{% endif %}</span></summary>
+  {% if tg.connected %}
+    <p class="hint">Каждое правило либо берётся из <a href="/settings#telegram">общих настроек</a>, либо задано здесь только для этого скрипта. У расписания свои правила задаются в блоке «Регулярный запуск».</p>
+    {% with tr = tg.tr %}{% include "_telegram_rules.html" %}{% endwith %}
+  {% else %}
+    <p class="hint">Приложение может писать в Telegram об итоге, падении и вопросах скрипта. <a href="/settings#telegram">Подключить в Настройках</a>.</p>
+  {% endif %}
+</details>
+
 <details class="card fold">
   <summary><span class="fold-title">Версии</span><span class="hint-inline">текущая {{ s.current_version }}, всего {{ v.versions | length }}</span></summary>
   <p class="hint">Запускается текущая версия. Сделать текущей можно любую: старые версии не удаляются.</p>

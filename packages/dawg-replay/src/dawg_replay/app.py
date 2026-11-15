@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from dawg_replay import account, logins
+from dawg_replay import account, logins, tg_rules
 from dawg_replay.config import Config, coerce, load_config, save_config, set_config_value
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
@@ -91,6 +91,8 @@ class App:
             "rows_preview_limit": cfg.rows_preview_limit,
             "log_limit": cfg.log_limit,
             "base_url": cfg.base_url,
+            # Правила уведомлений для блока Telegram (шаблон _telegram_rules.html); None, пока чат не привязан.
+            "telegram_rules": tg_rules.form_ctx(self, "general") if tg_rules.connected(self) else None,
         }
 
     def set_api_key(self, value: str, check: bool = True) -> account.Usage | None:
@@ -206,6 +208,7 @@ class App:
             self.secrets.delete_secret(name, param)
         logins_deleted = logins.remove_dir(self.paths, name)
         PresetTables(self.paths).remove_script(name)  # секретные таблицы пресетов
+        tg_rules.drop(self, "script", name)  # свои правила уведомлений в Telegram
         return {
             "name": name,
             "versions": [v.version for v in versions],
