@@ -341,3 +341,57 @@ def test_runtime_passes_logins_dir(script_file, tmp_path):
     k2 = Kit.from_environment(script_path=path, argv=["--query", "q"], environ={}, cwd=tmp_path)
     assert k2.browsers.logins_dir == tmp_path / "logins"
     k2.close()
+
+
+# --- явное сохранение (dr-68) ---
+
+
+def test_save_login_now_survives_hard_kill(fake, tmp_path):
+    m, sink, _ = make(fake, tmp_path)
+    with BrowserSession(m, login="u") as b:
+        b.context.cookies = list(STATE["cookies"])
+        assert b.save_login() is True
+        # процесс убили бы здесь: вход уже на диске
+        assert LoginStore(tmp_path).get("u").state["cookies"] == STATE["cookies"]
+        b.context.storage = {"https://example.com": {"token": "ls-secret-456"}}
+    assert LoginStore(tmp_path).get("u").state == STATE  # при закрытии сохранилось ещё раз
+
+
+def test_save_login_merges_origins_and_reenables_after_forget(fake, tmp_path):
+    LoginStore(tmp_path).save("u", STATE)
+    m, _, _ = make(fake, tmp_path)
+    with BrowserSession(m, login="u") as b:
+        b.forget_login()
+        b.context.storage = {"https://other.ru": {"a": "1"}}
+        assert b.save_login() is True
+        b.context.storage = {"https://third.ru": {"b": "2"}}
+    origins = {o["origin"] for o in LoginStore(tmp_path).get("u").state["origins"]}
+    # прежний вход стёрт (example.com не вернулся), other.ru из save_login слит с third.ru при закрытии
+    assert origins == {"https://other.ru", "https://third.ru"}
+
+
+def test_save_login_failure_and_without_login(fake, tmp_path):
+    def broken():
+        c = FakeContext()
+        c.fail_state = True
+        return c
+
+    m, sink, _ = make(fake, tmp_path, broken)
+    with BrowserSession(m, login="u") as b:
+        assert b.save_login() is False
+    assert any("вход не сохранён (RuntimeError)" in x for x in logs(sink))
+    m2, _, _ = make(fake, tmp_path)
+    with BrowserSession(m2) as b, pytest.raises(BrowserError, match="без login"):
+        b.save_login()
+
+
+def test_save_login_async(fake, tmp_path):
+    m, _, ctxs = make(fake, tmp_path, AsyncContext)
+
+    async def main():
+        async with BrowserSession(m, login="u") as b:
+            b.context.cookies.append({"name": "n", "value": "v", "domain": "x.ru", "path": "/"})
+            assert await b.save_login() is True
+            assert LoginStore(tmp_path).get("u").state["cookies"][0]["name"] == "n"
+
+    asyncio.run(main())

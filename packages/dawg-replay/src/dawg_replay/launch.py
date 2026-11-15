@@ -466,12 +466,14 @@ def _cancel_orphan(app: App, rec: Run, grace: float) -> None:
     killed = False
     if _own_group(rec):
         soft_stop(rec.pid, app.paths.run_dir(rec.id) / STOP_FILE)
+        # Сигнал получил только корень: ждём его, а не всю группу. Дочерние процессы
+        # (драйвер Playwright) живы, пока скрипт убирается, потом их добивает kill_tree.
         end = time.monotonic() + grace
-        while time.monotonic() < end and _own_group(rec):
+        while time.monotonic() < end and _leader_alive(rec):
             time.sleep(POLL_SECONDS)
+        killed = _leader_alive(rec)
         if _own_group(rec):
-            kill_tree(rec.pid)
-            killed = True
+            kill_tree(rec.pid, leader_alive=_leader_alive(rec))
     _close_lost(app, rec, reason="cancelled", killed=killed)
 
 
@@ -614,6 +616,13 @@ def _group_alive(pgid: int) -> bool:
     except PermissionError:
         return True
     return True
+
+
+def _leader_alive(rec: Run) -> bool:
+    """Корень дерева процессов запуска (тот же процесс, не новый с тем же pid) ещё жив."""
+    if not rec.pid or rec.pid_started is None or _rebooted_since(rec):
+        return False
+    return procinfo.same_process(rec.pid, rec.pid_started)
 
 
 def _own_group(rec: Run) -> bool:

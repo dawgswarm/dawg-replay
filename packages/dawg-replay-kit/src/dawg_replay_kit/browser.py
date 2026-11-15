@@ -289,6 +289,7 @@ class BrowserSession:
         self._save_login = self.login is not None
         self.login_restored = False
         self._restore_done = False  # отмена посреди восстановления: неполный вход не сохраняется
+        self._async = False
         self._payload = build_payload(proxy, geo)
         self._ready_timeout = ready_timeout
         self.session_id: str | None = None
@@ -351,6 +352,7 @@ class BrowserSession:
     # --- async ---
 
     async def __aenter__(self) -> BrowserSession:
+        self._async = True
         self._m.acquire()
         self._slot = True
         try:
@@ -404,6 +406,33 @@ class BrowserSession:
 
     # --- сохранённый вход ---
 
+    def save_login(self) -> Any:
+        """Сохраняет вход сейчас, не дожидаясь закрытия браузера: например, сразу после
+        успешного входа. Тогда вход не теряется, даже если процесс убьют жёстко.
+        В `async with` это корутина: `await b.save_login()`. Возвращает True, если сохранён;
+        ошибку пишет в лог как предупреждение. После `forget_login()` снова включает
+        сохранение при закрытии."""
+        if self._store is None:
+            raise BrowserError("браузер открыт без login=, сохранять нечего", created=False)
+        if self._async:
+            return self._asave_login()
+        try:
+            self._store_state(_logins.capture_sync(self.context))
+        except Exception as e:
+            self._save_failed(e)
+            return False
+        self._save_login = True
+        return True
+
+    async def _asave_login(self) -> bool:
+        try:
+            self._store_state(await _logins.capture_async(self.context))
+        except Exception as e:
+            self._save_failed(e)
+            return False
+        self._save_login = True
+        return True
+
     def forget_login(self) -> None:
         """Стирает сохранённый вход (например, сайт его отозвал). При закрытии этого
         браузера вход больше не сохраняется."""
@@ -448,7 +477,8 @@ class BrowserSession:
 
     def _store_state(self, state: dict[str, Any]) -> None:
         assert self._store is not None and self.login is not None
-        self._store.save(self.login, state, self._previous)
+        # Следующее сохранение (при закрытии) сливается уже с этим: localStorage прежних источников не теряется.
+        self._previous = self._store.save(self.login, state, self._previous)
         self._m.events.log("info", "вход сохранён для следующих запусков")
 
     def _save_failed(self, e: Exception) -> None:

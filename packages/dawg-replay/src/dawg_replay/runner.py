@@ -34,8 +34,10 @@
 
 Отмена и таймаут (5.7). Процесс стартует в своей группе: на POSIX новой сессией,
 на Windows с CREATE_NEW_PROCESS_GROUP. Мягкая остановка: раннер создаёт файл
-остановки (`DAWG_SCRIPT_STOP_FILE`), а на POSIX ещё шлёт SIGTERM всей группе,
-так его получают и `uv`, и интерпретатор скрипта. На Windows сигнал не
+остановки (`DAWG_SCRIPT_STOP_FILE`), а на POSIX ещё шлёт SIGTERM лидеру группы
+(`uv run` передаёт его скрипту и ждёт, пока тот закончит). Остальной группе сигнал не
+шлётся: драйвер Playwright умер бы раньше, чем скрипт закроет браузер и сохранит вход
+(dr-68). На Windows сигнал не
 шлётся: CTRL_BREAK убивает `uv run` вместе со скриптом, поэтому kit там
 узнаёт об отмене по файлу. Kit превращает отмену в SystemExit, скрипт
 закрывает браузеры и дописывает события. Через `grace` секунд (15 по
@@ -398,9 +400,12 @@ def _group_kwargs() -> dict[str, Any]:
 
 
 def soft_stop(pid: int, stop_file: str | Path | None = None) -> bool:
-    """Мягкая остановка группы процесса `pid`. False, если группы уже нет.
+    """Мягкая остановка запуска с корнем `pid`. False, если корня уже нет.
 
-    Создаёт файл остановки, если он передан, и на POSIX шлёт группе SIGTERM.
+    Создаёт файл остановки, если он передан, и на POSIX шлёт SIGTERM только корню
+    (`uv run` передаёт сигнал скрипту). Группе сигнал не шлётся: дочерние процессы
+    скрипта (драйвер Playwright) должны дожить до его уборки; их добивает `kill_tree`
+    после выхода корня или через grace.
     На Windows сигнала нет: CTRL_BREAK завершает `uv run` сразу, а тот через
     job object убивает скрипт, не дав ему убраться. Там kit видит файл.
     """
@@ -412,7 +417,7 @@ def soft_stop(pid: int, stop_file: str | Path | None = None) -> bool:
     if _IS_WINDOWS:
         return True
     try:
-        os.killpg(pid, signal.SIGTERM)
+        os.kill(pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError):
         return False
     except OSError:
