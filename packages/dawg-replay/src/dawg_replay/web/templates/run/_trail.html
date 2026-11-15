@@ -2,7 +2,7 @@
   {% if s.timeline %}
   <ol class="trail trail-vertical">
     {% for step in s.timeline %}
-    <li class="trail-step{% if loop.last %} trail-current{% if running %} trail-active{% endif %}{% endif %}"{% if loop.last %} aria-current="step"{% endif %}>
+    <li class="trail-step{% if loop.last and running %} trail-current trail-active{% endif %}"{% if loop.last and running %} aria-current="step"{% endif %}>
       <span class="trail-name">{{ step.name }}</span>
       <span class="trail-time">{{ step.ts | clock }}</span>
     </li>

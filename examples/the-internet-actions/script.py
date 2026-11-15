@@ -10,7 +10,7 @@
 # description = "Демо действий по таблице на the-internet.herokuapp.com: вход, сохранённый вход, вопрос человеку, отчёт по строкам."
 # site = "the-internet"
 # tags = ["Демо", "Кабинет"]
-# version = 2
+# version = 3
 # timeout_minutes = 30
 #
 # [[params]]
@@ -52,7 +52,6 @@
 
 from __future__ import annotations
 
-import csv
 import time
 from typing import Any
 
@@ -120,11 +119,16 @@ def process(row: dict[str, str], code_asked: list[bool]) -> str:
         return "кабинет открыт" + (" (сохранённый вход)" if restored else ", вход выполнен")
 
 
+def rows_dative(n: int) -> str:
+    """«по 1 строке», «по 5 строкам»."""
+    return f"{n} строке" if n % 10 == 1 and n % 100 != 11 else f"{n} строкам"
+
+
 def main() -> None:
     p = kit.params
     rows = p.accounts
     total = len(rows)
-    if p.confirm_first and not kit.ask(f"Пройти по {total} строкам таблицы на учебном сайте?", kind="confirm"):
+    if p.confirm_first and not kit.ask(f"Пройти по {rows_dative(total)} таблицы на учебном сайте?", kind="confirm"):
         kit.result("failed", "проход не подтверждён")
         raise SystemExit(1)
 
@@ -132,26 +136,20 @@ def main() -> None:
     kit.stage("Идём по строкам")
     counts = {"ok": 0, "failed": 0}
     code_asked: list[bool] = []
-    report = kit.output_dir / "report.csv"
-    with open(report, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["row", "status", "message"])
-        w.writeheader()
-        for i, row in enumerate(rows, start=1):
-            try:
-                status, msg = "ok", process(row, code_asked)
-            except kit.AskTimeout:
-                status, msg = "failed", "не дождались кода"
-            except RowFailed as e:
-                status, msg = "failed", str(e)
-            except Exception as e:  # отмена (SystemExit) сюда не попадает
-                status, msg = "failed", f"{type(e).__name__}: {e}"
-            counts[status] += 1
-            kit.item(row["_row"], status, msg, row=row["_row"])  # таблица секретная: ключ это номер строки
-            w.writerow({"row": row["_row"], "status": status, "message": msg})
-            f.flush()
-            kit.progress("rows", "Строки таблицы", i, total)
-            time.sleep(PAUSE_BETWEEN_ROWS_S)
-    kit.artifact(report, "Отчёт по строкам (CSV)", "text/csv")
+    # Отчёт по строкам (экран запуска и «Скачать отчёт CSV») приложение строит из kit.item.
+    for i, row in enumerate(rows, start=1):
+        try:
+            status, msg = "ok", process(row, code_asked)
+        except kit.AskTimeout:
+            status, msg = "failed", "не дождались кода"
+        except RowFailed as e:
+            status, msg = "failed", str(e)
+        except Exception as e:  # отмена (SystemExit) сюда не попадает
+            status, msg = "failed", f"{type(e).__name__}: {e}"
+        counts[status] += 1
+        kit.item(row["_row"], status, msg, row=row["_row"])  # таблица секретная: ключ это номер строки
+        kit.progress("rows", "Строки таблицы", i, total)
+        time.sleep(PAUSE_BETWEEN_ROWS_S)
 
     text = f"кабинет открыт: {counts['ok']} из {total}" + (f", не вышло: {counts['failed']}" if counts["failed"] else "")
     if not counts["failed"]:

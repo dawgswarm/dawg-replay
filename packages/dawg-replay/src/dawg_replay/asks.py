@@ -248,6 +248,21 @@ def drop_secret_answers(run_dir: Path) -> None:
             continue
 
 
+def timed_out(run_dir: Path) -> Question | None:
+    """Последний вопрос запуска остался без ответа до срока (kit.AskTimeout).
+
+    Вместе с ненулевым выходом это значит: скрипт не сломан, человек не ответил.
+    """
+    questions = read(Path(run_dir) / "events.jsonl")
+    if questions and questions[-1].outcome == "timeout":
+        return questions[-1]
+    return None
+
+
+def timeout_text(q: Question) -> str:
+    return f"Не дождались ответа на вопрос «{q.question}»."
+
+
 def answer_text(value: Any) -> str:
     if isinstance(value, bool):
         return "да" if value else "нет"

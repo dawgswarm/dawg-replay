@@ -74,7 +74,7 @@
           <span class="dash-att-top">{% if a.suspicion %}<span class="status status-partial">похоже, сайт поменялся</span>{% else %}<span class="status status-{{ st.kind }}">{{ st.text }}</span>{% endif %}<a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
           <span class="hint-inline">{{ a.run.created_at | when }}{% set itx = a.run | run_items(not a.suspicion) %}{% if itx %}. {{ itx }}{% endif %}{% if a.suspicion %}. {{ a.suspicion.text }}{% elif a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
         </div>
-        <a class="button button-secondary small" href="/runs/{{ a.run.id }}#repair">Починить с агентом</a>
+        {% if a.repair %}<a class="button button-secondary small" href="/runs/{{ a.run.id }}#repair">Починить с агентом</a>{% endif %}
         <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
       </li>
       {% endfor %}

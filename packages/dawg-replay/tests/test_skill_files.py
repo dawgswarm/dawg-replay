@@ -328,10 +328,8 @@ def test_actions_rows_report_and_idempotent_rerun(act, tmp_path):
     assert [e for e in events if e[0] == "ask"] == [("ask", "confirm", False), ("ask", "text", True)]
     assert ("forget", "ghost") in events  # неудачный вход не сохранён
     assert events[-1] == ("result", "partial", "из 4: сделано 2, уже было 1, не вышло 1")
-    with open(tmp_path / "report.csv", encoding="utf-8-sig") as f:
-        report = list(csv.DictReader(f))
-    assert [r["status"] for r in report] == ["ok", "skipped", "failed", "ok"]
-    assert not any("pw-" in v for r in report for v in r.values())  # паролей в отчёте нет
+    assert not (tmp_path / "report.csv").exists()  # отчёт по строкам строит приложение из kit.item
+    assert not any("pw-" in str(e) for e in events)  # паролей в событиях нет
 
     # Повторный запуск: входы сохранены, всё уже сделано, на сайте ничего не меняется.
     saves = site.saves

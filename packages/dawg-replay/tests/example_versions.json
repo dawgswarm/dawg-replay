@@ -4,8 +4,8 @@
     "sha256": "0ebcf43ad455363eb3ae9bf518a40dce83c9b49de274b0b9a897c5142750a183"
   },
   "examples/the-internet-actions/script.py": {
-    "version": 2,
-    "sha256": "b889ee2cf1a402d22a8966f77a9ab007acab1d8d76e7f471e542057d5f39706d"
+    "version": 3,
+    "sha256": "994e6e1381e40e4ba983431bc6892122fe7dd66caf4cf7c0740e061158288790"
   },
   "examples/wb-search-cards/script.py": {
     "version": 5,
