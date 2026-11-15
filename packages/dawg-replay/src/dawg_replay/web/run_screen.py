@@ -128,7 +128,8 @@ class Views:
                 except (ReplayError, OSError):
                     need = fix = None  # панель починки не должна ломать экран запуска
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
-                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested", "trigger", "schedule_id")
+                    "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested", "trigger", "schedule_id",
+                    "preset")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)

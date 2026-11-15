@@ -69,6 +69,11 @@ def run_status_view(run: dict[str, Any]) -> dict[str, str]:
     return {**status_view(run.get("label")), "title": ""}
 
 
+def ticks(text: str | None) -> str:
+    """`имя` из текста ошибки в «имя»: в простом тексте обратные кавычки выглядят мусором."""
+    return re.sub(r"`([^`\n]+)`", r"«\1»", text) if text else ""
+
+
 def when(value: str | None, now: datetime | None = None) -> str:
     """Время для человека в местном поясе: «сегодня 20:44», «вчера 09:10», «13 ноя 20:44»."""
     dt = parse_ts(value) if value else None
@@ -173,6 +178,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["rows_word"] = rows_word
     env.filters["ru_date"] = lambda v: ".".join(reversed(str(v).split("-"))) if v else v
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
+    env.filters["ticks"] = ticks
 
 
 def _ui(request: Request):

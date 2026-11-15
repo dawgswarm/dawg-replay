@@ -92,9 +92,12 @@ class ConsoleSink:
             where = self._output_dir / e["path"] if self._output_dir else e["path"]
             body = f"файл «{e['label']}»: {where}"
         elif t == "item":
-            row = f" (строка {e['row']})" if e.get("row") is not None else ""
             msg = f": {e['msg']}" if e.get("msg") else ""
-            body = f"{e['status']:7} {e['key']}{row}{msg}"
+            if e.get("row") is not None and str(e["row"]) == str(e["key"]):
+                label = f"строка {e['row']}"  # ключ и есть номер строки: без «2 (строка 2)»
+            else:
+                label = str(e["key"]) + (f" (строка {e['row']})" if e.get("row") is not None else "")
+            body = f"{e['status']:7} {label}{msg}"
         elif t == "session":
             sid = f" {e['session_id']}" if e.get("session_id") else ""
             body = f"браузер {e['action']}{sid}"
