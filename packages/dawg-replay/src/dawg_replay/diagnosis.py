@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote
 
+from dawg_replay import asks
 from dawg_replay.errors import ReplayError
 
 TAIL_LINES = 20
@@ -156,6 +157,11 @@ def diagnose(app: Any, rec: Any, lines: int = TAIL_LINES) -> dict[str, Any] | No
     if rec.running or rec.status != "failed" or rec.reason == "cancelled":
         return None
     run_dir = app.paths.run_dir(rec.id)
+    if rec.exit_code not in (0, None):
+        q = asks.timed_out(run_dir)
+        if q is not None:
+            # Не поломка скрипта: на вопрос не ответили. Трейсбек AskTimeout не показываем.
+            return {"tail": [], "hint": None, "summary": asks.timeout_text(q), "ask_timeout": q.question}
     if explained(run_dir):
         return None
     tail = read_tail(run_dir / "stderr.log", lines)

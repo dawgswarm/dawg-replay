@@ -66,7 +66,6 @@
 
 from __future__ import annotations
 
-import csv
 import time
 from typing import Any
 
@@ -91,7 +90,6 @@ STEP_TIMEOUT_MS = 20_000
 CODE_TIMEOUT_MIN = 10  # сколько ждать код от человека
 PAUSE_BETWEEN_ROWS_S = 2  # умеренный темп, сайт видит обычного пользователя
 
-REPORT_COLUMNS = ["row", "status", "message"]
 ALREADY = "уже сделано"
 
 
@@ -202,32 +200,26 @@ def main() -> None:
             decision.append(bool(kit.ask(f"Начать изменения на сайте? Строк в таблице: {total}", kind="confirm")))
         return decision[0]
 
-    report_path = kit.output_dir / "report.csv"
     kit.set_browser_limit(1)  # строки по очереди: у каждой свой вход
     kit.stage("Идём по строкам")
-    with open(report_path, "w", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=REPORT_COLUMNS)
-        w.writeheader()
-        for i, row in enumerate(rows, start=1):
-            try:
-                status, msg = process(row, p, allowed)
-            except kit.AskTimeout:
-                status, msg = "failed", f"не дождались кода за {CODE_TIMEOUT_MIN} мин"
-            except RowFailed as e:
-                status, msg = "failed", str(e)
-            except Exception as e:  # отмена (SystemExit) сюда не попадает
-                status, msg = "failed", f"{type(e).__name__}: {e}"
-            kind = "already" if msg == ALREADY else status
-            counts[kind] = counts.get(kind, 0) + 1
-            kit.item(row["_row"], status, msg, row=row["_row"])
-            w.writerow({"row": row["_row"], "status": status, "message": msg})
-            f.flush()
-            kit.progress("rows", "Строки таблицы", i, total)
-            if decision == [False]:
-                kit.log.warn("изменения не подтверждены, остальные строки не трогаем")
-                break
-            time.sleep(PAUSE_BETWEEN_ROWS_S)
-    kit.artifact(report_path, "Отчёт по строкам (CSV)", "text/csv")
+    # Отчёт по строкам (экран запуска, «Скачать отчёт CSV», перезапуск упавших) приложение строит из kit.item.
+    for i, row in enumerate(rows, start=1):
+        try:
+            status, msg = process(row, p, allowed)
+        except kit.AskTimeout:
+            status, msg = "failed", f"не дождались кода за {CODE_TIMEOUT_MIN} мин"
+        except RowFailed as e:
+            status, msg = "failed", str(e)
+        except Exception as e:  # отмена (SystemExit) сюда не попадает
+            status, msg = "failed", f"{type(e).__name__}: {e}"
+        kind = "already" if msg == ALREADY else status
+        counts[kind] = counts.get(kind, 0) + 1
+        kit.item(row["_row"], status, msg, row=row["_row"])
+        kit.progress("rows", "Строки таблицы", i, total)
+        if decision == [False]:
+            kit.log.warn("изменения не подтверждены, остальные строки не трогаем")
+            break
+        time.sleep(PAUSE_BETWEEN_ROWS_S)
 
     text = summary(counts, total)
     if decision == [False]:

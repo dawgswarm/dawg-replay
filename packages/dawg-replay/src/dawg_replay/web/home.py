@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from dawg_replay import diagnosis, insurance, repair
+from dawg_replay import asks, diagnosis, insurance, repair
 from dawg_replay.errors import ReplayError
 
 HUES = ("teal", "amber", "indigo", "rose", "sky", "olive")
@@ -144,7 +144,7 @@ def dashboard(app: Any, views: Any, since: str | None = None) -> dict[str, Any]:
         if rec.label in ATTENTION_LABELS or sus:
             title, cov = _title(app, rec, titles)
             attention.append({"run": rec.to_dict(), "title": title, "cover": cov, "why": _why(app, rec),
-                              "suspicion": sus})
+                              "suspicion": sus, "repair": repair.needs_repair(app, rec) is not None})
 
     suspects = []
     for rec in recent_recs:
@@ -185,9 +185,11 @@ def upcoming(app: Any, titles: dict[str, tuple[str, dict[str, str]]]) -> list[di
 
 
 def _why(app: Any, rec: Any) -> str | None:
+    dg = diagnosis.diagnose(app, rec, lines=10)
+    if dg and dg.get("ask_timeout"):
+        return dg["summary"]  # понятнее, чем текст ошибки, который скрипт мог оставить в итоге
     if rec.summary or rec.error:
         return None
-    dg = diagnosis.diagnose(app, rec, lines=10)
     return dg["summary"] if dg else None
 
 
@@ -203,7 +205,9 @@ def since_last_visit(app: Any, since: str | None, titles: dict[str, tuple[str, d
             continue
         need = repair.needs_repair(app, rec)
         skipped = rec.status == "failed" and rec.reason == "skipped"  # не дождался слота: показать, но без починки
-        if need is None and not skipped:
+        # не ответили на вопрос скрипта (kit.AskTimeout): показать, но без починки
+        missed = rec.status == "failed" and need is None and asks.timed_out(app.paths.run_dir(rec.id)) is not None
+        if need is None and not skipped and not missed:
             continue
         total += 1
         if len(items) < SINCE_SHOWN:
