@@ -2,7 +2,7 @@
 {% block title %}{{ run.title or run.script }}: запуск, dawg-replay{% endblock %}
 {% block head %}<link rel="stylesheet" href="/static/run.css"><script src="/static/run.js" defer></script>{% endblock %}
 {% block content %}
-<div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" {% if running or not run.finished_at %}data-live{% endif %}>
+<div class="run" data-run-id="{{ run.id }}" data-after="{{ s.seq }}" data-log-limit="{{ s.log_limit }}" {% if running or not run.finished_at %}data-live{% endif %}>
   {{ panels.head | safe }}
   {{ panels.ask | safe }}
   <section class="run-hero" aria-label="Итог запуска">

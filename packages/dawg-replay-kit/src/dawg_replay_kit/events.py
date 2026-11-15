@@ -103,6 +103,13 @@ class ConsoleSink:
             body = f"браузер {e['action']}{sid}"
         elif t == "result":
             body = f"ИТОГ {e['status']}: {e['summary']}"
+            if e.get("count") is not None:
+                body += f" (записей: {e['count']})"
+            if e.get("main"):
+                where = self._output_dir / e["main"] if self._output_dir else e["main"]
+                body += f"\n           главный файл: {where}"
+            for link in e.get("links") or []:
+                body += f"\n           ссылка «{link.get('title')}»: {link.get('url')}"
         elif t == "ask":
             body = f"ВОПРОС: {e['question']}"
             if e.get("choices"):
@@ -328,11 +335,33 @@ class Emitter:
             raise FileNotFoundError(f"artifact: файла нет: {full}")
         return rel
 
-    def result(self, status: str, summary: str) -> None:
+    def result(
+        self,
+        status: str,
+        summary: str,
+        count: int | None = None,
+        links: Iterable[Mapping[str, Any]] | None = None,
+        main: str | Path | None = None,
+    ) -> None:
+        """Итог запуска. Необязательно (контракт 1.3): `count` записей или строк, `links` список
+        {"title", "url"} с адресами http(s), `main` главный файл результата в каталоге output."""
         if status not in RESULT_STATUSES:
             raise ValueError(f"статус {status!r}, допустимы: {', '.join(RESULT_STATUSES)}")
+        if count is not None and (isinstance(count, bool) or not isinstance(count, int) or count < 0):
+            raise ValueError(f"result: count должен быть целым не меньше 0, получено {count!r}")
+        link_list = None
+        if links is not None:
+            link_list = []
+            for i, link in enumerate(links):
+                if not isinstance(link, Mapping) or not isinstance(link.get("url"), str):
+                    raise ValueError(f"result: links[{i}] должен быть словарём с title и url")
+                url = link["url"].strip()
+                if not url.lower().startswith(("http://", "https://")):
+                    raise ValueError(f"result: links[{i}].url должен начинаться с http:// или https://")
+                link_list.append({"title": str(link.get("title") or url), "url": url})
+        main_path = self._relative_to_output(Path(main)).as_posix() if main is not None else None
         self.flush()
-        self.emit("result", status=status, summary=str(summary))
+        self.emit("result", status=status, summary=str(summary), count=count, links=link_list, main=main_path)
 
     def item(self, key: str | int, status: str, msg: Any = None, row: int | None = None) -> None:
         if isinstance(key, bool) or not isinstance(key, (str, int)):

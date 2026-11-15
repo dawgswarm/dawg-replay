@@ -134,7 +134,10 @@ class SecurityMiddleware:
         async def send_with_headers(message: dict[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 message.setdefault("headers", [])
-                message["headers"] = list(message["headers"]) + SECURITY_HEADERS
+                own = {k.lower() for k, _ in message["headers"]}
+                # Ответ может задать свою политику (превью PDF во фрейме своей страницы), но не снять её:
+                # чего нет в ответе, добавляется по умолчанию.
+                message["headers"] = list(message["headers"]) + [h for h in SECURITY_HEADERS if h[0] not in own]
             await send(message)
 
         await self.app(scope, receive, send_with_headers)

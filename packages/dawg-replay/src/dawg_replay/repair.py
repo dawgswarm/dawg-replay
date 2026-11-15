@@ -78,9 +78,12 @@ class Scan:
     files: list[str] = field(default_factory=list)  # файлы результата, которые есть на диске
     errors: list[str] = field(default_factory=list)  # последние сообщения уровня error
     items: dict[str, int] = field(default_factory=dict)  # статус item -> сколько строк, пусто без item
+    count: int | None = None  # result.count (контракт 1.3): скрипт сам сказал, сколько собрал
 
     def counter(self) -> tuple[str, int] | None:
-        """(источник, значение) или None, если скрипт ничего не считал."""
+        """(источник, значение) или None, если скрипт ничего не считал. Явный count первым."""
+        if self.count is not None:
+            return "count", self.count
         if self.items:
             return "items", self.items.get("ok", 0) + self.items.get("skipped", 0)
         if self.rows:
@@ -91,7 +94,7 @@ class Scan:
 
 
 CACHE_FILE = "repair.json"
-CACHE_VERSION = 3
+CACHE_VERSION = 4
 ITEM_STATUSES = ("ok", "failed", "skipped")
 _cache: dict[str, tuple[int, int, _Raw]] = {}
 _cache_lock = threading.Lock()
@@ -136,6 +139,7 @@ def _load_cache(run_dir: Path, stamp: list[int]) -> _Raw | None:
             artifacts=[str(x) for x in data["artifacts"]],
             errors=[str(x) for x in data["errors"]],
             items={str(k): int(v) for k, v in data["items"].items()},
+            count=None if data.get("count") is None else int(data["count"]),
         )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -148,7 +152,8 @@ def _save_cache(run_dir: Path, stamp: list[int], raw: _Raw) -> None:
     tmp = cache.with_name(f"{CACHE_FILE}.{os.getpid()}.tmp")
     try:
         tmp.write_text(json.dumps({"v": CACHE_VERSION, "stamp": stamp, "rows": raw.rows, "progress": raw.progress,
-                                   "artifacts": raw.artifacts, "errors": raw.errors, "items": raw.items},
+                                   "artifacts": raw.artifacts, "errors": raw.errors, "items": raw.items,
+                                   "count": raw.count},
                                   ensure_ascii=False),
                        encoding="utf-8")
         os.replace(tmp, cache)
@@ -168,10 +173,12 @@ class _Raw:
     artifacts: list[str] = field(default_factory=list)  # пути из событий artifact, без повторов
     errors: list[str] = field(default_factory=list)
     items: dict[str, int] = field(default_factory=dict)
+    count: int | None = None
 
 
 def _with_files(raw: _Raw, run_dir: Path) -> Scan:
-    s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors), items=dict(raw.items))
+    s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors), items=dict(raw.items),
+             count=raw.count)
     out = (run_dir / "output").resolve()
     for rel in raw.artifacts:
         try:
@@ -211,6 +218,9 @@ def _parse(path: Path) -> _Raw:
                         s.progress[str(e["id"])] = done
                 elif t == "item" and e.get("status") in ITEM_STATUSES and item_id(e.get("key"), e.get("row")):
                     items[item_id(e["key"], e.get("row"))] = e["status"]
+                elif t == "result":
+                    c = e.get("count")  # последний итог решает, без count сбрасывает
+                    s.count = c if isinstance(c, int) and not isinstance(c, bool) and c >= 0 else None
                 elif t == "artifact" and e.get("path"):
                     artifacts.append(str(e["path"]))
                 elif t == "log" and e.get("level") == "error" and e.get("msg") is not None:
@@ -272,6 +282,14 @@ def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) 
             "value": 0,
             "median": None,
             "text": "Запуск завершился без ошибки, но ни одна строка не сделана.",
+        }
+    if value == 0 and counter[0] == "count":
+        # Скрипт сам сказал «0 записей»: файл с одной шапкой этого не оправдывает.
+        return {
+            "kind": "empty",
+            "value": 0,
+            "median": None,
+            "text": "Запуск завершился без ошибки, но скрипт сообщил, что собрал 0 записей.",
         }
     if value == 0 and not has_files:
         return {
@@ -399,16 +417,17 @@ def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
 
 
 def _what(source: str, n: float | None = None) -> str:
-    if source not in ("rows", "items"):
+    if source not in ("rows", "items", "count"):
         return f"по полоске «{source.split(':', 1)[1]}»"
+    forms = ("запись", "записи", "записей") if source == "count" else ("строка", "строки", "строк")
     if n is None or not float(n).is_integer():
-        return "строк"
+        return forms[2]
     n = int(n)
     if n % 10 == 1 and n % 100 != 11:
-        return "строка"
+        return forms[0]
     if 2 <= n % 10 <= 4 and not 12 <= n % 100 <= 14:
-        return "строки"
-    return "строк"
+        return forms[1]
+    return forms[2]
 
 
 def _num(v: float) -> str:
