@@ -52,6 +52,7 @@ __all__ = [
     "artifact",
     "browser",
     "init",
+    "item",
     "log",
     "metric",
     "progress",
@@ -114,6 +115,12 @@ def metric(key: str, label: str, value: int | float | str, unit: str | None = No
 
 def rows(table: str, rows: Any, columns: Any = None) -> None:
     _runtime().events.rows(table, rows, columns)
+
+
+def item(key: str | int, status: str, msg: Any = None, row: int | None = None) -> None:
+    """Итог по одной строке входа (`ok`, `failed`, `skipped`). Повтор с тем же key заменяет прежний.
+    row: поле `_row` строки таблицы, по нему приложение перезапускает упавшие строки."""
+    _runtime().events.item(key, status, msg, row)
 
 
 def artifact(path: str | Path, label: str, mime: str | None = None) -> None:

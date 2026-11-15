@@ -104,6 +104,18 @@ def number(value: Any) -> str:
         return ""
 
 
+def items_text(counts: dict[str, int] | None) -> str:
+    """Итог отчёта по строкам для списков: «48 из 50, 2 упали, 1 пропущена»."""
+    if not counts or not counts.get("total"):
+        return ""
+    parts = [f"{number(counts.get('ok', 0))} из {number(counts['total'])}"]
+    if counts.get("failed"):
+        parts.append(f"{number(counts['failed'])} {plural(counts['failed'], 'упала', 'упали', 'упали')}")
+    if counts.get("skipped"):
+        parts.append(f"{number(counts['skipped'])} {plural(counts['skipped'], 'пропущена', 'пропущены', 'пропущено')}")
+    return ", ".join(parts)
+
+
 def plural(n: Any, one: str, few: str, many: str) -> str:
     """Форма слова для числа: 1 сообщение, 2 сообщения, 5 сообщений."""
     try:
@@ -136,6 +148,7 @@ def setup_templates(templates: Jinja2Templates, secrets_: Secrets) -> None:
     env.filters["run_status"] = run_status_view
     env.filters["number"] = number
     env.filters["plural"] = plural
+    env.filters["items_text"] = items_text
     env.filters["minutes"] = minutes.fmt
     env.filters["capitalize_first"] = lambda text: text[:1].upper() + text[1:] if text else text
 

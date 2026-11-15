@@ -51,12 +51,17 @@ PANELS_BY_KIND = {
     "progress": ("progress",),
     "metric": ("metrics",),
     "rows": ("tables",),
+    "item": ("items",),
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result",),
     "run": ("head", "result", "repair", "suspects", "files", "trail"),
 }
-PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "tables")
+PANELS = ("head", "result", "repair", "suspects", "trail", "progress", "metrics", "files", "items", "tables")
+
+ITEM_WORDS = {"ok": "сделана", "failed": "упала", "skipped": "пропущена"}
+ITEM_KINDS = {"ok": "ok", "failed": "failed", "skipped": "muted"}
+ITEMS_SHOWN = 300  # на экране; полный отчёт в CSV. Панель перерисовывается целиком на каждое изменение
 
 REASONS = {
     "cancelled": "Запуск отменили. Собранное до отмены осталось в файлах результатов, если скрипт успел их сохранить.",
@@ -230,6 +235,38 @@ def size_text(n: int | None) -> str:
     return ""
 
 
+def items_shown(rows: list[dict[str, Any]], limit: int = ITEMS_SHOWN) -> list[dict[str, Any]]:
+    """Строки отчёта для экрана: все, если их немного, иначе все упавшие (до limit)
+    и последние остальные, в исходном порядке."""
+    if len(rows) <= limit:
+        return rows
+    failed = [i for i, r in enumerate(rows) if r["status"] == "failed"][:limit]
+    rest = [i for i, r in enumerate(rows) if r["status"] != "failed"]
+    keep = set(failed) | set(rest[len(rest) - (limit - len(failed)):] if limit > len(failed) else [])
+    return [r for i, r in enumerate(rows) if i in keep]
+
+
+def _cell_csv(value: Any) -> Any:
+    """Текст, который Excel принял бы за формулу, уходит с апострофом."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
+def items_csv(rows: list[dict[str, Any]]) -> str:
+    """Отчёт по строкам для Excel: BOM, разделитель «;», статусы словами."""
+    import csv
+    import io
+
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";", lineterminator="\r\n")
+    w.writerow(["Строка", "Номер в таблице", "Статус", "Сообщение"])
+    for r in rows:
+        w.writerow([_cell_csv(r["key"]), "" if r.get("row") is None else r["row"],
+                    ITEM_WORDS.get(r["status"], r["status"]), _cell_csv(r.get("msg") or "")])
+    return "\ufeff" + buf.getvalue()
+
+
 def setup(templates: Jinja2Templates) -> None:
     env = templates.env
     env.filters["clock"] = clock
@@ -240,6 +277,9 @@ def setup(templates: Jinja2Templates) -> None:
     env.filters["markdown"] = markdown
     env.globals["REASONS"] = REASONS
     env.globals["LEVEL_WORDS"] = LEVEL_WORDS
+    env.globals["ITEM_WORDS"] = ITEM_WORDS
+    env.globals["ITEM_KINDS"] = ITEM_KINDS
+    env.filters["items_shown"] = items_shown
 
 
 def context(snapshot: dict[str, Any]) -> dict[str, Any]:
@@ -402,6 +442,19 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         mime = listed[rel].get("mime") or "application/octet-stream"
         return FileResponse(full, media_type=mime, filename=full.name)
 
+    def items_report(request: Request) -> Response:
+        try:
+            view = get_view(request)
+        except ReplayError as e:
+            return Response(e.message, status_code=404)
+        snap = view.snapshot()
+        rows = (snap.get("items") or {}).get("rows") or []
+        name = f"{request.path_params['run_id']}-строки.csv"
+        from urllib.parse import quote
+
+        return Response(items_csv(rows), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f"attachment; filename=\"items.csv\"; filename*=UTF-8''{quote(name)}"})
+
     def stderr_log(request: Request) -> Response:
         """stderr.log запуска целиком, с той же маскировкой секретов, что и хвост на экране."""
         with request.app.state.ui.open_app() as app:
@@ -494,6 +547,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/runs/{run_id}/events", run_events),
         Route("/runs/{run_id}/files/{path:path}", download),
         Route("/runs/{run_id}/stderr.log", stderr_log),
+        Route("/runs/{run_id}/items.csv", items_report),
         Route("/runs/{run_id}/open-folder", open_dir, methods=["POST"]),
         Route("/runs/{run_id}/cancel", cancel, methods=["POST"]),
         Route("/runs/{run_id}/release", release, methods=["POST"]),

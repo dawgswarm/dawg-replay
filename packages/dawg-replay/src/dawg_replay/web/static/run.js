@@ -25,6 +25,7 @@
     var keep = old.querySelector("#files-notice");
     old.replaceWith(node);
     if (keep && node.querySelector("#files-notice")) node.querySelector("#files-notice").replaceWith(keep);
+    if (name === "items") syncItemsFilter();
     if (window.htmx) htmx.process(node);
   }
 
@@ -80,6 +81,18 @@
   function disconnect() {
     if (source) { source.close(); source = null; }
   }
+
+  // «Только упавшие» в блоке «Строки»: состояние на корне экрана, панель перерисовывается.
+  function syncItemsFilter() {
+    var box = root.querySelector("[data-items-failed]");
+    if (box) box.checked = root.hasAttribute("data-items-failed");
+    else root.removeAttribute("data-items-failed");
+  }
+  root.addEventListener("change", function (e) {
+    if (!e.target.hasAttribute || !e.target.hasAttribute("data-items-failed")) return;
+    if (e.target.checked) root.setAttribute("data-items-failed", "");
+    else root.removeAttribute("data-items-failed");
+  });
 
   var select = document.getElementById("log-level");
   if (select && log) {

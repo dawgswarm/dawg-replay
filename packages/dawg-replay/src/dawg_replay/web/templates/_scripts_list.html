@@ -28,7 +28,7 @@
         {% if s.description %}<p class="lib-desc">{{ s.description }}</p>{% endif %}
         <p class="lib-last">
           {% if r %}{% set st = r | run_status %}
-          <a class="last-run" href="/runs/{{ r.id }}"><span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span><span class="last-when">{{ r.created_at | when }}</span></a>
+          <a class="last-run" href="/runs/{{ r.id }}"><span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span><span class="last-when">{{ r.created_at | when }}</span>{% if r["items"] %}<span class="items-count{% if r['items'].failed %} has-failed{% endif %}">{{ r["items"] | items_text }}</span>{% endif %}</a>
           {% else %}<span class="never">Ещё не запускался</span>{% endif %}
         </p>
       </div>

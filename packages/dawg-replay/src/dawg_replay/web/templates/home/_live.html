@@ -71,7 +71,7 @@
         {{ cover(a.cover, "s") }}
         <div class="dash-text">
           <span class="dash-att-top">{% if a.suspicion %}<span class="status status-partial">похоже, сайт поменялся</span>{% else %}<span class="status status-{{ st.kind }}">{{ st.text }}</span>{% endif %}<a class="dash-title" href="/runs/{{ a.run.id }}">{{ a.title }}</a></span>
-          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.suspicion %}. {{ a.suspicion.text }}{% elif a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
+          <span class="hint-inline">{{ a.run.created_at | when }}{% if a.run["items"] %}. {{ a.run["items"] | items_text }}{% endif %}{% if a.suspicion %}. {{ a.suspicion.text }}{% elif a.run.summary %}. {{ a.run.summary | markdown | striptags }}{% elif a.run.error %}. {{ a.run.error }}{% elif a.why %}. {{ a.why }}{% endif %}</span>
         </div>
         <a class="button button-secondary small" href="/runs/{{ a.run.id }}#repair">Починить с агентом</a>
         <button class="small" hx-post="/runs/{{ a.run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this">Запустить снова</button>
@@ -89,7 +89,7 @@
       <li><a class="dash-rec" href="/runs/{{ r.run.id }}">
         <span class="status status-{{ st.kind }}"{% if st.title %} title="{{ st.title }}"{% endif %}>{{ st.text }}</span>
         <span class="dash-rec-text"><span class="dash-rec-title">{{ r.title }}{% if r.run.draft %} <span class="hint-inline">черновой</span>{% endif %}</span>
-          {% if r.run.trigger == "schedule" or r.run.summary %}<span class="dash-rec-meta">{% if r.run.trigger == "schedule" %}<span class="tag-plan">по расписанию</span>{% endif %}{% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>{% endif %}</span>
+          {% if r.run.trigger == "schedule" or r.run.summary or r.run["items"] %}<span class="dash-rec-meta">{% if r.run.trigger == "schedule" %}<span class="tag-plan">по расписанию</span>{% endif %}{% if r.run["items"] %}<span class="items-count{% if r.run['items'].failed %} has-failed{% endif %}">{{ r.run["items"] | items_text }}</span>{% endif %}{% if r.run.summary %}<span class="hint-inline clamp1">{{ r.run.summary | markdown | striptags }}</span>{% endif %}</span>{% endif %}</span>
         <span class="hint-inline dash-rec-when">{{ r.run.created_at | when }}</span>
       </a></li>
       {% endfor %}

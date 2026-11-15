@@ -6,8 +6,11 @@
 Тихая поломка: запуск закончился `ok` или `partial`, но похоже, что сайт
 поменялся. Счётчик собранного берётся из событий, которые уже есть в контракте:
 
-- сумма строк всех таблиц из `rows` (`total`, не только превью);
-- если `rows` не было, `done` первой полоски `progress`.
+- отчёт по строкам `item` (контракт 1.2): сколько строк сделано, то есть `ok` и
+  `skipped` (повторный запуск пропускает уже сделанное, это не поломка); повторный
+  `item` с тем же `key` заменяет прежний;
+- иначе сумма строк всех таблиц из `rows` (`total`, не только превью);
+- если и `rows` не было, `done` первой полоски `progress`.
 
 `metric` не используется: у метрик нет общего смысла (цена, процент, «найдено на
 сайте»), по ключу не понять, что из них «собрано».
@@ -72,9 +75,12 @@ class Scan:
     progress: dict[str, float] = field(default_factory=dict)  # id -> последний done, в порядке появления
     files: list[str] = field(default_factory=list)  # файлы результата, которые есть на диске
     errors: list[str] = field(default_factory=list)  # последние сообщения уровня error
+    items: dict[str, int] = field(default_factory=dict)  # статус item -> сколько строк, пусто без item
 
     def counter(self) -> tuple[str, int] | None:
         """(источник, значение) или None, если скрипт ничего не считал."""
+        if self.items:
+            return "items", self.items.get("ok", 0) + self.items.get("skipped", 0)
         if self.rows:
             return "rows", sum(self.rows.values())
         for pid, done in self.progress.items():
@@ -83,7 +89,8 @@ class Scan:
 
 
 CACHE_FILE = "repair.json"
-CACHE_VERSION = 1
+CACHE_VERSION = 2
+ITEM_STATUSES = ("ok", "failed", "skipped")
 _cache: dict[str, tuple[int, int, _Raw]] = {}
 _cache_lock = threading.Lock()
 CACHE_SIZE = 1024
@@ -126,6 +133,7 @@ def _load_cache(run_dir: Path, stamp: list[int]) -> _Raw | None:
             progress={str(k): float(v) for k, v in data["progress"].items()},
             artifacts=[str(x) for x in data["artifacts"]],
             errors=[str(x) for x in data["errors"]],
+            items={str(k): int(v) for k, v in data["items"].items()},
         )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -138,7 +146,8 @@ def _save_cache(run_dir: Path, stamp: list[int], raw: _Raw) -> None:
     tmp = cache.with_name(f"{CACHE_FILE}.{os.getpid()}.tmp")
     try:
         tmp.write_text(json.dumps({"v": CACHE_VERSION, "stamp": stamp, "rows": raw.rows, "progress": raw.progress,
-                                   "artifacts": raw.artifacts, "errors": raw.errors}, ensure_ascii=False),
+                                   "artifacts": raw.artifacts, "errors": raw.errors, "items": raw.items},
+                                  ensure_ascii=False),
                        encoding="utf-8")
         os.replace(tmp, cache)
     except OSError:
@@ -156,10 +165,11 @@ class _Raw:
     progress: dict[str, float] = field(default_factory=dict)
     artifacts: list[str] = field(default_factory=list)  # пути из событий artifact, без повторов
     errors: list[str] = field(default_factory=list)
+    items: dict[str, int] = field(default_factory=dict)
 
 
 def _with_files(raw: _Raw, run_dir: Path) -> Scan:
-    s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors))
+    s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors), items=dict(raw.items))
     out = (run_dir / "output").resolve()
     for rel in raw.artifacts:
         try:
@@ -179,6 +189,7 @@ def _parse(path: Path) -> _Raw:
     except OSError:
         return s
     artifacts: list[str] = []
+    items: dict[str, str] = {}
     with f:
         for raw in f:
             try:
@@ -196,6 +207,8 @@ def _parse(path: Path) -> _Raw:
                     done = e.get("done")
                     if isinstance(done, (int, float)) and not isinstance(done, bool):
                         s.progress[str(e["id"])] = done
+                elif t == "item" and e.get("status") in ITEM_STATUSES and _item_key(e.get("key")) is not None:
+                    items[_item_key(e["key"])] = e["status"]
                 elif t == "artifact" and e.get("path"):
                     artifacts.append(str(e["path"]))
                 elif t == "log" and e.get("level") == "error" and e.get("msg") is not None:
@@ -204,7 +217,25 @@ def _parse(path: Path) -> _Raw:
             except (KeyError, TypeError):
                 continue
     s.artifacts = list(dict.fromkeys(artifacts))
+    for status in items.values():
+        s.items[status] = s.items.get(status, 0) + 1
     return s
+
+
+def _item_key(key: Any) -> str | None:
+    """Ключ строки отчёта: 1 и "1" это одна строка."""
+    if isinstance(key, bool) or not isinstance(key, (str, int)):
+        return None
+    return str(key)
+
+
+def items_counts(raw: dict[str, int]) -> dict[str, int] | None:
+    """Счётчики отчёта по строкам для списков: ok, failed, skipped, total. None без item."""
+    if not raw:
+        return None
+    out = {k: raw.get(k, 0) for k in ITEM_STATUSES}
+    out["total"] = sum(out.values())
+    return out
 
 
 # --- тихая поломка ---------------------------------------------------------------
@@ -240,6 +271,13 @@ def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) 
         return None  # скрипт ничего не считал: судить не по чему
     value = counter[1]
     what = _what(counter[0], value)
+    if value == 0 and not has_files and counter[0] == "items":
+        return {
+            "kind": "empty",
+            "value": 0,
+            "median": None,
+            "text": "Запуск завершился без ошибки, но ни одна строка не сделана.",
+        }
     if value == 0 and not has_files:
         return {
             "kind": "empty",
@@ -259,7 +297,7 @@ def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) 
         "median": med,
         "runs": len(history),
         "text": (
-            f"Собрано {_num(value)} {what}, а в последних {len(history)} успешных запусках с теми же "
+            f"{'Сделано' if counter[0] == 'items' else 'Собрано'} {_num(value)} {what}, а в последних {len(history)} успешных запусках с теми же "
             f"настройками обычно около {med_text}."
         ),
     }
@@ -279,6 +317,7 @@ def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Добавляет `suspicion` в словари запусков (Run.to_dict) для списков. История каждого
     скрипта читается из БД один раз на вызов, разбор событий берётся из кэша."""
     by_script: dict[str, list[Any]] = {}
+    annotate_items(app, runs)
     for d in runs:
         d["suspicion"] = None
         if d.get("status") not in ("ok", "partial") or d.get("draft"):
@@ -300,6 +339,16 @@ def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return runs
 
 
+def annotate_items(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Добавляет `items` (счётчики отчёта по строкам или None) в словари запусков."""
+    for d in runs:
+        try:
+            d["items"] = items_counts(scan(app.paths.run_dir(d["id"])).items)
+        except (OSError, ValueError):
+            d["items"] = None
+    return runs
+
+
 def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
     """Показывать ли «Починить с агентом»: упал не по отмене или тихая поломка.
     Возвращает {"suspicion": ...} или None."""
@@ -313,7 +362,7 @@ def needs_repair(app: Any, rec: Any) -> dict[str, Any] | None:
 
 
 def _what(source: str, n: float | None = None) -> str:
-    if source != "rows":
+    if source not in ("rows", "items"):
         return f"по полоске «{source.split(':', 1)[1]}»"
     if n is None or not float(n).is_integer():
         return "строк"
