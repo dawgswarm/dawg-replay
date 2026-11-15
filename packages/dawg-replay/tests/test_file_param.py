@@ -148,7 +148,7 @@ def inputs(tmp_path):
     inv = tmp_path / "Счёт 15.pdf"
     inv.write_bytes(b"%PDF-1.4 invoice")
     key = tmp_path / "service.pem"
-    key.write_text(KEY_TEXT, encoding="utf-8")
+    key.write_bytes(KEY_TEXT.encode("utf-8"))  # без перевода строк Windows: размер в байтах тот же
     ph = tmp_path / "фото.jpg"
     ph.write_bytes(b"\xff\xd8\xff jpg")
     return inv, key, ph
