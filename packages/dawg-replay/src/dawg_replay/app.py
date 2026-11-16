@@ -14,6 +14,7 @@ from dawg_replay.links import Links
 from dawg_replay.paths import Paths, default_home
 from dawg_replay.preset_tables import PresetTables
 from dawg_replay.presets import Preset, Presets
+from dawg_replay.projects import Projects
 from dawg_replay.registry import Registry
 from dawg_replay.runs import STATUS_RUNNING, RunStore
 from dawg_replay.schedules import Backend as SchedulerBackend
@@ -36,6 +37,7 @@ class App:
         self.runs = RunStore(self.db)
         self.secrets = SecretStore(keyring_backend)
         self.links = Links(self.db, self)
+        self.projects = Projects(self.db, self)
         self._scheduler_backend = scheduler_backend
         self._schedules: Schedules | None = None
         self._sync_builtin()
@@ -224,6 +226,7 @@ class App:
             "schedules_removed": schedules,
             "logins_deleted": logins_deleted,
             "links_removed": links_removed,
+            "in_projects": self.projects.using(name),
         }
 
     # --- сохранённые входы ---
