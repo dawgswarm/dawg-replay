@@ -175,6 +175,17 @@ MIGRATIONS: list[str] = [
         created_at   TEXT NOT NULL
     )
     """,
+    # 7: глобальные связи M6 заменены проектами: таблицы связей и автозапуска удаляются (M6 не выпущен,
+    # данных у пользователей нет). Колонка runs.link_id остаётся пустой: удалять колонку в SQLite
+    # умеют не все версии, которые идут с поддерживаемым Python.
+    """
+    DROP TABLE IF EXISTS link_pending;
+    DROP TABLE IF EXISTS link_rounds;
+    DROP TABLE IF EXISTS link_log;
+    DROP TABLE IF EXISTS link_files;
+    DROP TABLE IF EXISTS link_targets;
+    DROP TABLE IF EXISTS links
+    """,
 ]
 
 

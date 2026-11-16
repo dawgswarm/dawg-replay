@@ -24,7 +24,7 @@ NAME_MAX = 64
 FILES_KEY = "_files"
 FILE_PARAMS_KEY = "_file_params"  # параметр file -> [{"ref", "name", "size"}]; сами файлы в preset-tables/
 SECRET_KEY = "_secret_tables"  # параметр -> {"ref", "file", "count"}; сама таблица в preset-tables/
-REFS_KEY = "_results"  # параметр table/file -> ссылка на результат (run:… или last:…, dawg_replay.links)
+REFS_KEY = "_results"  # параметр table/file -> ссылка на результат (run:… или last:…, dawg_replay.transfer)
 
 
 def normalize(name: str | None) -> str:
@@ -127,7 +127,7 @@ class Presets:
         """`files`: имена файлов таблиц. Секретная таблица пишется в отдельный файл, пресет хранит ссылку.
         Пресет с тем же именем перезаписывается целиком, прежние файлы таблиц удаляются."""
         name = clean_name(name)
-        from dawg_replay.links import is_ref
+        from dawg_replay.transfer import is_ref
 
         # Ссылка на результат другого скрипта хранится строкой, файл подставит запуск.
         ref_params = {p.name for p in manifest.params if p.type in ("table", "file") and not p.secret}

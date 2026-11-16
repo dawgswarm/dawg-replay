@@ -502,7 +502,7 @@ tbody tr:last-child td { border-bottom: 0; }
 .result-links a { overflow-wrap: anywhere; }
 .run-files > .file-thumbs, .run-files > .file-pdf { flex-basis: 100%; }
 
-/* --- связи запуска (templates/run/_links.html) --- */
+/* --- источники и передачи запуска (templates/run/_links.html) --- */
 .run-links { display: flex; flex-direction: column; gap: 0.35rem; }
 .run-links-line { margin: 0; }
 .run-links-cap { color: var(--ink-soft); margin-right: 0.3rem; }

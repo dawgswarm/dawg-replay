@@ -47,7 +47,7 @@ def _convert(p: Param, raw: str) -> Any:
                 raise ValueError(f"список в JSON не разобран: {e}") from None
         return [by_title(p, x.strip()) for x in raw.split(",") if x.strip()]
     if t in ("table", "file"):
-        from dawg_replay.links import is_ref
+        from dawg_replay.transfer import is_ref
 
         if is_ref(raw):  # run:<id>:<файл> или last:<скрипт>:<файл>: файл подставит запуск
             if p.secret:

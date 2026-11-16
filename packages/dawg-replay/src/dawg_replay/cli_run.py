@@ -22,31 +22,11 @@ from dawg_replay.runs import Run
 EXIT_RUN_FAILED = 3  # run --follow: запуск закончился статусом failed
 
 
-def after_script(app: App, r: Run) -> str | None:
-    """Запуск по связи: после какого скрипта (по запуску-источнику, иначе по связи)."""
-    if r.trigger != "link":
-        return None
-    if r.source_run:
-        try:
-            return app.runs.get(r.source_run).script_name
-        except ReplayError:
-            pass
-    if r.link_id is not None:
-        try:
-            return app.links.get(r.link_id).source
-        except ReplayError:
-            pass
-    return None
-
-
-def _run_line(r: Run, after: str | None = None) -> str:
+def _run_line(r: Run) -> str:
     draft = " черновик" if r.draft else ""
     version = f" v{r.script_version}" if r.script_version is not None else ""
     summary = f"  {r.summary}" if r.summary else ""
-    link = ""
-    if r.trigger == "link":
-        link = f"  [по связи после {after}]" if after else "  [по связи]"
-    return f"{r.id}  {r.label:<18} {r.script_name}{version}{draft}  {r.created_at}{link}{summary}"
+    return f"{r.id}  {r.label:<18} {r.script_name}{version}{draft}  {r.created_at}{summary}"
 
 
 class EventTail:
@@ -297,9 +277,8 @@ def _runs(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     out, lines = [], []
     for r in runs:
         suspects = cli_release.suspects_for(app, r.id)
-        after = after_script(app, r)
-        out.append({**r.to_dict(), "suspects": suspects, "after": after})
-        line = _run_line(r, after)
+        out.append({**r.to_dict(), "suspects": suspects})
+        line = _run_line(r)
         if suspects:
             line += f"\n    возможно, остался браузер ({len(suspects)}): dawg-replay logs {r.id}"
         lines.append(line)
