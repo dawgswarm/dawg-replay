@@ -103,8 +103,8 @@ class SyncRuns:
     def __init__(self, app):
         self.app = app
 
-    def start(self, target, *, preset=None, values=None):
-        prepared = launch.prepare(self.app, target, preset=preset, values=values)
+    def start(self, target, *, preset=None, values=None, inputs_of=None):
+        prepared = launch.prepare(self.app, target, preset=preset, values=values, inputs_of=inputs_of)
         return launch.supervise(self.app, prepared.run.id, prepared.payload())
 
 

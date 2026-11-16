@@ -27,6 +27,13 @@ REASON_NOT_STARTED = "not_started"  # плановый запуск упал д�
 _LABELLED_REASONS = (REASON_CANCELLED, "timeout", REASON_LOST, REASON_SKIPPED, REASON_NOT_STARTED)
 
 
+def _trigger(schedule_id: str | None, link_id: int | None) -> str | None:
+    """runs.triggered_by: NULL вручную, schedule по расписанию, link по связи."""
+    if link_id is not None:
+        return "link"
+    return "schedule" if schedule_id else None
+
+
 def new_run_id() -> str:
     """Сортируется по времени, уникален: `20261114-153012-a1b2c3`."""
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
@@ -63,10 +70,13 @@ class Run:
     timeout_seconds: int | None
     heartbeat_at: str | None
     cancel_requested_at: str | None
-    trigger: str = "manual"  # manual или schedule
+    trigger: str = "manual"  # manual, schedule или link
     schedule_id: str | None = None
     notify: str | None = None  # выбор на форме запуска: None по настройкам, always, never
     notify_state: str | None = None  # сообщение об итоге в Telegram, см. dawg_replay.tg_notify
+    link_id: int | None = None  # запуск по связи (dawg_replay.links): какая связь
+    source_run: str | None = None  # и какой запуск источника его вызвал
+    inputs: list[dict[str, Any]] = field(default_factory=list)  # откуда взяты файлы параметров, см. links
 
     @property
     def running(self) -> bool:
@@ -108,6 +118,9 @@ class Run:
             "trigger": self.trigger,
             "schedule_id": self.schedule_id,
             "notify": self.notify,
+            "link_id": self.link_id,
+            "source_run": self.source_run,
+            "inputs": self.inputs,
         }
 
 
@@ -140,6 +153,9 @@ def _run(row: sqlite3.Row) -> Run:
         schedule_id=row["schedule_id"],
         notify=row["notify"],
         notify_state=row["notify_state"],
+        link_id=row["link_id"],
+        source_run=row["source_run"],
+        inputs=json.loads(row["inputs_json"]) if row["inputs_json"] else [],
     )
 
 
@@ -214,6 +230,8 @@ class RunStore:
         schedule_id: str | None = None,
         wait: WaitPolicy | None = None,
         notify: str | None = None,
+        link_id: int | None = None,
+        source_run: str | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
@@ -238,8 +256,8 @@ class RunStore:
                 )
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
-                " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify, link_id, source_run)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -251,9 +269,11 @@ class RunStore:
                     json.dumps(params, ensure_ascii=False),
                     utcnow(),
                     timeout_seconds,
-                    "schedule" if schedule_id else None,
+                    _trigger(schedule_id, link_id),
                     schedule_id,
                     notify,
+                    link_id,
+                    source_run,
                 ),
             )
             if not free:
@@ -324,17 +344,36 @@ class RunStore:
     def record_not_started(
         self, *, run_id: str, script_name: str, script_version: int | None, script_path: str,
         preset: str | None, schedule_id: str | None, error: str,
+        link_id: int | None = None, source_run: str | None = None, reason: str = REASON_NOT_STARTED,
     ) -> Run:
-        """Запись о плановом запуске, который не начался: без неё причина есть только в логе расписания."""
+        """Запись о плановом запуске или запуске по связи, который не начался: без неё причина есть
+        только в логе расписания или в журнале связи. `reason`: not_started или skipped (срок ожидания вышел)."""
         now = utcnow()
         self._db.execute(
             "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, reason, error,"
-            " params_json, created_at, finished_at, triggered_by, schedule_id)"
-            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?)",
-            (run_id, script_name, script_version, script_path, preset, REASON_NOT_STARTED, error, now, now,
-             "schedule" if schedule_id else None, schedule_id),
+            " params_json, created_at, finished_at, triggered_by, schedule_id, link_id, source_run)"
+            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?, ?, ?)",
+            (run_id, script_name, script_version, script_path, preset, reason, error, now, now,
+             _trigger(schedule_id, link_id), schedule_id, link_id, source_run),
         )
         return self.get(run_id)
+
+    def set_inputs(self, run_id: str, inputs: list[dict[str, Any]]) -> None:
+        """Снимок: из каких запусков и файлов взяты значения параметров (связи и ссылки run:/last:)."""
+        self._db.execute("UPDATE runs SET inputs_json = ? WHERE id = ?",
+                         (json.dumps(inputs, ensure_ascii=False) if inputs else None, run_id))
+
+    def last_finished(self, script: str, statuses: tuple[str, ...], *, real_only: bool = True) -> Run | None:
+        """Последний завершённый запуск скрипта с одним из статусов. `real_only`: только запуски,
+        которые действительно шли (без not_started, skipped и отмены пользователем)."""
+        marks = ", ".join("?" * len(statuses))
+        sql = f"SELECT * FROM runs WHERE script_name = ? AND draft = 0 AND status IN ({marks})"
+        args: list[Any] = [script, *statuses]
+        if real_only:
+            sql += " AND COALESCE(reason, '') NOT IN (?, ?, ?)"
+            args += [REASON_NOT_STARTED, REASON_SKIPPED, REASON_CANCELLED]
+        row = self._db.execute(sql + " ORDER BY finished_at DESC, created_at DESC, id DESC LIMIT 1", args).fetchone()
+        return _run(row) if row else None
 
     def close_waiting(self, run_id: str, reason: str, error: str) -> bool:
         """Закрывает ждущий запуск как `failed (<reason>)`. True, если он ещё ждал."""

@@ -960,7 +960,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     link = f"/scripts/{quote(rec.script_name)}#launch" if e.code == "needs_upload" else None
                     return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}" if link else e.message, link=link)
             try:
-                run = ui.runs.start(rec.script_name, preset=rec.preset if rec.preset in presets else None, values=values)
+                run = ui.runs.start(rec.script_name, preset=rec.preset if rec.preset in presets else None, values=values,
+                                    inputs_of=rec.id)
             except ReplayError as e:
                 return fragment(request, "_flash.html", message=f"Запуск не начат: {e.message}", link=f"/scripts/{quote(rec.script_name)}#launch")
             return Response(status_code=204, headers={"HX-Redirect": f"/runs/{run.id}"})

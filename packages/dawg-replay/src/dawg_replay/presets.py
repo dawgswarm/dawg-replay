@@ -24,6 +24,7 @@ NAME_MAX = 64
 FILES_KEY = "_files"
 FILE_PARAMS_KEY = "_file_params"  # параметр file -> [{"ref", "name", "size"}]; сами файлы в preset-tables/
 SECRET_KEY = "_secret_tables"  # параметр -> {"ref", "file", "count"}; сама таблица в preset-tables/
+REFS_KEY = "_results"  # параметр table/file -> ссылка на результат (run:… или last:…, dawg_replay.links)
 
 
 def normalize(name: str | None) -> str:
@@ -79,6 +80,7 @@ class Preset:
     secret_tables: dict[str, dict[str, Any]] = field(default_factory=dict)  # параметр -> {"ref", "file", "count"}
     missing: dict[str, str] = field(default_factory=dict)  # обязательные без значения в пресете: имя -> подпись
     file_params: dict[str, list[dict[str, Any]]] = field(default_factory=dict)  # file -> [{"ref", "name", "size"}]
+    results: dict[str, str] = field(default_factory=dict)  # table/file -> run:… или last:… (результат другого скрипта)
 
     def outdated(self) -> str | None:
         """Текст для человека, если пресет не подходит текущей версии скрипта: значения, которые она
@@ -105,6 +107,7 @@ class Preset:
             "files": self.files,
             "secret_tables": {k: {"file": v["file"], "count": v["count"]} for k, v in self.secret_tables.items()},
             "file_params": {k: [{"name": f["name"], "size": f["size"]} for f in v] for k, v in self.file_params.items()},
+            "results": self.results,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
         }
@@ -124,6 +127,12 @@ class Presets:
         """`files`: имена файлов таблиц. Секретная таблица пишется в отдельный файл, пресет хранит ссылку.
         Пресет с тем же именем перезаписывается целиком, прежние файлы таблиц удаляются."""
         name = clean_name(name)
+        from dawg_replay.links import is_ref
+
+        # Ссылка на результат другого скрипта хранится строкой, файл подставит запуск.
+        ref_params = {p.name for p in manifest.params if p.type in ("table", "file") and not p.secret}
+        results = {k: v for k, v in values.items() if k in ref_params and is_ref(v)}
+        values = {k: v for k, v in values.items() if k not in results}
         # Таблица, которую скрипт не берёт из пресета (input без "preset"), в пресет не пишется.
         no_preset = {p.name for p in manifest.params if p.type == "table" and "preset" not in p.inputs}
         values = {k: v for k, v in values.items() if k not in no_preset}
@@ -155,6 +164,8 @@ class Presets:
             stored[FILES_KEY] = files
         if meta:
             stored[SECRET_KEY] = meta
+        if results:
+            stored[REFS_KEY] = results
         now = utcnow()
         self._db.execute(
             "INSERT INTO presets (script_name, name, params_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
@@ -232,6 +243,9 @@ class Presets:
         files = stored.pop(FILES_KEY, None)
         meta = stored.pop(SECRET_KEY, None)
         fmeta = stored.pop(FILE_PARAMS_KEY, None)
+        refs = stored.pop(REFS_KEY, None)
+        ref_now = {p.name for p in manifest.params if p.type in ("table", "file") and not p.secret}
+        results = {k: v for k, v in (refs.items() if isinstance(refs, dict) else ()) if k in ref_now and isinstance(v, str)}
         file_now = {p.name for p in manifest.params if p.type == "file"}
         file_params = {
             k: [{"ref": f.get("ref"), "name": str(f.get("name") or "файл"), "size": int(f.get("size") or 0)}
@@ -252,7 +266,7 @@ class Presets:
             p.name: p.title for p in manifest.params
             if p.required and p.type != "secret" and p.default is None and p.name not in kept
             and not (p.type == "table" and p.secret and p.name in secret_tables) and p.name not in why
-            and not (p.type == "file" and p.name in file_params)
+            and not (p.type == "file" and p.name in file_params) and p.name not in results
         }
         return Preset(row["script_name"], row["name"], kept, dropped, row["created_at"], row["updated_at"], files, why,
-                      secret_tables, missing, file_params)
+                      secret_tables, missing, file_params, results)

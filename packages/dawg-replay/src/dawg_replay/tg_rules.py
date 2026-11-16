@@ -212,7 +212,7 @@ def plan(app: App, rec: Run, suspicion: dict[str, Any] | None = None) -> Plan:
         return NOTHING
     if rec.notify == "always":
         done = True
-    elif rec.trigger == "schedule":
+    elif rec.trigger in ("schedule", "link"):  # запуск по связи для правил считается плановым
         done = bool(rules["done_scheduled"])
     elif rules["done_manual"] == "always":
         done = True
