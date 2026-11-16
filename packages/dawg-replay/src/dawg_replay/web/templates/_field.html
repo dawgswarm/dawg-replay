@@ -129,6 +129,20 @@
     {% else %}
       <input id="{{ fid }}" name="{{ fl.name }}" type="{{ 'url' if fl.widget == 'url' else 'text' }}" value="{{ fl.value }}" spellcheck="false"{% if fl.error %} aria-invalid="true" aria-describedby="{{ fid }}-err"{% endif %}>
     {% endif %}
+    {% if fl.ref_allowed and (fl.ref_options or fl.fed) %}
+      {# Значение из результата другого скрипта (связи M6): ссылка run:… или last:…, файл подставит запуск. #}
+      <div class="from-result">
+        {% if fl.fed and not fl.ref %}<p class="hint from-result-fed">Если ничего не выбрать, придёт по связи: из результата {{ fl.fed.title }}, {{ fl.fed.file }}, {{ fl.fed.cond }}{% if fl.fed.at %} ({{ fl.fed.at | when }}){% else %}, такого результата пока нет{% endif %}.</p>{% endif %}
+        {% if fl.ref_options %}
+        <label class="from-result-label" for="{{ fid }}-ref">{% if fl.widget == "table" %}Или таблица{% else %}Или файл{% endif %} из результата другого скрипта</label>
+        <select id="{{ fid }}-ref" name="{{ fl.name }}__ref">
+          <option value="">{% if fl.fed %}как по связи{% else %}не брать{% endif %}</option>
+          {% for o in fl.ref_options %}<option value="{{ o.value }}"{% if fl.ref == o.value %} selected{% endif %}>{{ o.title }}</option>{% endfor %}
+        </select>
+        {% if fl.ref %}<p class="hint">Файл возьмётся из результата в момент запуска{% if fl.widget == "table" %} и пройдёт ту же проверку колонок, что загруженный{% endif %}.{% if fl.table %} Загруженное выше при этом не используется.{% endif %}</p>{% endif %}
+        {% endif %}
+      </div>
+    {% endif %}
   {% endif %}
   {% if fl.error %}<p class="field-error" id="{{ fid }}-err">{{ fl.error }}</p>{% endif %}
   {% if fl.description %}<p class="hint">{{ fl.description }}</p>{% endif %}

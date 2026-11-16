@@ -1,0 +1,38 @@
+{# Связи запуска (M6): «Запущен после», откуда файлы, «Передал в», ручная передача. Контекст prov, transfer: web/links_data. #}
+{% if prov and (prov.after or prov.inputs or prov.passed) %}
+<section class="card run-links" aria-labelledby="run-links-title">
+  <h2 id="run-links-title" class="sr">Связи запуска</h2>
+  {% if prov.after %}
+  <p class="run-links-line"><span class="run-links-cap">Запущен после:</span>
+    {% if prov.after.script %}<a href="/scripts/{{ prov.after.script | urlencode }}">{{ prov.after.title }}</a>{% endif %}{% if prov.after.run_id %}, <a href="/runs/{{ prov.after.run_id }}">запуск{% if prov.after.created_at %} от {{ prov.after.created_at | when }}{% endif %}</a>{% endif %}
+    {% if prov.after.link_id %}<a class="hint-inline" href="/links?link={{ prov.after.link_id }}">связь на карте</a>{% endif %}</p>
+  {% endif %}
+  {% if prov.inputs %}
+  <ul class="run-links-list">
+    {% for i in prov.inputs %}
+    <li><code>{{ i.param }}</code> из результата {% if i.script %}{{ i.title }}{% endif %}{% if i.files %}: {{ i.files | join(", ") }}{% endif %}{% if i.run_id %}, <a href="/runs/{{ i.run_id }}">запуск-источник</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if prov.passed %}
+  <p class="run-links-line"><span class="run-links-cap">Передал в:</span>
+    {% for r in prov.passed %}<a href="/runs/{{ r.id }}">{{ r.title }}</a> <span class="hint-inline">{{ r.created_at | when }}, {{ (r.label | status).text }}{% if not r.started %}, взял файл{% endif %}</span>{% if not loop.last %}; {% endif %}{% endfor %}</p>
+  {% endif %}
+</section>
+{% endif %}
+{% if transfer and transfer.files and transfer.targets %}
+<details class="card fold run-transfer" id="transfer">
+  <summary><span class="fold-title">Передать в другой скрипт</span><span class="hint-inline">файлы этого запуска во входные параметры</span></summary>
+  <form class="transfer-pick" hx-get="/runs/{{ transfer.run_id }}/_transfer" hx-target="#transfer-map" hx-trigger="change from:#transfer-script, submit">
+    <label for="transfer-script">Скрипт</label>
+    <div class="row">
+      <select id="transfer-script" name="script">
+        <option value="">выберите скрипт</option>
+        {% for t in transfer.targets %}<option value="{{ t.name }}">{{ t.title }}</option>{% endfor %}
+      </select>
+      <noscript><button type="submit" class="secondary">Выбрать</button></noscript>
+    </div>
+  </form>
+  <div id="transfer-map"></div>
+</details>
+{% endif %}

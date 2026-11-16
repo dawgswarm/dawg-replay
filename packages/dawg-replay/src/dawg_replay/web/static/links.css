@@ -1,0 +1,164 @@
+/* Экран «Связи»: карта узлов и стрелок, панель справа. Цвета из app.css, тёмная тема оттуда же. */
+
+.links-tools { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.75rem 1rem; margin-bottom: 0.4rem; }
+.links-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.6rem; }
+.links-add .field { margin: 0; min-width: 11rem; }
+.links-add label { font-size: 0.85rem; font-weight: 500; color: var(--ink-soft); }
+.links-help { margin-bottom: 1rem; }
+
+.links-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 25rem); gap: 1rem; align-items: start; }
+@media (max-width: 960px) { .links-layout { grid-template-columns: 1fr; } }
+
+.lmap-wrap { min-width: 0; }
+.lmap-problems { margin: 0 0 0.75rem; padding-left: 1.6rem; }
+.lmap-empty { padding: 2rem 1.25rem; border: 1px dashed var(--line-strong); border-radius: var(--r-card); background: var(--surface); }
+.lmap-empty p { margin: 0; }
+
+.lmap {
+  position: relative;
+  min-height: 16rem;
+  min-width: 100%;
+  border-radius: var(--r-card);
+  background-color: var(--sunken);
+  background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.lmap-wrap { overflow-x: auto; border-radius: var(--r-card); }
+
+.lmap-edges { position: absolute; inset: 0 auto auto 0; pointer-events: none; overflow: visible; }
+.lmap-edge { fill: none; stroke: var(--ink-faint); stroke-width: 1.8; }
+.lmap-edge.is-dashed { stroke-dasharray: 6 5; }
+.lmap-edge.is-off { opacity: 0.4; }
+.lmap-edge.is-warning { stroke: var(--partial); }
+.lmap-edge.is-error { stroke: var(--failed); stroke-width: 2.2; }
+.lmap-edge.is-draft { stroke: var(--action); stroke-dasharray: 4 4; }
+.lmap-arrowhead { fill: var(--ink-faint); }
+.lmap-arrowhead-bad { fill: var(--failed); }
+
+.lnode {
+  position: absolute;
+  width: 12.5rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-block);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  cursor: grab;
+}
+.lnode.is-dragging { cursor: grabbing; box-shadow: var(--shadow-raised); z-index: 3; }
+.lnode.is-drop { border-color: var(--action); box-shadow: 0 0 0 4px var(--focus-halo); }
+.lnode.is-broken { border-color: var(--failed); }
+.lnode-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 0;
+  padding: 0.55rem 1.1rem 0.6rem 0.75rem;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  box-shadow: none;
+  cursor: inherit;
+}
+.lnode-main:hover { background: transparent; color: var(--ink); }
+.lnode-main:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.lnode-title { font-weight: 650; font-size: 0.93rem; line-height: 1.25; }
+.lnode-meta { font-size: 0.76rem; color: var(--action); }
+.lnode-mode { color: var(--ink-soft); }
+.lnode-state { font-size: 0.78rem; color: var(--ink-soft); }
+.lnode-state .status { font-size: 0.74rem; }
+.lnode-state.is-bad { color: var(--failed); }
+.lnode-port {
+  position: absolute;
+  top: 50%;
+  right: -0.55rem;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: -0.55rem;
+  border: 2px solid var(--action);
+  border-radius: 50%;
+  background: var(--surface);
+  cursor: crosshair;
+}
+.lnode-port:hover { background: var(--action); }
+
+.lmap-label {
+  position: absolute;
+  z-index: 2;
+  max-width: 15rem;
+  min-height: 0;
+  padding: 0.12rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--ink-soft);
+  font: 500 0.76rem/1.3 var(--font);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+  box-shadow: none;
+  cursor: pointer;
+}
+.lmap-label:hover { background: var(--surface-2); border-color: var(--action); color: var(--ink); }
+.lmap-label.is-dashed { border-style: dashed; }
+.lmap-label.is-off { opacity: 0.6; }
+.lmap-label.is-warning { border-color: var(--partial); color: var(--partial); }
+.lmap-label.is-error { border-color: var(--failed); color: var(--failed); }
+.lmap-bad { font-weight: 700; }
+.lmap-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; }
+.lmap-key { display: inline-block; width: 1.8rem; border-top: 2px solid var(--ink-faint); vertical-align: middle; }
+.lmap-key.is-dashed { border-top-style: dashed; }
+
+.link-panel {
+  position: sticky;
+  top: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.lpanel h2 { margin: 0; font-size: 1.05rem; }
+.lpanel h3 { margin: 1rem 0 0.35rem; font-size: 0.93rem; }
+.lpanel-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.4rem 0.75rem; margin-bottom: 0.75rem; }
+.lpanel .notice { margin: 0 0 0.6rem; }
+.lpanel-form fieldset { margin: 0 0 1rem; padding: 0; border: 0; }
+.lpanel-form legend { margin-bottom: 0.4rem; font-weight: 600; font-size: 0.93rem; }
+.lpanel-form .field { margin-bottom: 0.8rem; }
+.lpanel-row { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.4rem; align-items: end; }
+.lpanel-row .field { margin-bottom: 0.5rem; }
+.lpanel-to { padding-bottom: 1.05rem; color: var(--ink-faint); }
+.lpanel-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; }
+.lpanel-grid input[type="number"] { max-width: none; }
+.lpanel-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.8rem; }
+.lpanel-secondary { padding-top: 0.8rem; border-top: 1px solid var(--line); }
+.lpanel-log, .lpanel-links { margin: 0.3rem 0 0; padding-left: 1.1rem; font-size: 0.88rem; }
+.lpanel-log li, .lpanel-links li { margin-bottom: 0.3rem; }
+button.linkish {
+  display: inline;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--action);
+  font: inherit;
+  text-decoration: underline;
+  box-shadow: none;
+}
+button.linkish:hover { background: none; color: var(--action-hover); }
+.lpanel .check .hint-inline { font-weight: 400; }
+.lpanel .check { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }
+.lnode-wait { color: var(--partial); }
+.lpanel-round p { margin: 0; }
+.lpanel-round p + p { margin-top: 0.3rem; }
+.lpanel-log-started { color: var(--ok); }
+.lpanel-log-not_started, .lpanel-log-skipped, .lpanel-log-error { color: var(--failed); }
