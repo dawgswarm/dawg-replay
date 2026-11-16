@@ -44,12 +44,12 @@ def test_version(capsys):
     assert main(["--version"]) == 0
     out = capsys.readouterr().out
     assert f"dawg-replay {__version__}" in out
-    assert "контракт скриптов: 1.3" in out
+    assert "контракт скриптов: 1.4" in out
 
 
 def test_version_json(capsys):
     assert main(["--version", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out) == {"version": __version__, "contracts": [1], "contract_versions": ["1.3"]}
+    assert json.loads(capsys.readouterr().out) == {"version": __version__, "contracts": [1], "contract_versions": ["1.4"]}
 
 
 def test_validate_ok(script, capsys):

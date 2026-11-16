@@ -20,6 +20,9 @@
 1. `empty`: счётчик есть и равен 0, и нет ни одного файла результата. Если скрипт
    не присылал ни `rows`, ни `progress`, судить не по чему: такой запуск не
    помечается.
+0. `missing_output`: скрипт объявил файлы результата (контракт 1.4, `[[outputs]]`), а
+   после запуска какого-то нет. Сверку делает `outputs.check_run` и пишет строку в
+   журнал запуска с полем `output`, отсюда она и читается.
 2. `drop`: есть хотя бы MIN_HISTORY прошлых запусков `ok` того же скрипта и
    пресета (без пресета: с теми же параметрами) с тем же источником счётчика,
    медиана их счётчиков не меньше MIN_BASELINE, а текущий меньше
@@ -79,6 +82,7 @@ class Scan:
     errors: list[str] = field(default_factory=list)  # последние сообщения уровня error
     items: dict[str, int] = field(default_factory=dict)  # статус item -> сколько строк, пусто без item
     count: int | None = None  # result.count (контракт 1.3): скрипт сам сказал, сколько собрал
+    missing: list[str] = field(default_factory=list)  # объявленные выходы, которых нет (outputs.check_run)
 
     def counter(self) -> tuple[str, int] | None:
         """(источник, значение) или None, если скрипт ничего не считал. Явный count первым."""
@@ -94,7 +98,7 @@ class Scan:
 
 
 CACHE_FILE = "repair.json"
-CACHE_VERSION = 4
+CACHE_VERSION = 5
 ITEM_STATUSES = ("ok", "failed", "skipped")
 _cache: dict[str, tuple[int, int, _Raw]] = {}
 _cache_lock = threading.Lock()
@@ -140,6 +144,7 @@ def _load_cache(run_dir: Path, stamp: list[int]) -> _Raw | None:
             errors=[str(x) for x in data["errors"]],
             items={str(k): int(v) for k, v in data["items"].items()},
             count=None if data.get("count") is None else int(data["count"]),
+            missing=[str(x) for x in data["missing"]],
         )
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
@@ -153,7 +158,7 @@ def _save_cache(run_dir: Path, stamp: list[int], raw: _Raw) -> None:
     try:
         tmp.write_text(json.dumps({"v": CACHE_VERSION, "stamp": stamp, "rows": raw.rows, "progress": raw.progress,
                                    "artifacts": raw.artifacts, "errors": raw.errors, "items": raw.items,
-                                   "count": raw.count},
+                                   "count": raw.count, "missing": raw.missing},
                                   ensure_ascii=False),
                        encoding="utf-8")
         os.replace(tmp, cache)
@@ -174,11 +179,12 @@ class _Raw:
     errors: list[str] = field(default_factory=list)
     items: dict[str, int] = field(default_factory=dict)
     count: int | None = None
+    missing: list[str] = field(default_factory=list)
 
 
 def _with_files(raw: _Raw, run_dir: Path) -> Scan:
     s = Scan(rows=dict(raw.rows), progress=dict(raw.progress), errors=list(raw.errors), items=dict(raw.items),
-             count=raw.count)
+             count=raw.count, missing=list(raw.missing))
     out = (run_dir / "output").resolve()
     for rel in raw.artifacts:
         try:
@@ -223,6 +229,9 @@ def _parse(path: Path) -> _Raw:
                     s.count = c if isinstance(c, int) and not isinstance(c, bool) and c >= 0 else None
                 elif t == "artifact" and e.get("path"):
                     artifacts.append(str(e["path"]))
+                elif t == "log" and e.get("source") == MISSING_SOURCE and isinstance(e.get("output"), str):
+                    if e["output"] not in s.missing:
+                        s.missing.append(e["output"])
                 elif t == "log" and e.get("level") == "error" and e.get("msg") is not None:
                     s.errors.append(str(e["msg"])[:ERROR_CHARS])
                     del s.errors[:-PROMPT_ERRORS]
@@ -270,8 +279,19 @@ def baseline(app: Any, rec: Any, source: str, history: list[Any] | None = None) 
     return out
 
 
-def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int]) -> dict[str, Any] | None:
+def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int],
+          missing: list[str] | None = None) -> dict[str, Any] | None:
     """Правила тихой поломки без доступа к приложению (см. описание модуля)."""
+    if missing:
+        names = ", ".join(missing[:5]) + (f" и ещё {len(missing) - 5}" if len(missing) > 5 else "")
+        return {
+            "kind": "missing_output",
+            "value": None,
+            "median": None,
+            "missing": list(missing),
+            "text": f"Запуск завершился без ошибки, но {'нет файла' if len(missing) == 1 else 'нет файлов'}, "
+                    f"которые скрипт обещал отдать: {names}.",
+        }
     if counter is None:
         return None  # скрипт ничего не считал: судить не по чему
     value = counter[1]
@@ -323,7 +343,7 @@ def suspicion(app: Any, rec: Any, history: list[Any] | None = None) -> dict[str,
     s = scan(app.paths.run_dir(rec.id))
     counter = s.counter()
     hist = baseline(app, rec, counter[0], history) if counter else []
-    return judge(counter, bool(s.files), hist)
+    return judge(counter, bool(s.files), hist, s.missing)
 
 
 def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -350,6 +370,9 @@ def annotate(app: Any, runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
         except OSError:
             d["suspicion"] = None
     return runs
+
+
+MISSING_SOURCE = "dawg-replay-outputs"  # source строки журнала о недостающем выходе
 
 
 TABLES_FILE = "tables.json"
