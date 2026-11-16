@@ -47,7 +47,7 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import (asks, devkit, hooks, insurance, links, logins, outputs, procinfo, repair, tg_asks, tg_notify,
+from dawg_replay import (asks, chain, devkit, hooks, insurance, links, logins, outputs, procinfo, repair, tg_asks, tg_notify,
                          tg_rules)
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
@@ -312,8 +312,9 @@ def prepare(
     а у скриптов действий на сайтах это может изменить не то. Без флага такие значения пропускаются
     с предупреждением в `warnings`.
     `notify`: выбор у запуска для сообщения в Telegram об успешном итоге: None по настройкам, always, never.
-    `link_id`, `source_run`: запуск по связи (dr-106), какая связь и какой запуск источника его вызвал;
-    такой запуск ждёт слота, как плановый. `link_sources`: {id связи: id запуска}, из каких запусков
+    `link_id`, `source_run`: запуск по связи (dawg_replay.chain), какая связь и какой запуск источника
+    его вызвал. Слота ждёт только с `wait`: решение принимает процесс, закрывший запуск источника,
+    и ждать в нём нельзя; ожидание chain отдаёт отдельному процессу. `link_sources`: {id связи: id запуска}, из каких запусков
     брать файлы по связям; для остальных входящих связей берётся последний подходящий результат.
     Явно заданное значение (форма, --set, --params) передачу по связи перекрывает, пресет нет.
     Ссылки `run:`/`last:` в значениях table/file заменяются файлами (dawg_replay.links).
@@ -418,7 +419,7 @@ def prepare(
             timeout_seconds=timeout_minutes * 60,
             limit=cfg.max_parallel_runs,
             schedule_id=schedule_id,
-            wait=_wait_policy(cfg, on_wait) if (wait or schedule_id or link_id is not None) else None,
+            wait=_wait_policy(cfg, on_wait) if (wait or schedule_id) else None,
             notify=notify,
             link_id=link_id,
             source_run=source_run,
@@ -626,6 +627,7 @@ def supervise(
         store.finish(run_id, status="failed", reason=REASON_START_ERROR, error=str(e))
         _append(run.stderr_path, f"dawg-replay: {e}\n")
         tg_notify.after_finish(app, run_id)
+        chain.on_finish(app, run_id)
         return store.get(run_id)
     store.set_started(run_id, run.pid, procinfo.start_time(run.pid))
     # Вопросы скрипта в Telegram: сеть в своих потоках, цикл её не ждёт.
@@ -668,6 +670,8 @@ def supervise(
     outputs.check_run(app, run_id)
     # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
     tg_notify.after_finish(app, run_id)
+    # Получатели по связям: после итога и сверки выходов (файлы для передачи уже на месте).
+    chain.on_finish(app, run_id)
     return store.get(run_id)
 
 
@@ -716,6 +720,7 @@ def spawn_supervisor(app: App, prepared: Prepared) -> int:
     except OSError as e:
         app.runs.finish(run_id, status="failed", reason=REASON_START_ERROR, error=f"супервизор не запустился: {e}")
         tg_notify.after_finish(app, run_id, background=False)
+        chain.on_finish(app, run_id)
         raise ReplayError("start_failed", f"не удалось запустить супервизор: {e}") from None
     assert proc.stdin is not None
     try:
@@ -783,7 +788,8 @@ def _cancel_orphan(app: App, rec: Run, grace: float) -> None:
         killed = _leader_alive(rec)
         if _own_group(rec):
             kill_tree(rec.pid, leader_alive=_leader_alive(rec))
-    _close_lost(app, rec, reason="cancelled", killed=killed)
+    if _close_lost(app, rec, reason="cancelled", killed=killed):
+        chain.on_finish(app, rec.id)  # отмена не повод, но отложенный повод этого скрипта может ждать
 
 
 # --- потерянные запуски ------------------------------------------------------
@@ -818,7 +824,10 @@ def recover_lost(app: App) -> list[Run]:
     # Закрыли мы: сообщаем сразу, процесс может быть короткой командой CLI. Потом то, что не ушло раньше.
     for r in lost:
         tg_notify.after_finish(app, r.id, background=False)
+        chain.on_finish(app, r.id)  # потерянный запуск шёл: для связей «любой исход» это повод
     tg_notify.retry_pending(app)
+    # Сроки ожидания «после всех», вышедшие, пока никого не было (компьютер выключен, UI закрыт).
+    chain.tick(app)
     return lost
 
 

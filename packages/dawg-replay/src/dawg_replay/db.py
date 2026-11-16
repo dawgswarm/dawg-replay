@@ -152,6 +152,29 @@ MIGRATIONS: list[str] = [
     ALTER TABLE runs ADD COLUMN source_run TEXT;
     ALTER TABLE runs ADD COLUMN inputs_json TEXT
     """,
+    # 6: автозапуск по связям (dawg_replay.chain)
+    """
+    -- Круг ожидания «после всех»: один открытый на получателя. arrived_json {id связи: id запуска}
+    -- подходящие исходы источников, deadline срок ожидания отстающего (UTC).
+    CREATE TABLE link_rounds (
+        target       TEXT PRIMARY KEY,
+        opened_at    TEXT NOT NULL,
+        deadline     TEXT NOT NULL,
+        arrived_json TEXT NOT NULL DEFAULT '{}',
+        last_link    INTEGER,
+        last_run     TEXT
+    );
+    -- Отложенный повод: получатель ещё идёт по связи, этот запуск начнётся после него.
+    CREATE TABLE link_pending (
+        target       TEXT PRIMARY KEY,
+        link_id      INTEGER NOT NULL,
+        source_run   TEXT,
+        sources_json TEXT NOT NULL,
+        links_json   TEXT NOT NULL,
+        note         TEXT,
+        created_at   TEXT NOT NULL
+    )
+    """,
 ]
 
 

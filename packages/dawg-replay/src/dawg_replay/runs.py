@@ -365,14 +365,14 @@ class RunStore:
 
     def last_finished(self, script: str, statuses: tuple[str, ...], *, real_only: bool = True) -> Run | None:
         """Последний завершённый запуск скрипта с одним из статусов. `real_only`: только запуски,
-        которые действительно шли (без not_started, skipped и отмены пользователем)."""
+        которые действительно шли (без not_started, skipped, start_error и отмены пользователем)."""
         marks = ", ".join("?" * len(statuses))
         sql = f"SELECT * FROM runs WHERE script_name = ? AND draft = 0 AND status IN ({marks})"
         args: list[Any] = [script, *statuses]
         if real_only:
-            sql += " AND COALESCE(reason, '') NOT IN (?, ?, ?)"
-            args += [REASON_NOT_STARTED, REASON_SKIPPED, REASON_CANCELLED]
-        row = self._db.execute(sql + " ORDER BY finished_at DESC, created_at DESC, id DESC LIMIT 1", args).fetchone()
+            sql += " AND COALESCE(reason, '') NOT IN (?, ?, ?, ?)"
+            args += [REASON_NOT_STARTED, REASON_SKIPPED, REASON_CANCELLED, REASON_START_ERROR]
+        row = self._db.execute(sql + " ORDER BY finished_at DESC, rowid DESC LIMIT 1", args).fetchone()
         return _run(row) if row else None
 
     def close_waiting(self, run_id: str, reason: str, error: str) -> bool:
