@@ -54,7 +54,8 @@ ON_TIMEOUT = ("skip", "run")
 DEFAULT_WAIT_SECONDS = 6 * 3600
 MAIN = "@main"
 TRANSFER_TYPES = ("table", "file")
-NOT_REAL = ("not_started", "skipped", "cancelled")  # такие запуски не шли: не повод и не источник файлов
+# Такие запуски не шли (скрипт не стартовал или его отменил человек): не повод и не источник файлов.
+NOT_REAL = ("not_started", "skipped", "cancelled", "start_error")
 LINK_INPUT = "link_input"  # код ошибки подстановки: запуск не начинается (not_started)
 
 
