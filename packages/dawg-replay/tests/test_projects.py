@@ -43,7 +43,7 @@ source_column = "Магазин"
 from = "wb2"
 to = "google"
 when = "ok"
-if_file = "cards.csv"
+if_file = "report.pdf"
 files = [{ from = "cards.csv", to = "cards" }, { from = "report.pdf", to = "docs" }]
 '''
 
@@ -102,7 +102,7 @@ def test_parse_defaults_and_order():
     assert pr.node("google").wait == "any"
     e1, e2 = pr.edges
     assert (e1.when, e1.if_file, e1.source_column) == ("partial", None, "Магазин")
-    assert (e2.when, e2.if_file) == ("ok", "cards.csv")
+    assert (e2.when, e2.if_file) == ("ok", "report.pdf")
     assert [f.to_dict() for f in e2.files] == [{"file": "cards.csv", "param": "cards"},
                                                {"file": "report.pdf", "param": "docs"}]
     assert pr.incoming("google") == [e1, e2] and pr.outgoing("wb1") == [e1]
@@ -289,15 +289,18 @@ source_column = "Откуда"
     assert "узел `gs`" in w and not any("«Карточки»" in x for x in warnings(problems))
 
 
-def test_if_file_on_required_output_warns_when_kit_knows_optional(scripts, monkeypatch):
+def test_if_file_needs_optional_output(scripts):
     app = scripts
-    pr = P.parse('name = "x"\n[[nodes]]\nid = "a"\nscript = "wb"\n[[nodes]]\nid = "b"\nscript = "oz"\n'
-                 '[[edges]]\nfrom = "a"\nto = "b"\nif_file = "cards.csv"\n')
-    assert warnings(app.projects.check(pr)) == []  # без поля optional в kit предупреждения нет
-    out = app.registry.manifest("wb").outputs[0]
-    monkeypatch.setattr(P, "output_for", lambda m, spec: (True, type("O", (), {"name": out.name, "optional": False,
-                                                                             "columns": out.columns})()))
-    assert any("будет активна всегда" in t for t in warnings(app.projects.check(pr)))
+
+    def check(file):
+        pr = P.parse('name = "x"\n[[nodes]]\nid = "a"\nscript = "wb"\n[[nodes]]\nid = "b"\nscript = "oz"\n'
+                     f'[[edges]]\nfrom = "a"\nto = "b"\nif_file = "{file}"\n')
+        return warnings(app.projects.check(pr))
+
+    assert check("report.pdf") == []  # необязательный выход: ветвление
+    always = ("стрелка a → b: `cards.csv` у скрипта `wb` обязательный выход, "
+              "с if_file на него стрелка будет активна всегда")
+    assert check("cards.csv") == [always]
 
 
 # --- хранение и версии ---
@@ -484,5 +487,4 @@ def test_cli_project_text(scripts, tmp_path, capsys):
     assert main(["project", "show", "wb-to-google"]) == 0
     text = capsys.readouterr().out
     assert "google  Выгрузка в Google: Общая  (gs, пресет «Общая»)  [после любой входящей]" in text
-    assert "wb2 → google; только готово; если есть report.pdf" not in text
-    assert "wb2 → google; только готово; если есть cards.csv; cards.csv → cards, report.pdf → docs" in text
+    assert "wb2 → google; только готово; если есть report.pdf; cards.csv → cards, report.pdf → docs" in text

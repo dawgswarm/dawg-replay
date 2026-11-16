@@ -31,6 +31,7 @@ SOURCE = '''\
 #
 # [[outputs]]
 # name = "report.pdf"
+# optional = true
 # ///
 
 import dawg_replay_kit as kit
