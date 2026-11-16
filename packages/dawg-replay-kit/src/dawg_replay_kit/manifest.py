@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import fnmatch
 import re
 import sys
 from dataclasses import dataclass, field, replace
@@ -24,12 +25,12 @@ else:
 SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
 """Мажорные версии контракта, которые понимает эта версия kit."""
 
-CONTRACT_MINORS: dict[int, int] = {1: 3}
+CONTRACT_MINORS: dict[int, int] = {1: 4}
 """Последняя минорная версия каждого мажора, которую знает эта версия kit."""
 
 
 def contract_versions() -> list[str]:
-    """Полные версии для `dawg-replay --version`: ["1.3"]."""
+    """Полные версии для `dawg-replay --version`: ["1.4"]."""
     return [f"{major}.{CONTRACT_MINORS[major]}" for major in SUPPORTED_CONTRACTS]
 
 
@@ -74,9 +75,11 @@ _BLOCK_RE = re.compile(
 _BLOCK_OPEN_RE = re.compile(r"^# /// (?P<type>[a-zA-Z0-9-]+)\s*$")
 _TOML_LINE_RE = re.compile(r"line (\d+)")
 
-_TOP_KEYS = ("contract", "name", "title", "description", "site", "tags", "version", "timeout_minutes", "params")
+_TOP_KEYS = (
+    "contract", "name", "title", "description", "site", "tags", "version", "timeout_minutes", "params", "outputs",
+)
 # Поля, появившиеся в минорных версиях: поле -> (мажор, минор).
-_FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1)}
+_FIELD_SINCE: dict[str, tuple[int, int]] = {"site": (1, 1), "tags": (1, 1), "outputs": (1, 4)}
 # Типы параметров, появившиеся в минорных версиях.
 _TYPE_SINCE: dict[str, tuple[int, int]] = {
     "date": (1, 2), "table": (1, 2), "time": (1, 3), "datetime": (1, 3), "multi_enum": (1, 3), "file": (1, 3),
@@ -97,6 +100,12 @@ DEFAULT_MAX_MB = 25  # file: предел размера одного файла
 MAX_MB_LIMIT = 1024
 FILE_KEYS = ("path", "name", "size")  # значение file: {"path", "name", "size"} или их список
 ROW_KEY = "_row"
+
+OUTPUTS_MAX = 50  # outputs (1.4): сколько файлов можно объявить
+OUTPUT_NAME_MAX = 200
+OUTPUT_TITLE_MAX = 80
+_OUTPUT_KEYS = ("name", "title", "columns", "main")
+_GLOB_CHARS = frozenset("*?[")
 
 SITE_MAX = 40
 TAGS_MAX = 5
@@ -222,6 +231,45 @@ class Param:
 
 
 @dataclass(frozen=True)
+class Output:
+    """Файл, который скрипт объявил своим результатом (контракт 1.4, блок `[[outputs]]`).
+
+    name: путь внутри каталога результата (output dir) через `/`, можно шаблон `prices-*.csv`.
+    """
+
+    name: str
+    title: str | None = None
+    columns: tuple[str, ...] | None = None  # для таблиц: колонки, которые в файле будут
+    main: bool = False  # главный файл итога
+
+    @property
+    def label(self) -> str:
+        return self.title or self.name
+
+    @property
+    def is_pattern(self) -> bool:
+        return any(c in _GLOB_CHARS for c in self.name)
+
+    def matches(self, path: str) -> bool:
+        """Подходит ли файл (путь внутри output dir через `/`). `*` не переходит в другой каталог."""
+        if not self.is_pattern:
+            return path == self.name
+        if path.count("/") != self.name.count("/"):
+            return False
+        return fnmatch.fnmatchcase(path, self.name)
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {"name": self.name}
+        if self.title is not None:
+            d["title"] = self.title
+        if self.columns is not None:
+            d["columns"] = list(self.columns)
+        if self.main:
+            d["main"] = True
+        return d
+
+
+@dataclass(frozen=True)
 class Manifest:
     contract: int
     contract_minor: int
@@ -235,6 +283,11 @@ class Manifest:
     dependencies: tuple[str, ...] = field(default_factory=tuple)
     site: str | None = None  # контракт 1.1: название сайта для людей
     tags: tuple[str, ...] = ()  # контракт 1.1: метки для библиотеки скриптов
+    outputs: tuple[Output, ...] = ()  # контракт 1.4: объявленные файлы результата
+
+    @property
+    def main_output(self) -> Output | None:
+        return next((o for o in self.outputs if o.main), None)
 
     def param(self, name: str) -> Param:
         for p in self.params:
@@ -260,6 +313,8 @@ class Manifest:
             d["site"] = self.site
         if self.tags:
             d["tags"] = list(self.tags)
+        if self.outputs:
+            d["outputs"] = [o.to_dict() for o in self.outputs]
         return d
 
 
@@ -963,7 +1018,91 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
             if p is not None:
                 params.append(p)
     out["params"] = tuple(params)
+
+    raw_outputs = data.get("outputs")
+    if raw_outputs is not None:
+        outputs = _check_outputs(raw_outputs, issues)
+        if outputs is not None:
+            out["outputs"] = outputs
     return out
+
+
+def _output_name_problem(name: Any) -> str | None:
+    if not isinstance(name, str) or not name.strip():
+        return "`name` должен быть непустой строкой: имя файла в каталоге результата или шаблон, например \"prices-*.csv\""
+    if len(name) > OUTPUT_NAME_MAX:
+        return f"`name` длиннее {OUTPUT_NAME_MAX} символов"
+    if name != name.strip() or any(c in name for c in "\n\r\t\\"):
+        return "`name` задаётся в одну строку, без пробелов по краям; каталоги разделяются `/`"
+    if name.startswith("/") or (len(name) > 1 and name[1] == ":"):
+        return "`name` задаётся путём внутри каталога результата, без `/` в начале"
+    if any(part in ("", ".", "..") for part in name.split("/")):
+        return "в `name` не бывает пустых частей пути, `.` и `..`"
+    return None
+
+
+def _check_outputs(raw_outputs: Any, issues: list[Issue]) -> tuple[Output, ...] | None:
+    if not isinstance(raw_outputs, list):
+        issues.append(Issue("bad_value", "outputs", "выходы задаются таблицами `[[outputs]]`"))
+        return None
+    if len(raw_outputs) > OUTPUTS_MAX:
+        issues.append(Issue("bad_value", "outputs", f"в `outputs` не больше {OUTPUTS_MAX} файлов, получено {len(raw_outputs)}"))
+        return None
+    n_before = len(issues)
+    outputs: list[Output] = []
+    seen: set[str] = set()
+    main_at: str | None = None
+    for i, raw in enumerate(raw_outputs):
+        base = f"outputs[{i}]"
+        if not isinstance(raw, dict):
+            issues.append(Issue("output_not_table", base, "выход задаётся таблицей `[[outputs]]`"))
+            continue
+        n = len(issues)
+
+        def err(code: str, key: str, msg: str) -> None:
+            issues.append(Issue(code, f"{base}.{key}", msg))
+
+        name = raw.get("name")
+        if name is None:
+            err("missing_field", "name", "нет обязательного поля `name`")
+        else:
+            problem = _output_name_problem(name)
+            if problem:
+                err("bad_value", "name", problem)
+            elif name in seen:
+                err("duplicate_output", "name", f"файл `{name}` уже объявлен")
+            else:
+                seen.add(name)
+                base = f"outputs[{i}]({name})"
+        for key in raw:
+            if key not in _OUTPUT_KEYS:
+                err("unknown_field", key, f"неизвестное поле `{key}`; допустимы: {', '.join(_OUTPUT_KEYS)}")
+        title = raw.get("title")
+        if title is not None and (
+            not isinstance(title, str) or not title.strip() or "\n" in title or "\r" in title or len(title) > OUTPUT_TITLE_MAX
+        ):
+            err("bad_value", "title", f"`title` должен быть непустой строкой в одну строку, до {OUTPUT_TITLE_MAX} символов")
+        columns = raw.get("columns")
+        if columns is not None:
+            if not isinstance(columns, list) or not columns or not all(
+                isinstance(c, str) and c.strip() and c == c.strip() for c in columns
+            ):
+                err("bad_value", "columns", "`columns` должен быть непустым списком названий колонок")
+            elif len(set(columns)) != len(columns):
+                err("bad_value", "columns", "в `columns` есть повторы")
+        main = raw.get("main", False)
+        if not isinstance(main, bool):
+            err("bad_value", "main", "`main` задаётся true или false")
+        elif main and main_at is not None:
+            err("duplicate_main", "main", f"главный файл уже объявлен: `{main_at}`; `main = true` бывает у одного выхода")
+        elif main and isinstance(name, str):
+            main_at = name
+        if len(issues) == n:
+            outputs.append(Output(name=name, title=title, columns=tuple(columns) if columns is not None else None,
+                                  main=main))
+    if len(issues) > n_before:
+        return None
+    return tuple(outputs)
 
 
 def _tags_problem(tags: Any) -> str | None:

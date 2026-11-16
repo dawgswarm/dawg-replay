@@ -47,7 +47,8 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import asks, devkit, hooks, insurance, links, logins, procinfo, repair, tg_asks, tg_notify, tg_rules
+from dawg_replay import (asks, devkit, hooks, insurance, links, logins, outputs, procinfo, repair, tg_asks, tg_notify,
+                         tg_rules)
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -663,6 +664,8 @@ def supervise(
     )
     if telegram is not None:
         _telegram_errors(app, run.run_dir, telegram.close(late=tg_asks.late_sink(app.paths, run.run_dir)))
+    # Объявленные файлы результата сверяются до сообщения об итоге: недостающий попадает в него.
+    outputs.check_run(app, run_id)
     # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
     tg_notify.after_finish(app, run_id)
     return store.get(run_id)
