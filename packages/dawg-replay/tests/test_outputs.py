@@ -108,6 +108,21 @@ def test_missing_output_journal_and_suspicion(app, add):
     assert "shots/page-*.png" in repair.fix_prompt(app, rec)["text"]
 
 
+def test_optional_output_absent_is_fine(app, add, tmp_path):
+    """`optional = true` (ветвление): файла нет, и это не предупреждение и не тихая поломка."""
+    f = tmp_path / "src" / "branchy.py"
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(SCRIPT.format(name="branchy", version=1, contract="1.4",
+                               outputs=DECLARED + "# optional = true\n"), encoding="utf-8")
+    app.registry.add(f)
+    rec = run(app, "branchy", "ok")  # prices.csv есть, скриншотов нет
+    assert rec.status == "ok" and journal(app, rec.id) == []
+    assert outputs.check_run(app, rec.id) == []
+    assert repair.suspicion(app, rec) is None
+    got = outputs.script_outputs(app, "branchy")["outputs"]
+    assert [(o["name"], o["optional"]) for o in got] == [("prices.csv", False), ("shots/page-*.png", True)]
+
+
 def test_missing_both(app, add):
     rec = run(app, add(), "nothing")
     assert [e["output"] for e in journal(app, rec.id)] == ["prices.csv", "shots/page-*.png"]
@@ -146,8 +161,10 @@ def test_script_outputs_declared(app, add):
     got = outputs.script_outputs(app, name)
     assert got["source"] == "declared" and got["run_id"] is None
     assert got["outputs"] == [
-        {"name": "prices.csv", "title": "Цены", "columns": ["sku", "price"], "main": True, "pattern": False},
-        {"name": "shots/page-*.png", "title": "Скриншоты", "columns": None, "main": False, "pattern": True},
+        {"name": "prices.csv", "title": "Цены", "columns": ["sku", "price"], "main": True, "pattern": False,
+         "optional": False},
+        {"name": "shots/page-*.png", "title": "Скриншоты", "columns": None, "main": False, "pattern": True,
+         "optional": False},
     ]
 
 
