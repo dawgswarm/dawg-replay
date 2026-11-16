@@ -24,6 +24,20 @@
   </div>
   {% endif %}
   {% if f.notice %}<p class="notice notice-ok" role="status">{{ f.notice }}</p>{% endif %}
+  {% if f.passed %}
+  <div class="notice notice-ok passed-note" role="status">
+    <p>Файлы из <a href="/runs/{{ f.passed.run_id }}">запуска {{ f.passed.title }} от {{ f.passed.created_at | when }}</a> подставлены в форму. Проверьте остальные параметры и запустите.</p>
+    {% if f.passed.files %}
+    <form hx-post="/links" hx-target="this" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="source" value="{{ f.passed.script }}"><input type="hidden" name="target" value="{{ f.name }}">
+      <input type="hidden" name="after" value="ok"><input type="hidden" name="back" value="passed">
+      {% for x in f.passed.files %}<input type="hidden" name="file_{{ loop.index0 }}" value="{{ x.file }}"><input type="hidden" name="param_{{ loop.index0 }}" value="{{ x.param }}">{% endfor %}
+      <button type="submit" class="secondary small">Запускать так всегда</button>
+      <span class="hint-inline">после каждого успешного запуска {{ f.passed.title }}, со свежими файлами</span>
+    </form>
+    {% endif %}
+  </div>
+  {% endif %}
   {% if f.form_error %}<p class="notice notice-error" role="alert">{{ f.form_error }}</p>
   {% elif f.has_errors %}<p class="notice notice-error" role="alert">Проверьте отмеченные поля: запуск не начат.</p>{% endif %}
 

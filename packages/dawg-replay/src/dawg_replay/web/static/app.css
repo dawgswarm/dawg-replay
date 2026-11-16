@@ -1075,3 +1075,9 @@ a.slink:hover { border-color: var(--action); }
 .slink-title { font-weight: 600; font-size: 0.92rem; }
 .slinks-add { display: flex; gap: 0.4rem; align-items: center; }
 .slinks-add select { min-height: 2rem; padding: 0.25rem 0.5rem; font-size: 0.88rem; }
+
+/* --- значение из результата другого скрипта (templates/_field.html) --- */
+.from-result { margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--line-strong); }
+.from-result-label { font-weight: 500; font-size: 0.88rem; color: var(--ink-soft); }
+.from-result-fed { margin-top: 0; }
+.passed-note form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }

@@ -39,6 +39,7 @@ from dawg_replay import asks, diagnosis, insurance, launch, minutes, repair, ret
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import parse_ts
 from dawg_replay.runview import RunView, again_note
+from dawg_replay.web import links_data
 
 VIEWS_CACHE = 32  # сколько запусков держать открытыми одновременно
 SSE_INTERVAL = 0.5
@@ -597,9 +598,23 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         ctx["panels"] = render_panels(templates, snap, set(PANELS))
         ctx["log_html"] = render_log(templates, snap["log"])
         with request.app.state.ui.open_app() as app:
+            rec = app.runs.get(request.path_params["run_id"])
             # Параметры не входят в снимок (он идёт и в поток событий): берутся из записи запуска.
-            ctx["run_params"] = params_view(app, app.runs.get(request.path_params["run_id"]).to_dict())
+            ctx["run_params"] = params_view(app, rec.to_dict())
+            # Связи (M6): что запустило этот запуск, откуда файлы, кому он передал; передача вручную.
+            ctx["prov"] = links_data.provenance(app, rec)
+            ctx["transfer"] = links_data.transfer_view(app, rec) if not rec.running and not rec.draft else None
         return page(request, "run/run.html", **ctx)
+
+    def transfer(request: Request) -> Response:
+        """«Передать в другой скрипт»: сопоставить файлы запуска с параметрами выбранного скрипта."""
+        with request.app.state.ui.open_app() as app:
+            try:
+                rec = app.runs.get(request.path_params["run_id"])
+            except ReplayError as e:
+                return notice(request, e.message, ok=False, status_code=404)
+            t = links_data.transfer_view(app, rec, request.query_params.get("script") or None)
+        return templates.TemplateResponse(request, "run/_transfer.html", {"t": t})
 
     async def run_events(request: Request) -> Response:
         try:
@@ -834,6 +849,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
     return [
         Route("/runs/{run_id}", run_page),
+        Route("/runs/{run_id}/_transfer", transfer),
         Route("/runs/{run_id}/events", run_events),
         Route("/runs/{run_id}/files/{path:path}", download),
         Route("/runs/{run_id}/stderr.log", stderr_log),

@@ -13,6 +13,7 @@
     </div>
     {{ panels.metrics | safe }}
   </section>
+  {% include "run/_links.html" %}
   {{ panels.repair | safe }}
   {{ panels.suspects | safe }}
   {{ panels["items"] | safe }}

@@ -1,0 +1,19 @@
+{# Сопоставление файлов запуска с параметрами выбранного скрипта. Контекст t: links_data.transfer_view. #}
+{% if t.target %}
+<form class="transfer-map" action="/scripts/{{ t.target.name | urlencode }}" method="get">
+  <input type="hidden" name="from_run" value="{{ t.run_id }}">
+  {% for r in t.rows %}
+  <div class="field">
+    <label for="tr-{{ r.name }}">{{ r.title }} <span class="hint-inline">({{ r.kind }}{% if r.columns %}, нужны колонки {{ r.columns | join(", ") }}{% endif %})</span></label>
+    <select id="tr-{{ r.name }}" name="use_{{ r.name }}">
+      <option value="">не передавать</option>
+      {% for f in t.files %}<option value="{{ f }}"{% if r.pick == f %} selected{% endif %}>{{ f }}</option>{% endfor %}
+    </select>
+  </div>
+  {% endfor %}
+  <p class="hint">Откроется форма запуска {{ t.target.title }} с этими файлами. Это разовая передача; там же можно сделать так всегда.</p>
+  <button type="submit">Открыть форму запуска</button>
+</form>
+{% elif t.targets %}
+<p class="hint">Выберите скрипт, которому передать файлы.</p>
+{% endif %}

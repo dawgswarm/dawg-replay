@@ -91,8 +91,8 @@ def routes(templates: Jinja2Templates, form_reader: Any) -> list[Route]:
                 if existing is not None:
                     link, warnings = existing, []
                 else:
-                    files: list[links.Transfer] = []
-                    if after == "never":
+                    files: list[links.Transfer] = links_data.parse_link_form(form)["files"] if "file_0" in form else []
+                    if after == "never" and not files:
                         # «Только файл» без передачи не сохраняется: первая подходящая пара сразу.
                         params = links_data.eligible_params(app, target)
                         if params:
@@ -103,7 +103,12 @@ def routes(templates: Jinja2Templates, form_reader: Any) -> list[Route]:
                 if back == "script":
                     return render(request, "links/_script_block.html",
                                   b=_block(request, target if form.get("side") == "in" else source), error=_error_text(e))
+                if back == "passed":
+                    return render(request, "links/_passed.html", error=_error_text(e))
                 return render(request, "links/_notice.html", error=_error_text(e))
+        if back == "passed":
+            return render(request, "links/_passed.html", link=link, existed=existing is not None,
+                          warnings=[w.to_dict() for w in warnings])
         if back == "script":
             return Response(status_code=204, headers={"HX-Redirect": f"/links?link={link.id}"})
         resp = _link_panel(request, link.id, warnings=[w.to_dict() for w in warnings],

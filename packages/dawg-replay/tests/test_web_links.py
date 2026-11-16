@@ -233,3 +233,96 @@ def test_script_block(c, secrets_, home, kr):
     assert "notice-error" in r.text and 'id="script-links"' in r.text
     page = c.get("/links?script=update-prices").text
     assert "Если источников с запуском несколько" in page
+
+
+def test_run_form_value_from_result(c, secrets_, home, kr):
+    src = run_sync(home, kr, "wb-prices")
+    assert src.status == "ok"
+    form = c.get("/scripts/update-prices").text
+    assert 'name="items__ref"' in form
+    assert '<option value="last:wb-prices:prices.csv">Цены WB: prices.csv, последний успешный</option>' in form
+    # Ozon ещё не запускался, но выходы объявлены: их тоже можно выбрать
+    assert 'value="last:ozon-prices:prices.csv"' in form and 'value="last:ozon-prices:@main"' in form
+    r = post(c, secrets_, "/scripts/update-prices/run", {"_preset": "", "items": "", "items__ref": "last:wb-prices:prices.csv"})
+    assert r.status_code == 204, r.text
+    run_id = r.headers["HX-Redirect"].rsplit("/", 1)[1]
+    with App(home, keyring_backend=kr) as a:
+        rec = a.runs.get(run_id)
+    assert rec.inputs and rec.inputs[0]["run"] == src.id and rec.inputs[0]["param"] == "items"
+    # мусор в ссылке: ошибка у поля, выбор не теряется
+    r = post(c, secrets_, "/scripts/update-prices/run", {"_preset": "", "items": "", "items__ref": "garbage"})
+    assert "выберите результат из списка" in r.text
+    # без значения и без связи: обязательная таблица
+    r = post(c, secrets_, "/scripts/update-prices/run", {"_preset": "", "items": ""})
+    assert "загрузите таблицу" in r.text
+
+
+def test_preset_keeps_result_ref(c, secrets_, home, kr):
+    run_sync(home, kr, "wb-prices")
+    r = post(c, secrets_, "/scripts/update-prices/presets",
+             {"_preset_name": "из WB", "items": "", "items__ref": "last:wb-prices:prices.csv"})
+    assert r.status_code == 200
+    with App(home, keyring_backend=kr) as a:
+        assert a.get_preset("update-prices", "из WB").results == {"items": "last:wb-prices:prices.csv"}
+    form = c.get("/scripts/update-prices?preset=из WB").text
+    assert re.search(r'<option value="last:wb-prices:prices.csv"\s+selected>', form)
+    # пресет со ссылкой на карте пунктиром
+    assert "пресет «из WB»: prices.csv → items" in c.get("/links").text
+
+
+def test_fed_param_not_required_in_form(c, secrets_, home, kr):
+    run_sync(home, kr, "wb-prices")
+    with App(home, keyring_backend=kr) as a:
+        a.links.add("wb-prices", "update-prices", starts=False, files=[links.Transfer("prices.csv", "items")])
+    form = c.get("/scripts/update-prices").text
+    assert "придёт по связи: из результата Цены WB, prices.csv, последний успешный (сегодня" in form
+    r = post(c, secrets_, "/scripts/update-prices/run", {"_preset": "", "items": ""})
+    assert r.status_code == 204, r.text
+
+
+def test_provenance_and_transfer(c, secrets_, home, kr):
+    src = run_sync(home, kr, "wb-prices")
+    page = c.get(f"/runs/{src.id}").text
+    assert "Передать в другой скрипт" in page and "Обновить мои цены" in page
+    assert "Запущен после" not in page
+    frag = c.get(f"/runs/{src.id}/_transfer?script=update-prices").text
+    assert 'action="/scripts/update-prices"' in frag and f'name="from_run" value="{src.id}"' in frag
+    assert re.search(r'<option value="prices.csv"\s+selected>', frag)  # колонки совпали с объявленными
+    assert "Выберите скрипт" in c.get(f"/runs/{src.id}/_transfer?script=nope").text
+
+    form = c.get(f"/scripts/update-prices?from_run={src.id}&use_items=prices.csv").text
+    assert "подставлены в форму" in form and "Запускать так всегда" in form
+    assert re.search(rf'<option value="run:{src.id}:prices.csv"\s+selected>Цены WB, запуск от', form)
+    r = post(c, secrets_, "/scripts/update-prices/run", {"_preset": "", "items": "", "items__ref": f"run:{src.id}:prices.csv"})
+    assert r.status_code == 204, r.text
+    got = r.headers["HX-Redirect"].rsplit("/", 1)[1]
+    with App(home, keyring_backend=kr) as a:
+        assert a.runs.get(got).inputs[0]["run"] == src.id
+    page = c.get(f"/runs/{got}").text
+    assert "<code>items</code> из результата Цены WB: prices.csv" in page
+    page = c.get(f"/runs/{src.id}").text
+    assert "Передал в:" in page and f'href="/runs/{got}"' in page and "взял файл" in page
+
+    # «Запускать так всегда»: связь с той же передачей
+    r = post(c, secrets_, "/links", {"source": "wb-prices", "target": "update-prices", "after": "ok", "back": "passed",
+                                     "file_0": "prices.csv", "param_0": "items"})
+    assert "Связь создана" in r.text
+    with App(home, keyring_backend=kr) as a:
+        link = a.links.find("wb-prices", "update-prices")
+    assert link.starts and link.files == (links.Transfer("prices.csv", "items"),)
+    r = post(c, secrets_, "/links", {"source": "wb-prices", "target": "update-prices", "after": "ok", "back": "passed",
+                                     "file_0": "prices.csv", "param_0": "items"})
+    assert "уже есть" in r.text
+
+
+def test_provenance_started_by_link(home, kr, scripts):
+    src = run_sync(home, kr, "wb-prices")
+    with App(home, keyring_backend=kr) as a:
+        link, _ = a.links.add("wb-prices", "update-prices", files=[links.Transfer("prices.csv", "items")])
+        prepared = launch.prepare(a, "update-prices", link_id=link.id, source_run=src.id)
+        rec = a.runs.get(prepared.run.id)
+        prov = links_data.provenance(a, rec)
+        assert prov["after"]["script"] == "wb-prices" and prov["after"]["run_id"] == src.id
+        assert prov["after"]["link_id"] == link.id
+        back = links_data.provenance(a, a.runs.get(src.id))
+        assert [p["id"] for p in back["passed"]] == [rec.id] and back["passed"][0]["started"]

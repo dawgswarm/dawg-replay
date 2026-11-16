@@ -501,3 +501,11 @@ tbody tr:last-child td { border-bottom: 0; }
 .result-links { margin: 0.6rem 0 0; padding-left: 1.2rem; }
 .result-links a { overflow-wrap: anywhere; }
 .run-files > .file-thumbs, .run-files > .file-pdf { flex-basis: 100%; }
+
+/* --- связи запуска (templates/run/_links.html) --- */
+.run-links { display: flex; flex-direction: column; gap: 0.35rem; }
+.run-links-line { margin: 0; }
+.run-links-cap { color: var(--ink-soft); margin-right: 0.3rem; }
+.run-links-list { margin: 0; padding-left: 1.2rem; font-size: 0.92rem; }
+.transfer-map { margin-top: 0.9rem; }
+.transfer-map .field { margin-bottom: 0.8rem; }
