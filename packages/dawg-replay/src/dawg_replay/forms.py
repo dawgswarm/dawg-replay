@@ -69,6 +69,7 @@ WIDGETS = {
 }
 REL = "__rel"  # поле выбора относительной даты: `<имя>__rel`
 REL_TIME = "__reltime"  # время к относительной дате у datetime
+REF = "__ref"  # table и file: ссылка на результат другого скрипта (run:… или last:…, dawg_replay.links)
 PREVIEW_ROWS = 5
 FILE_EXPIRED = "загруженный файл устарел (хранится сутки), загрузите его заново"
 TABLE_EXPIRED = "загруженная таблица устарела (хранится сутки), загрузите файл заново"
@@ -110,6 +111,10 @@ class Field:
     relative: str = ""  # date, datetime: выбранное выражение (`today-1`) или "" для точной даты
     rel_time: str = ""  # datetime: время к относительной дате
     rel_options: list[dict[str, str]] | None = None  # date, datetime: {"value", "title", "today"}
+    ref_allowed: bool = False  # table, file без секрета: значение можно взять из результата другого скрипта
+    ref: str = ""  # выбранная ссылка run:… или last:…
+    ref_options: list[dict[str, str]] | None = None  # {"value", "title"}
+    fed: dict[str, Any] | None = None  # придёт по связи: {"title", "cond", "at"}
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -187,7 +192,7 @@ def upload_file(app: Any, script: str, param: str, files: list[tuple[str, bytes]
         uids = [store.put_file(p.name, display_name(n), d, secret=p.secret) for n, d in files]
         info = file_info(p, uids, [{"name": display_name(n), "size": len(d)} for n, d in files])
     (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
-                       tables={p.name: info} if info else None)
+                       tables={p.name: info} if info else None, sources=result_sources(app, _only(manifest, p)))
     return {"field": fl}
 
 
@@ -223,9 +228,15 @@ def fields_for(
     errors: Mapping[str, str] | None = None,
     secret_status: Mapping[str, bool] | None = None,
     tables: Mapping[str, dict[str, Any]] | None = None,
+    sources: Mapping[str, Any] | None = None,
 ) -> list[Field]:
     """Поля формы. Значение поля: введённое (`raw`) > `values` > `default`.
-    `tables`: загруженные таблицы по имени параметра (table_info); значение поля это id загрузки."""
+    `tables`: загруженные таблицы по имени параметра (table_info); значение поля это id загрузки.
+    `sources`: что можно взять из результатов других скриптов (result_sources)."""
+    sources = sources or {}
+    ref_opts: dict[str, list[dict[str, str]]] = sources.get("options") or {}
+    fed: dict[str, dict[str, Any]] = sources.get("fed") or {}
+    titles: dict[str, str] = sources.get("titles") or {}
     values = values or {}
     raw = raw or {}
     errors = errors or {}
@@ -243,6 +254,15 @@ def fields_for(
         else:
             value = display(p, p.default)
         rel, rel_time, options = _relative_state(p, values, raw)
+        allowed = p.type in ("table", "file") and not p.secret
+        ref = ""
+        if allowed:
+            ref = str(raw.get(f"{p.name}{REF}") or "") if f"{p.name}{REF}" in raw else (
+                values[p.name] if isinstance(values.get(p.name), str) and _is_ref(values[p.name]) else "")
+        if ref and ref not in [o["value"] for o in ref_opts.get(p.name, [])]:
+            extra = [{"value": ref, "title": titles.get(ref) or ref}]
+        else:
+            extra = []
         out.append(
             Field(
                 name=p.name,
@@ -274,6 +294,10 @@ def fields_for(
                 relative=rel,
                 rel_time=rel_time,
                 rel_options=options,
+                ref_allowed=allowed,
+                ref=ref,
+                ref_options=(ref_opts.get(p.name, []) + extra) if allowed else None,
+                fed=fed.get(p.name) if allowed else None,
                 error=errors.get(p.name),
             )
         )
@@ -297,9 +321,11 @@ def _relative_state(p: Param, values: Mapping[str, Any], raw: Mapping[str, Any])
     return expr, t, options
 
 
-def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, Any]:
+def build_fields(app: Any, script: str, preset: str | None = None,
+                 refs: Mapping[str, str] | None = None) -> dict[str, Any]:
     """Поля для первой отрисовки. С `preset` поля заполнены значениями пресета;
-    В `dropped` ключи пресета, которые текущая версия скрипта не принимает."""
+    В `dropped` ключи пресета, которые текущая версия скрипта не принимает.
+    `refs`: ссылки на результат поверх пресета (кнопка «Передать в другой скрипт»)."""
     manifest = app.registry.manifest(script)
     values: dict[str, Any] = {}
     dropped: list[str] = []
@@ -327,13 +353,101 @@ def build_fields(app: Any, script: str, preset: str | None = None) -> dict[str, 
                 file = saved or "таблица пресета"
                 uid = store.put(param.name, file, rows, secret=param.secret)
                 tables[param.name] = table_info(param, uid, file, rows)
+        values.update(p.results)
+    for name, ref in (refs or {}).items():
+        values[name] = ref
+        tables.pop(name, None)
     return {
-        "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script), tables=tables),
+        "fields": fields_for(manifest, values=values, secret_status=app.secret_status(script), tables=tables,
+                             sources=result_sources(app, manifest, values)),
         "preset": preset,
         "dropped": dropped,
         "dropped_why": dropped_why,
         "missing": missing,
     }
+
+
+# --- значения из результатов других скриптов (M6, dawg_replay.links) ------------
+
+
+def _is_ref(value: Any) -> bool:
+    from dawg_replay.links import is_ref
+
+    return is_ref(value)
+
+
+def fed_params(app: Any, manifest: Manifest) -> set[str]:
+    """Параметры, которые придут по включённым связям в этот скрипт."""
+    return {t.param for x in app.links.incoming(manifest.name) if x.enabled for t in x.files}
+
+
+def _local_short(ts: str | None) -> str:
+    from dawg_replay.runs import parse_ts
+
+    dt = parse_ts(ts) if ts else None
+    return dt.astimezone().strftime("%d.%m %H:%M") if dt else ""
+
+
+def ref_title(app: Any, ref_text: str) -> str:
+    """Ссылка на результат словами: «Цены WB: prices.csv, последний успешный» или «запуск Цены WB от 15.11 03:12: …»."""
+    from dawg_replay import links
+
+    ref = links.parse_ref(ref_text)
+    if ref is None:
+        return ref_text
+    file = "главный файл" if ref.file == links.MAIN else ref.file
+    if ref.run_id:
+        try:
+            run = app.runs.get(ref.run_id)
+        except ReplayError:
+            return f"запуск {ref.run_id}: {file} (запуска нет)"
+        return f"{_script_title(app, run.script_name)}, запуск от {_local_short(run.created_at)}: {file}"
+    return f"{_script_title(app, ref.script)}: {file}, {links.COND_WORDS[ref.cond]}"
+
+
+def _script_title(app: Any, name: str | None) -> str:
+    try:
+        return app.registry.get(name).title or name
+    except ReplayError:
+        return name or ""
+
+
+def result_sources(app: Any, manifest: Manifest, values: Mapping[str, Any] | None = None) -> dict[str, Any]:
+    """Что предложить в поле «из результата другого скрипта» и что придёт по связям.
+
+    options: параметр -> [{"value": "last:<скрипт>:<файл>", "title"}] по объявленным выходам
+    других скриптов или файлам их последних запусков; fed: параметр -> {"title", "cond", "at"};
+    titles: подписи уже выбранных ссылок (в том числе run:…)."""
+    from dawg_replay import links, outputs
+
+    params = [p for p in manifest.params if p.type in ("table", "file") and not p.secret]
+    if not params:
+        return {}
+    offers: list[dict[str, str]] = []
+    for script in app.registry.list():
+        if script.name == manifest.name:
+            continue
+        title = script.title or script.name
+        try:
+            got = outputs.script_outputs(app, script.name)
+        except ReplayError:
+            continue
+        names = [o["name"] for o in got["outputs"]]
+        if got["source"] != "none":
+            offers.append({"value": f"last:{script.name}:{links.MAIN}", "title": f"{title}: главный файл, последний успешный"})
+        for name in names:
+            offers.append({"value": f"last:{script.name}:{name}", "title": f"{title}: {name}, последний успешный"})
+    fed: dict[str, dict[str, Any]] = {}
+    for x in app.links.incoming(manifest.name):
+        if not x.enabled:
+            continue
+        last = app.links.last_suitable_run(x.source, x.cond)
+        for t in x.files:
+            fed.setdefault(t.param, {"title": _script_title(app, x.source), "cond": links.COND_WORDS[x.cond],
+                                     "at": (last.finished_at or last.created_at) if last else None,
+                                     "file": "главный файл" if t.file == links.MAIN else t.file})
+    titles = {v: ref_title(app, v) for v in (values or {}).values() if isinstance(v, str) and _is_ref(v)}
+    return {"options": {p.name: offers for p in params}, "fed": fed, "titles": titles}
 
 
 # --- разбор отправленной формы ---------------------------------------------------
@@ -362,12 +476,15 @@ def parse(
     require: bool = True,
     secret_set: Mapping[str, bool] | None = None,
     uploads: Uploads | None = None,
+    fed: set[str] | frozenset[str] = frozenset(),
 ) -> Submission:
     """Разбирает форму в типизированные значения и проверяет их через kit.
 
     `require=False` (сохранение пресета): обязательность не проверяется.
     `secret_set`: какие секреты уже есть в keyring (для проверки обязательных).
     `uploads`: хранилище загруженных таблиц; поле таблицы несёт id загрузки.
+    `fed`: параметры, которые придут по связям: пустое поле у них не ошибка.
+    Ссылка на результат (`<имя>__ref`) идёт в значения строкой, файл подставит запуск.
     """
     secret_set = secret_set or {}
     values: dict[str, Any] = {}
@@ -408,6 +525,15 @@ def parse(
                     errors[p.name] = _human(p, problem)
                 else:
                     values[p.name] = expr
+                continue
+        if p.type in ("table", "file") and not p.secret:
+            ref = (_getlist(form, f"{p.name}{REF}") or [""])[-1].strip()
+            if ref:
+                raw[f"{p.name}{REF}"] = ref
+                if _is_ref(ref):
+                    values[p.name] = ref
+                else:
+                    errors[p.name] = "выберите результат из списка"
                 continue
         if p.type == "file":
             uids = [u for u in (items[-1] if items else "").split(",") if u.strip()]
@@ -477,12 +603,17 @@ def parse(
             if p.type == "secret":
                 if p.name not in new_secrets and not secret_set.get(p.name):
                     errors[p.name] = "обязательный секрет не задан"
-            elif p.name not in values and is_blank(p, p.default):
+            elif p.name not in values and is_blank(p, p.default) and p.name not in fed:
                 errors[p.name] = {"table": "загрузите таблицу", "file": "загрузите файл"}.get(p.type, "обязательное поле")
         if not errors:
             # Итоговая проверка тем же kit, что и при запуске. Секреты подставляются заглушкой:
-            # их значения форма не знает, обязательность уже проверена выше.
-            check = dict(values)
+            # их значения форма не знает, обязательность уже проверена выше. Файлы из результатов
+            # других скриптов подставит запуск, поэтому здесь их параметры не обязательны.
+            later = set(fed) | {k for k, v in values.items() if isinstance(v, str) and _is_ref(v)}
+            if later:
+                manifest = replace(manifest, params=tuple(
+                    replace(p, required=False) if p.name in later else p for p in manifest.params))
+            check = {k: v for k, v in values.items() if k not in later or not isinstance(v, str)}
             for p in manifest.params:
                 if p.type == "secret" and (p.name in new_secrets or secret_set.get(p.name)):
                     check[p.name] = "***"
@@ -594,11 +725,12 @@ def submit(app: Any, script: str, form: Any) -> Submission:
             status[name] = True
         except ReplayError as e:
             sub.errors[name] = e.message
-    full = parse(manifest, form, require=True, secret_set=status, uploads=store)
+    full = parse(manifest, form, require=True, secret_set=status, uploads=store, fed=fed_params(app, manifest))
     full.secrets_saved = sub.secrets_saved
     full.new_secrets = {}
     full.errors.update({k: v for k, v in sub.errors.items() if k not in full.errors})
-    full.fields = fields_for(manifest, raw=full.raw, errors=full.errors, secret_status=status, tables=full.tables)
+    full.fields = fields_for(manifest, raw=full.raw, errors=full.errors, secret_status=status, tables=full.tables,
+                             sources=result_sources(app, manifest, full.values))
     return full
 
 
@@ -613,7 +745,8 @@ def save_preset(app: Any, script: str, preset: str, form: Any) -> Submission:
             app.save_preset(script, preset, sub.values, sub.files)
         except ReplayError as e:
             sub.errors[FORM_ERROR] = e.message
-    sub.fields = fields_for(manifest, raw=sub.raw, errors=sub.errors, secret_status=status, tables=sub.tables)
+    sub.fields = fields_for(manifest, raw=sub.raw, errors=sub.errors, secret_status=status, tables=sub.tables,
+                            sources=result_sources(app, manifest, sub.values))
     return sub
 
 
@@ -658,7 +791,7 @@ def upload_table(
                 store.put_source(uid, data)
                 info["sheets"], info["sheet"] = sheets, sheet if sheet in sheets else sheets[0]
     (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
-                       tables={p.name: info} if info else None)
+                       tables={p.name: info} if info else None, sources=result_sources(app, _only(manifest, p)))
     if error:
         fl.table = {"file": name, "failed": True}
         if len(sheets) > 1:
@@ -736,7 +869,7 @@ def manual_table(app: Any, script: str, param: str, columns: list[str], cells: l
             uid = Uploads(app.paths.uploads).put(p.name, MANUAL_FILE, rows, secret=p.secret)
             info = table_info(p, uid, MANUAL_FILE, rows)
     (fl,) = fields_for(_only(manifest, p), errors={p.name: error} if error else None,
-                       tables={p.name: info} if info else None)
+                       tables={p.name: info} if info else None, sources=result_sources(app, _only(manifest, p)))
     if error:
         fl.table = {"file": MANUAL_FILE, "failed": True}
         fl.manual = {"columns": cols, "rows": [cells[i:i + len(cols)] for i in range(0, len(cells), len(cols))]

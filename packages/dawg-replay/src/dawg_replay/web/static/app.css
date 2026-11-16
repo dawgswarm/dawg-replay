@@ -1046,3 +1046,38 @@ pre { max-width: 100%; overflow-x: auto; }
 .schedule-tg > summary { cursor: pointer; font-size: 0.9rem; font-weight: 600; color: var(--ink-soft); }
 .schedule-tg[open] > summary { margin-bottom: 0.7rem; }
 .notify-choice select { max-width: 26rem; }
+
+/* --- связи на странице скрипта (web/templates/links/_script_block.html) --- */
+
+.slinks { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 0.75rem; align-items: start; }
+@media (max-width: 720px) { .slinks { grid-template-columns: 1fr; } .slinks-me { justify-content: flex-start; } }
+.slinks-col { display: flex; flex-direction: column; gap: 0.45rem; min-width: 0; }
+.slinks-cap { margin: 0 0 0.1rem; color: var(--ink-soft); font-size: 0.85rem; }
+.slinks-me { display: flex; align-items: center; gap: 0.5rem; padding-top: 1.5rem; }
+.slinks-arrow { color: var(--ink-faint); }
+.slink {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.45rem 0.7rem;
+  border: 1.5px solid var(--line-strong);
+  border-radius: var(--r-block);
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+a.slink:hover { border-color: var(--action); }
+.slink.is-me { border-color: var(--action); background: var(--action-soft); }
+.slink.is-dashed { border-style: dashed; }
+.slink.is-off { opacity: 0.6; }
+.slink.is-warning { border-color: var(--partial); }
+.slink.is-error { border-color: var(--failed); }
+.slink-title { font-weight: 600; font-size: 0.92rem; }
+.slinks-add { display: flex; gap: 0.4rem; align-items: center; }
+.slinks-add select { min-height: 2rem; padding: 0.25rem 0.5rem; font-size: 0.88rem; }
+
+/* --- значение из результата другого скрипта (templates/_field.html) --- */
+.from-result { margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--line-strong); }
+.from-result-label { font-weight: 500; font-size: 0.88rem; color: var(--ink-soft); }
+.from-result-fed { margin-top: 0; }
+.passed-note form { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }

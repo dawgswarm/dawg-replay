@@ -33,7 +33,7 @@ from dawg_replay.runs import parse_ts
 from dawg_replay.uploads import Uploads
 from dawg_replay.values import rows_word
 from dawg_replay.web import home as home_data
-from dawg_replay.web import run_screen, telegram_view
+from dawg_replay.web import links_data, links_view, run_screen, telegram_view
 from dawg_replay.web.security import Secrets
 
 # Тело запроса загрузки: файл и поля multipart. Меньше порога SpooledTemporaryFile Starlette
@@ -300,13 +300,15 @@ def routes(templates: Jinja2Templates) -> list[Route]:
 
     # --- Скрипт ---
 
-    def _script_ctx(app, name: str, preset: str | None = None, sub=None, notice: str | None = None) -> dict[str, Any]:
-        """Контекст формы скрипта: поля (из пресета или из отправленной формы), пресеты, ошибки."""
+    def _script_ctx(app, name: str, preset: str | None = None, sub=None, notice: str | None = None,
+                    refs: dict[str, str] | None = None) -> dict[str, Any]:
+        """Контекст формы скрипта: поля (из пресета или из отправленной формы), пресеты, ошибки.
+        `refs`: файлы из результата другого запуска (кнопка «Передать в другой скрипт»)."""
         if sub is not None:
             form_ctx = {"fields": sub.fields, "preset": preset, "dropped": []}
             errors = sub.errors
         else:
-            form_ctx = forms.build_fields(app, name, preset)
+            form_ctx = forms.build_fields(app, name, preset, refs=refs)
             errors = {}
         tg = tg_rules.connected(app)
         return {
@@ -324,10 +326,13 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def script_page(request: Request) -> Response:
         name = request.path_params["name"]
         preset = request.query_params.get("preset") or None
+        refs, passed = _passed_refs(request)
         with _ui(request).open_app() as app:
             try:
                 view = app.script_view(name)
-                ctx = _script_ctx(app, name, preset)
+                ctx = _script_ctx(app, name, preset, refs=refs)
+                if passed:
+                    ctx["passed"] = links_data.passed_note(app, passed, refs)
                 meta = home_data.manifest_meta(app, name)
                 view["minutes"] = minutes.period(app, days=7, script=name).to_dict()
                 repair.annotate(app, view["runs"])  # тихая поломка в истории скрипта
@@ -339,6 +344,17 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         view["cover"] = home_data.cover(view["script"]["title"], meta["site"])
         view["tags"] = list(meta["tags"])
         return page(request, "script.html", active="scripts", v=view, f=ctx, lg=lg, tg=tg)
+
+    def _passed_refs(request: Request) -> tuple[dict[str, str], str | None]:
+        """?from_run=<id>&use_<параметр>=<файл>: значения формы из файлов другого запуска."""
+        run_id = (request.query_params.get("from_run") or "")[:64]
+        if not run_id or not re.fullmatch(r"[0-9A-Za-z_-]+", run_id):
+            return {}, None
+        refs = {}
+        for key, value in request.query_params.items():
+            if key.startswith("use_") and value and len(value) <= 512:
+                refs[key[4:]] = f"run:{run_id}:{value}"
+        return refs, run_id
 
     def script_form(request: Request) -> Response:
         """Форма заново: выбор пресета подставляет его значения."""
@@ -437,7 +453,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 if not preset_name:
                     sub = forms.parse(app.registry.manifest(name), form, require=False, uploads=Uploads(app.paths.uploads))
                     sub.fields = forms.fields_for(app.registry.manifest(name), raw=sub.raw, secret_status=app.secret_status(name),
-                                                  tables=sub.tables)
+                                                  tables=sub.tables,
+                                                  sources=forms.result_sources(app, app.registry.manifest(name), sub.values))
                     ctx = _script_ctx(app, name, None, sub)
                     ctx["form_error"] = "Введите имя пресета."
                     return fragment(request, "_script_form.html", f=ctx)
@@ -1012,6 +1029,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/settings/usage", settings_usage),
         Route("/settings/limits", settings_limits, methods=["POST"]),
         *telegram_view.routes(templates, _form),
+        *links_view.routes(templates, _form),
         Route("/settings/telegram/rules", settings_tg_rules, methods=["POST"]),
     ]
 

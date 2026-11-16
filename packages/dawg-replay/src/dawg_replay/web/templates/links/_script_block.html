@@ -1,0 +1,56 @@
+{# Блок связей на странице скрипта: откуда берёт данные, этот скрипт, что запускает после. Контекст b: links_data.script_block. #}
+<div id="script-links">
+{% if error %}<p class="notice notice-error" role="alert">{{ error | ticks }}</p>{% endif %}
+<div class="slinks">
+  <div class="slinks-col">
+    <p class="slinks-cap">Откуда берёт данные</p>
+    {% for x in b.incoming %}
+    <a class="slink{% if not x.starts %} is-dashed{% endif %}{% if not x.enabled %} is-off{% endif %}{% if x.level %} is-{{ x.level }}{% endif %}" href="/links?link={{ x.id }}">
+      <span class="slink-title">{{ x.title }}</span>
+      <span class="hint-inline">{% if x.files %}{{ x.files | join(', ') }}{% else %}только запуск{% endif %}{% if x.starts %}, {{ x.after }}{% endif %}{% if not x.enabled %}, выключена{% endif %}</span>
+    </a>
+    {% endfor %}
+    {% for r in b.refs_in %}
+    <a class="slink is-dashed" href="/scripts/{{ b.name | urlencode }}?preset={{ r.preset | urlencode }}#launch">
+      <span class="slink-title">{{ r.title }}</span><span class="hint-inline">пресет «{{ r.preset }}»: {{ r.label }}</span>
+    </a>
+    {% endfor %}
+    {% if b.others %}
+    <form class="slinks-add" hx-post="/links" hx-target="#script-links" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="target" value="{{ b.name }}"><input type="hidden" name="side" value="in"><input type="hidden" name="back" value="script">
+      <label class="sr" for="sl-in">Источник</label>
+      <select id="sl-in" name="source">{% for o in b.others %}<option value="{{ o.name }}">{{ o.title }}</option>{% endfor %}</select>
+      <button type="submit" class="secondary small">+ источник</button>
+    </form>
+    {% endif %}
+  </div>
+  <div class="slinks-me">
+    <span class="slinks-arrow" aria-hidden="true">→</span>
+    <span class="slink is-me"><span class="slink-title">этот скрипт</span>{% if b.mode %}<span class="hint-inline">{{ b.mode }}</span>{% endif %}</span>
+    <span class="slinks-arrow" aria-hidden="true">→</span>
+  </div>
+  <div class="slinks-col">
+    <p class="slinks-cap">Что запускает после</p>
+    {% for x in b.outgoing %}
+    <a class="slink{% if not x.starts %} is-dashed{% endif %}{% if not x.enabled %} is-off{% endif %}{% if x.level %} is-{{ x.level }}{% endif %}" href="/links?link={{ x.id }}">
+      <span class="slink-title">{{ x.title }}</span>
+      <span class="hint-inline">{% if x.starts %}{{ x.after }}{% else %}только файл{% endif %}{% if x.files %}: {{ x.files | join(', ') }}{% endif %}{% if not x.enabled %}, выключена{% endif %}</span>
+    </a>
+    {% endfor %}
+    {% for r in b.refs_out %}
+    <a class="slink is-dashed" href="/scripts/{{ r.target | urlencode }}?preset={{ r.preset | urlencode }}#launch">
+      <span class="slink-title">{{ r.title }}</span><span class="hint-inline">берёт в пресете «{{ r.preset }}»: {{ r.label }}</span>
+    </a>
+    {% endfor %}
+    {% if b.others %}
+    <form class="slinks-add" hx-post="/links" hx-target="#script-links" hx-swap="outerHTML" hx-disabled-elt="find button">
+      <input type="hidden" name="source" value="{{ b.name }}"><input type="hidden" name="side" value="out"><input type="hidden" name="back" value="script">
+      <label class="sr" for="sl-out">Получатель</label>
+      <select id="sl-out" name="target">{% for o in b.others %}<option value="{{ o.name }}">{{ o.title }}</option>{% endfor %}</select>
+      <button type="submit" class="secondary small">+ запускать после</button>
+    </form>
+    {% endif %}
+  </div>
+</div>
+{% if not b.has_any %}<p class="hint">Связей нет: скрипт запускается сам по себе. Связь запускает его после другого скрипта или передаёт ему файл результата.</p>{% endif %}
+</div>
