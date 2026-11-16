@@ -113,7 +113,9 @@ def _coerce(key: str, raw: Any, strict: bool = True) -> Any:
 
 def load_config(path: Path) -> Config:
     try:
-        text = _windows_retry(lambda: path.read_text(encoding="utf-8"))
+        # Под тем же замком, что запись: в одном процессе чтение не попадает на замену файла.
+        with _THREAD_LOCK:
+            text = _windows_retry(lambda: path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return Config()
     try:
@@ -143,8 +145,9 @@ coerce = _coerce  # проверка и приведение значения н
 # Telegram, запуски) и разные процессы (CLI рядом с открытым UI). На Windows файл,
 # который сейчас заменяют (os.replace), коротко не открывается (PermissionError), а
 # заменить файл, открытый другим на чтение, тоже нельзя. Поэтому: временный файл со
-# своим именем у каждого писателя, повтор чтения и замены при PermissionError на Windows,
-# изменение «прочитать, поменять, записать» под блокировкой (update_config).
+# своим именем у каждого писателя, чтение и запись в одном процессе под общим замком,
+# изменение «прочитать, поменять, записать» под блокировкой и между процессами
+# (update_config), а для другого процесса повтор чтения и замены при PermissionError на Windows.
 
 _IS_WINDOWS = sys.platform == "win32"
 _RETRY_DELAYS = (0.01, 0.02, 0.05, 0.1, 0.1, 0.2, 0.2, 0.3, 0.5)  # около 1.5 с всего
@@ -206,6 +209,11 @@ def config_lock(path: Path) -> Iterator[None]:
 def save_config(path: Path, cfg: Config) -> None:
     lines = [f"{k} = {_toml_value(v)}" for k, v in cfg.to_dict().items()]
     tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    with _THREAD_LOCK:
+        _save_locked(path, tmp, lines)
+
+
+def _save_locked(path: Path, tmp: Path, lines: list[str]) -> None:
     try:
         tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
         _windows_retry(lambda: os.replace(tmp, path))

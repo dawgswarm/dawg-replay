@@ -75,7 +75,7 @@ def test_threads_read_while_others_write_and_nothing_lost(tmp_path):
     """Как экран Настроек (опрос каждые 2 с) рядом с потоком привязки Telegram, только плотнее."""
     path = tmp_path / "config.toml"
     save_config(path, Config())
-    errors: list[BaseException] = []
+    errors: list[tuple[str, str]] = []
     stop = threading.Event()
     keys = ("telegram_chat_id", "telegram_chat_name", "telegram_bot")
 
@@ -84,14 +84,14 @@ def test_threads_read_while_others_write_and_nothing_lost(tmp_path):
             for i in range(60):
                 update_config(path, {key: f"{key}-{i}"})
         except BaseException as e:  # noqa: BLE001
-            errors.append(e)
+            errors.append(("запись", repr(e)))
 
     def reader():
         try:
             while not stop.is_set():
                 load_config(path)
         except BaseException as e:  # noqa: BLE001
-            errors.append(e)
+            errors.append(("чтение", repr(e)))
 
     readers = [threading.Thread(target=reader) for _ in range(3)]
     writers = [threading.Thread(target=writer, args=(k,)) for k in keys]
