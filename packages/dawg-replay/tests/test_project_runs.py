@@ -412,6 +412,11 @@ def test_cli_run_status_runs_retry(scripts, tmp_path, steps, cli):
     assert code == 0 and data["project_run"]["steps"][2]["reason"] == "Ozon упал"
     code, data = cli("project", "runs", name)
     assert code == 0 and [r["id"] for r in data["runs"]] == [prun]
+    from dawg_replay.cli_run import _run_line
+
+    with App(scripts.paths.home) as a:
+        rec = a.runs.list("gs", 1)[0] if a.runs.list("gs", 1) else a.runs.list("wb", 1)[0]
+        assert f"[шаг проекта {prun}, узел " in _run_line(rec)
     code, data = cli("project", "retry", prun, "--follow")
     assert code == 3 and data["project_run"]["retry_of"] == prun
     code, data = cli("project", "stop", prun)

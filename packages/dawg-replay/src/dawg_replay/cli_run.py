@@ -26,7 +26,8 @@ def _run_line(r: Run) -> str:
     draft = " черновик" if r.draft else ""
     version = f" v{r.script_version}" if r.script_version is not None else ""
     summary = f"  {r.summary}" if r.summary else ""
-    return f"{r.id}  {r.label:<18} {r.script_name}{version}{draft}  {r.created_at}{summary}"
+    step = f"  [шаг проекта {r.project_run}, узел {r.project_node}]" if r.project_run else ""
+    return f"{r.id}  {r.label:<18} {r.script_name}{version}{draft}  {r.created_at}{step}{summary}"
 
 
 class EventTail:
