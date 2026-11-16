@@ -552,7 +552,7 @@ def supervise(
         finished_at=outcome.finished_at,
     )
     if telegram is not None:
-        _telegram_errors(app, run.run_dir, telegram.close())
+        _telegram_errors(app, run.run_dir, telegram.close(late=tg_asks.late_sink(app.paths, run.run_dir)))
     # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
     tg_notify.after_finish(app, run_id)
     return store.get(run_id)

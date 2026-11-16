@@ -619,18 +619,99 @@ def test_supervise_answers_from_telegram(cli, home, kr, app, tmp_path, real_tg, 
     assert tg_asks.load_links(home) == [] and telegram.last_error(app) is None
 
 
+ONE_QUESTION = SCRIPT.split("import dawg_replay_kit as kit")[0] + """import dawg_replay_kit as kit
+
+code = kit.ask("Код из SMS", secret=True, timeout_minutes=1)
+kit.result("ok", "готово")
+"""
+
+
+def read_events(run_dir) -> str:
+    try:
+        return (run_dir / "events.jsonl").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def answer_when(run_dir, pred, timeout=30.0):
+    """Отвечает на вопрос запуска, когда pred() истинно: скрипт не ждёт срока, тест не зависит от скорости."""
+
+    def go():
+        wait_for(lambda: pred() and asks.waiting(run_dir), timeout)
+        asks.write_answer(run_dir, asks.waiting(run_dir)[0], "1234")
+
+    t = threading.Thread(target=go, daemon=True)
+    t.start()
+    return t
+
+
 def test_send_error_goes_to_journal_and_settings(cli, home, app, tmp_path, real_tg, fast, monkeypatch):
     monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
     real_tg.fail["sendMessage"] = (403, "Forbidden: bot was blocked by the user")
     f = tmp_path / "tg-ask.py"
-    f.write_text(SCRIPT.replace("timeout_minutes=1)\nok", "timeout_minutes=0.02)\nok"), encoding="utf-8")
-    code, _ = cli("add", str(f))
+    f.write_text(ONE_QUESTION, encoding="utf-8")
+    cli("add", str(f))
     prepared = launch.prepare(app, "tg-ask")
+    run_dir = app.paths.run_dir(prepared.run.id)
+    line = "Telegram: не удалось отправить вопрос в Telegram: бот не может написать в чат"
+    # Отвечаем, только когда ошибка уже в журнале: вопрос точно ждал, пока его отправляли.
+    t = answer_when(run_dir, lambda: line in read_events(run_dir))
     rec = launch.supervise(app, prepared.run.id, prepared.payload())
-    assert rec.status == "failed"  # не ответили до срока, Telegram на итог не влияет
-    events = (app.paths.run_dir(rec.id) / "events.jsonl").read_text(encoding="utf-8")
-    assert "Telegram: не удалось отправить вопрос в Telegram: бот не может написать в чат" in events
+    t.join(5)
+    assert rec.status == "ok"  # Telegram на итог не влияет
     assert "бот не может написать" in telegram.last_error(app)["text"]
+
+
+class GatedBot(FakeBot):
+    """send_message ждёт ворот: отправка дольше, чем close готов ждать."""
+
+    def __init__(self, server, gate, entered):
+        super().__init__(server)
+        self.gate, self.entered = gate, entered
+
+    def send_message(self, chat_id, text, reply_markup=None):
+        self.entered.set()
+        self.gate.wait(30)
+        return super().send_message(chat_id, text, reply_markup)
+
+
+def test_error_after_close_still_reaches_journal_and_settings(cli, home, app, tmp_path, server, fast, monkeypatch):
+    """Медленная отправка не уложилась в close(wait): её ошибка всё равно в журнале и в Настройках."""
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    monkeypatch.setattr(tg_asks, "CLOSE_WAIT", 0.0)
+    gate, entered = threading.Event(), threading.Event()
+    server.fail_send = True
+    monkeypatch.setattr(tg_asks, "open_bot", lambda a: (GatedBot(server, gate, entered), CHAT))
+    f = tmp_path / "tg-ask.py"
+    f.write_text(ONE_QUESTION, encoding="utf-8")
+    cli("add", str(f))
+    prepared = launch.prepare(app, "tg-ask")
+    run_dir = app.paths.run_dir(prepared.run.id)
+    t = answer_when(run_dir, entered.is_set)
+    rec = launch.supervise(app, prepared.run.id, prepared.payload())
+    t.join(5)
+    assert rec.status == "ok"
+    events = run_dir / "events.jsonl"
+    assert "Telegram:" not in events.read_text(encoding="utf-8")  # supervise вернулся раньше ошибки
+    gate.set()
+    wait_for(lambda: "Telegram: не удалось отправить вопрос в Telegram" in events.read_text(encoding="utf-8"))
+    wait_for(lambda: telegram.last_error(app))
+    assert "bot was blocked" in telegram.last_error(app)["text"]
+
+
+def test_close_late_errors_go_to_sink(tmp_path, server, fast):
+    gate, entered = threading.Event(), threading.Event()
+    server.fail_send = True
+    ra = tg_asks.RunAsks(tmp_path, "r1", GatedBot(server, gate, entered), CHAT, title="T")
+    write_events(tmp_path / "runs" / "r1", ask_event("a1"))
+    ra.tick()
+    entered.wait(5)
+    got = []
+    assert ra.close(wait=0.05, late=got.extend) == []
+    gate.set()
+    wait_for(lambda: got)
+    assert got[0].startswith("не удалось отправить вопрос в Telegram")
+    assert ra.take_errors() == []  # ничего не застряло в списке, который никто не заберёт
 
 
 def test_telegram_not_connected_means_no_questions(app):

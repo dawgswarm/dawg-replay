@@ -35,6 +35,7 @@ import threading
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from dawg_replay import asks, diagnosis, procinfo, telegram, tg_updates
@@ -46,6 +47,7 @@ IDLE_SECONDS = 1.0  # пауза опрашивающего без блокир�
 ERROR_PAUSE = 5.0  # пауза после ошибки getUpdates
 SEND_ATTEMPTS = 2
 CLOSE_WAIT = 5.0  # сколько ждать отправки последних правок в конце запуска
+LATE_WAIT = 60.0  # сколько процесс ещё живёт ради недописанной отправки после close
 BUTTON_TEXT = 60
 
 T_ACCEPTED = "Ответ принят"
@@ -376,6 +378,7 @@ class RunAsks:
         self._links: dict[str, str] = {}  # ask_id -> key
         self._lock = threading.Lock()
         self._errors: list[str] = []
+        self._late: Callable[[list[str]], None] | None = None  # куда ошибки после close
         self._jobs: queue.Queue[Callable[[], None] | None] = queue.Queue()
         self._worker = threading.Thread(target=self._work, name=f"dawg-tg-{run_id}", daemon=True)
         self._worker.start()
@@ -397,8 +400,13 @@ class RunAsks:
                 self._jobs.put(lambda q=q: self._closed(q))
         return self.take_errors()
 
-    def close(self, wait: float = CLOSE_WAIT) -> list[str]:
-        """Запуск закончился: правит открытые вопросы, удаляет связи, гасит опрос."""
+    def close(self, wait: float = CLOSE_WAIT, late: Callable[[list[str]], None] | None = None) -> list[str]:
+        """Запуск закончился: правит открытые вопросы, удаляет связи, гасит опрос.
+
+        Возвращает накопленные ошибки. Отправка не уложилась в `wait` (медленная сеть,
+        повторные попытки): ошибки, пойманные потоками после этого, уходят в `late`
+        сразу, а не в список, который уже никто не заберёт.
+        """
         self.tick()
         self._poll_stop.set()
         self._jobs.put(self._finish)
@@ -406,11 +414,26 @@ class RunAsks:
         self._worker.join(wait)
         if self._poller is not None:
             self._poller.join(0.1)
-        return self.take_errors()
+        with self._lock:
+            out, self._errors = self._errors, []
+            self._late = late
+        if late is not None and self._worker.is_alive():
+            # Поток отправки daemon; процесс-супервизор выходит сразу после запуска.
+            # Обычный (не daemon) поток держит процесс, пока отправка не допишет ошибки,
+            # но не дольше LATE_WAIT.
+            threading.Thread(target=self._worker.join, args=(LATE_WAIT,), name=f"dawg-tg-late-{self.run_id}").start()
+        return out
 
     def report(self, text: str) -> None:
         with self._lock:
-            self._errors.append(text)
+            late = self._late
+            if late is None:
+                self._errors.append(text)
+                return
+        try:
+            late([text])
+        except Exception:  # запись ошибки не должна ронять поток отправки
+            pass
 
     def take_errors(self) -> list[str]:
         with self._lock:
@@ -569,6 +592,22 @@ def start(app: Any, rec: Any, payload: dict[str, Any] | None = None) -> RunAsks 
     except Exception as e:  # Telegram не должен мешать запуску
         record_error(app, f"вопросы в Telegram: {_err(e)}")
         return None
+
+
+def late_sink(paths: Any, run_dir: Path) -> Callable[[list[str]], None]:
+    """Запись ошибок, пойманных после close: журнал запуска и «последняя ошибка» в Настройках.
+
+    Без БД и без объекта App (его подключение к SQLite не переходит в поток отправки
+    и может быть уже закрыто): обе записи это файлы в каталоге приложения.
+    """
+    holder = SimpleNamespace(paths=paths)
+
+    def sink(texts: list[str]) -> None:
+        if texts:
+            journal(run_dir, texts)
+            record_error(holder, texts[-1])
+
+    return sink
 
 
 def journal(run_dir: Path, texts: list[str]) -> None:
