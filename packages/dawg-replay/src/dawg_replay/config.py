@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+import os
+import secrets
 import sys
+import threading
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any
@@ -106,10 +112,12 @@ def _coerce(key: str, raw: Any, strict: bool = True) -> Any:
 
 
 def load_config(path: Path) -> Config:
-    if not path.exists():
+    try:
+        text = _windows_retry(lambda: path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
         return Config()
     try:
-        data = tomllib.loads(path.read_text(encoding="utf-8"))
+        data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise ReplayError("bad_config", f"{path}: ошибка TOML: {e}") from None
     cfg = Config()
@@ -129,15 +137,94 @@ def _toml_value(v: Any) -> str:
 coerce = _coerce  # проверка и приведение значения настройки для внешних модулей
 
 
+# --- запись ----------------------------------------------------------------------
+#
+# config.toml читают и пишут разные потоки одного процесса (запрос UI, поток привязки
+# Telegram, запуски) и разные процессы (CLI рядом с открытым UI). На Windows файл,
+# который сейчас заменяют (os.replace), коротко не открывается (PermissionError), а
+# заменить файл, открытый другим на чтение, тоже нельзя. Поэтому: временный файл со
+# своим именем у каждого писателя, повтор чтения и замены при PermissionError на Windows,
+# изменение «прочитать, поменять, записать» под блокировкой (update_config).
+
+_IS_WINDOWS = sys.platform == "win32"
+_RETRY_DELAYS = (0.01, 0.02, 0.05, 0.1, 0.1, 0.2, 0.2, 0.3, 0.5)  # около 1.5 с всего
+_THREAD_LOCK = threading.RLock()
+
+
+def _windows_retry(fn):
+    for delay in _RETRY_DELAYS:
+        try:
+            return fn()
+        except PermissionError:
+            if not _IS_WINDOWS:
+                raise
+            time.sleep(delay)
+    return fn()
+
+
+if _IS_WINDOWS:  # pragma: no cover - проверяется на Windows
+    import msvcrt
+
+    def _lock_file(f) -> None:
+        while True:
+            try:
+                msvcrt.locking(f.fileno(), msvcrt.LK_LOCK, 1)  # сам ждёт около 10 с
+                return
+            except OSError:
+                continue
+
+    def _unlock_file(f) -> None:
+        try:
+            f.seek(0)
+            msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+
+else:
+    import fcntl
+
+    def _lock_file(f) -> None:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+
+    def _unlock_file(f) -> None:
+        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+
+
+@contextmanager
+def config_lock(path: Path) -> Iterator[None]:
+    """Исключительное изменение config.toml: между потоками и между процессами."""
+    with _THREAD_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path.with_name(path.name + ".lock"), "a+b") as f:
+            _lock_file(f)
+            try:
+                yield
+            finally:
+                _unlock_file(f)
+
+
 def save_config(path: Path, cfg: Config) -> None:
     lines = [f"{k} = {_toml_value(v)}" for k, v in cfg.to_dict().items()]
-    tmp = path.with_suffix(".toml.tmp")
-    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    tmp.replace(path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        _windows_retry(lambda: os.replace(tmp, path))
+    finally:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+
+
+def update_config(path: Path, values: dict[str, Any]) -> Config:
+    """Меняет ключи поверх текущего файла под блокировкой: параллельные изменения не теряются."""
+    with config_lock(path):
+        cfg = load_config(path)
+        for k, v in values.items():
+            setattr(cfg, k, v)
+        save_config(path, cfg)
+        return cfg
 
 
 def set_config_value(path: Path, key: str, raw: str) -> Config:
-    cfg = load_config(path)
-    setattr(cfg, key, _coerce(key, raw))
-    save_config(path, cfg)
-    return cfg
+    return update_config(path, {key: _coerce(key, raw)})

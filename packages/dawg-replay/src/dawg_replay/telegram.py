@@ -207,12 +207,9 @@ def status(app: App) -> dict[str, Any]:
 
 
 def _save(app: App, **values: str) -> None:
-    from dawg_replay.config import save_config
+    from dawg_replay.config import update_config
 
-    cfg = app.config
-    for k, v in values.items():
-        setattr(cfg, k, v)
-    save_config(app.paths.config, cfg)
+    update_config(app.paths.config, values)
 
 
 @dataclass(frozen=True)
