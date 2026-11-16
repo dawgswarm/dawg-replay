@@ -398,10 +398,10 @@ class RunStore:
 
     def list(self, script: str | None = None, limit: int = 20) -> list[Run]:
         if script is None:
-            rows = self._db.execute("SELECT * FROM runs ORDER BY created_at DESC, id DESC LIMIT ?", (limit,))
+            rows = self._db.execute("SELECT * FROM runs ORDER BY created_at DESC, rowid DESC LIMIT ?", (limit,))
         else:
             rows = self._db.execute(
-                "SELECT * FROM runs WHERE script_name = ? ORDER BY created_at DESC, id DESC LIMIT ?", (script, limit)
+                "SELECT * FROM runs WHERE script_name = ? ORDER BY created_at DESC, rowid DESC LIMIT ?", (script, limit)
             )
         return [_run(r) for r in rows]
 
@@ -410,7 +410,7 @@ class RunStore:
         sql, args = "SELECT * FROM runs WHERE created_at >= ?", [since]
         if script is not None:
             sql, args = sql + " AND script_name = ?", [*args, script]
-        rows = self._db.execute(sql + " ORDER BY created_at DESC, id DESC", args)
+        rows = self._db.execute(sql + " ORDER BY created_at DESC, rowid DESC", args)
         return [_run(r) for r in rows]
 
     def running(self) -> list[Run]:

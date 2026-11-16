@@ -6,6 +6,7 @@ import argparse
 import re
 from typing import Any
 
+from dawg_replay import chain
 from dawg_replay import links as L
 from dawg_replay.app import App
 from dawg_replay.cli_store import Handler, run_handler
@@ -113,7 +114,7 @@ def _show(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     lines += _problems_text(problems)
     if journal:
         lines.append("последние решения:")
-        lines += [f"  {j['at'].replace('T', ' ')}  {j['text']}" for j in journal]
+        lines += [f"  {chain.moment(j['at']):>11}  {j['text']}" for j in journal]  # местное время, как в текстах
     data = {"link": link.to_dict(), "target_mode": mode.to_dict(), "journal": journal,
             "problems": [p.to_dict() for p in problems]}
     return data, "\n".join(lines)

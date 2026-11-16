@@ -402,3 +402,45 @@ def test_real_supervisor_process(scripts, monkeypatch):
         time.sleep(0.05)
     assert rec.status == "ok" and rec.trigger == "link"
     assert json.loads((app.paths.run_dir(rec.id) / "output" / "got.json").read_text("utf-8")) == ["REAL"]
+
+
+# --- CLI: порядок, пометка по связи, местное время (dr-110) ---
+
+
+def test_runs_order_within_one_second(scripts):
+    app = scripts
+    ids = [app.runs.record_not_started(run_id=f"20261116-000000-{x}", script_name="upd", script_version=1,
+                                       script_path="x", preset=None, schedule_id=None, error="e").id
+           for x in ("ffffff", "000000", "aaaaaa")]
+    app.db.execute("UPDATE runs SET created_at = '2026-11-16T00:00:00Z'")
+    assert [r.id for r in app.runs.list("upd")] == list(reversed(ids)) == [r.id for r in app.runs.list()]
+
+
+def test_cli_runs_marks_link_runs(scripts, cli, capsys):
+    from dawg_replay.cli import main
+
+    app = scripts
+    app.links.add("wb", "upd", files=[Transfer("prices.csv", "items")])
+    src = run_source(app)
+    (rec,) = target_runs(app)
+    code, data = cli("runs", "upd")
+    assert code == 0 and data["runs"][0]["after"] == "wb" and data["runs"][0]["source_run"] == src.id
+    code, data = cli("runs", "wb")
+    assert data["runs"][0]["after"] is None
+    assert main(["runs"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert [ln for ln in lines if "по связи" in ln] == [next(ln for ln in lines if ln.startswith(rec.id))]
+    assert "[по связи после wb]" in lines[0] and lines[0].startswith(rec.id)  # последний созданный первым
+
+
+def test_cli_link_show_local_time(scripts, capsys):
+    from dawg_replay.cli import main
+
+    app = scripts
+    link, _ = app.links.add("wb", "upd")
+    app.links.log(link.id, "waiting", "ждёт остальных")
+    at = app.links.journal(link.id)[0]["at"]
+    assert main(["link", "show", "wb", "upd"]) == 0
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if "ждёт остальных" in ln)
+    assert line.split()[0] == chain.moment(at) and "Z" not in line
