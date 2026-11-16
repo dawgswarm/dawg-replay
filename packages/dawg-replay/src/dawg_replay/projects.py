@@ -534,6 +534,11 @@ def dump(project: Project, preset_values: dict[str, dict[str, Any]] | None = Non
 # --- хранение и проверка ---
 
 
+def _lf(text: str) -> str:
+    """Переводы строк как в Unix: тот же файл с Windows даёт ту же версию."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _cycle(project: Project) -> list[str] | None:
     """Круг по стрелкам: id узлов по кругу (первый повторяется в конце) или None."""
     color: dict[str, int] = {}
@@ -801,7 +806,7 @@ class Projects:
         if len(data) > TEXT_MAX:
             raise ReplayError("file_too_big", f"{path}: файл проекта больше {TEXT_MAX // 1000} КБ")
         try:
-            return data.decode("utf-8-sig")
+            return _lf(data.decode("utf-8-sig"))
         except UnicodeDecodeError:
             raise ReplayError("bad_encoding", f"файл не в UTF-8: {path}") from None
 
@@ -834,7 +839,8 @@ class Projects:
             project, text = source, dump(source)
             project = parse(text, "проект")  # та же проверка устройства, что у файла
         else:
-            text, project = source, parse(source, "проект")
+            text = _lf(source)
+            project = parse(text, "проект")
         if not create and not self._exists(project.name):
             raise ReplayError("project_not_found", f"проекта `{project.name}` нет")
         return self._save(project, text, "проект", origin=origin, base_version=base_version)

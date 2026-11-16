@@ -314,6 +314,8 @@ def test_add_update_versions_rollback_remove(scripts, tmp_path):
     assert stored.project == P.parse(BASIC)
 
     assert app.projects.add(f).status == "unchanged"
+    f.write_bytes(BASIC.replace("\n", "\r\n").encode("utf-8"))  # тот же файл с переводами строк Windows
+    assert app.projects.add(f).status == "unchanged"
     assert app.projects.update(f).status == "unchanged"
     f2 = write(tmp_path, BASIC.replace("x = 40", "x = 80"))
     with pytest.raises(ReplayError) as e:
