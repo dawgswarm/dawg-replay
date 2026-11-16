@@ -38,6 +38,17 @@ class App:
         self.links = Links(self.db, self)
         self._scheduler_backend = scheduler_backend
         self._schedules: Schedules | None = None
+        self._sync_builtin()
+
+    def _sync_builtin(self) -> None:
+        """Стандартная библиотека узлов: при первом старте и после обновления приложения.
+        Сбой не мешает старту: узлы поставятся при следующем."""
+        from dawg_replay import builtin
+
+        try:
+            builtin.sync(self)
+        except (ReplayError, OSError, sqlite3.Error):
+            pass
 
     @property
     def schedules(self) -> Schedules:
