@@ -1,0 +1,2 @@
+# Встроенные узлы: одинаковые байты на всех системах, отпечаток версии в tests/test_builtin.py
+packages/dawg-replay/src/dawg_replay/stdlib/*.py text eol=lf

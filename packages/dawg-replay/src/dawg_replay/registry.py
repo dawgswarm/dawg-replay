@@ -58,10 +58,12 @@ class Script:
     updated_at: str
     site: str | None = None  # из манифеста текущей версии (контракт 1.1)
     tags: tuple[str, ...] = ()
+    builtin: bool = False  # из стандартной библиотеки узлов (dawg_replay.builtin)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "name": self.name,
+            "builtin": self.builtin,
             "current_version": self.current_version,
             "title": self.title,
             "description": self.description,
@@ -148,6 +150,7 @@ class Registry:
             versions_count=count,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            builtin=bool(row["builtin"]),
             **_site_tags(v["manifest_json"]),
         )
 
@@ -210,10 +213,11 @@ class Registry:
             raise ReplayError("file_unreadable", f"не удалось прочитать {src}: {e.strerror}") from None
         return self.add_bytes(data, src)
 
-    def check(self, data: bytes, label: str | Path) -> Check:
+    def check(self, data: bytes, label: str | Path, builtin: bool = False) -> Check:
         """Всё, что проверяет add, без записи: манифест, кодировка, правила версий.
-        Ошибки те же (`invalid_manifest`, `bad_encoding`, `version_exists`, `version_too_low`);
-        `label` подставляется в текст вместо пути файла."""
+        Ошибки те же (`invalid_manifest`, `bad_encoding`, `version_exists`, `version_too_low`,
+        `builtin_script`); `label` подставляется в текст вместо пути файла.
+        `builtin`: версию ставит стандартная библиотека узлов, а не человек."""
         try:
             text = data.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -229,6 +233,12 @@ class Registry:
         previous = existing["current_version"] if existing else None
         status = "added"
 
+        if existing and existing["builtin"] and not builtin:
+            raise ReplayError(
+                "builtin_script",
+                f"`{name}` это встроенный узел приложения, его версии ставит и обновляет само приложение. "
+                "Дайте своему скрипту другое `name` в манифесте",
+            )
         if existing:
             same = self._db.execute(
                 "SELECT sha256 FROM script_versions WHERE name = ? AND version = ?", (name, version)
@@ -251,9 +261,10 @@ class Registry:
                     )
         return Check(status=status, manifest=manifest, text=text, sha256=sha, previous_version=previous)
 
-    def add_bytes(self, data: bytes, label: str | Path) -> AddResult:
-        """Регистрация содержимого файла: проверка как в check, затем запись версии."""
-        chk = self.check(data, label)
+    def add_bytes(self, data: bytes, label: str | Path, builtin: bool = False) -> AddResult:
+        """Регистрация содержимого файла: проверка как в check, затем запись версии.
+        `builtin`: скрипт из стандартной библиотеки узлов, помечается встроенным."""
+        chk = self.check(data, label, builtin)
         manifest, sha, previous = chk.manifest, chk.sha256, chk.previous_version
         name, version = manifest.name, manifest.version
         if chk.status == "unchanged":
@@ -275,8 +286,8 @@ class Registry:
                 )
             else:
                 self._db.execute(
-                    "INSERT INTO scripts (name, current_version, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                    (name, version, now, now),
+                    "INSERT INTO scripts (name, current_version, created_at, updated_at, builtin) VALUES (?, ?, ?, ?, ?)",
+                    (name, version, now, now, int(builtin)),
                 )
             self._db.execute(
                 "INSERT INTO script_versions (name, version, title, description, contract, manifest_json, sha256, path, added_at)"

@@ -50,6 +50,20 @@ def test_outputs_parsed():
     assert contract_versions() == ["1.4"]
 
 
+def test_optional_output():
+    m = parse_manifest(manifest("""
+        [[outputs]]
+        name = "yes.csv"
+        optional = true
+
+        [[outputs]]
+        name = "no.csv"
+        optional = false
+        """))
+    assert [o.optional for o in m.outputs] == [True, False]
+    assert m.to_dict()["outputs"] == [{"name": "yes.csv", "optional": True}, {"name": "no.csv"}]
+
+
 def test_no_outputs_as_before():
     m = parse_manifest(manifest("", contract='"1.3"'))
     assert m.outputs == () and m.main_output is None and "outputs" not in m.to_dict()
@@ -82,6 +96,7 @@ def test_matches():
     ('[[outputs]]\nname = "a.csv"\ncolumns = []\n', ("bad_value", "outputs[0](a.csv).columns")),
     ('[[outputs]]\nname = "a.csv"\ncolumns = ["a", "a"]\n', ("bad_value", "outputs[0](a.csv).columns")),
     ('[[outputs]]\nname = "a.csv"\nmain = "yes"\n', ("bad_value", "outputs[0](a.csv).main")),
+    ('[[outputs]]\nname = "a.csv"\noptional = 1\n', ("bad_value", "outputs[0](a.csv).optional")),
     ('[[outputs]]\nname = "a.csv"\n\n[[outputs]]\nname = "a.csv"\n', ("duplicate_output", "outputs[1].name")),
     ('[[outputs]]\nname = "a.csv"\nmain = true\n\n[[outputs]]\nname = "b.csv"\nmain = true\n',
      ("duplicate_main", "outputs[1](b.csv).main")),
