@@ -363,6 +363,19 @@ class RunStore:
         self._db.execute("UPDATE runs SET inputs_json = ? WHERE id = ?",
                          (json.dumps(inputs, ensure_ascii=False) if inputs else None, run_id))
 
+    def fed_by(self, run_id: str, limit: int = 50) -> list[Run]:
+        """Запуски, которые этот запуск вызвал по связи или которым передал файлы, новые первыми."""
+        rows = self._db.execute(
+            "SELECT * FROM runs WHERE id != ? AND (source_run = ? OR inputs_json LIKE ?)"
+            " ORDER BY created_at DESC, id DESC LIMIT ?",
+            (run_id, run_id, f"%{run_id}%", limit),
+        )
+        out = []
+        for r in map(_run, rows):
+            if r.source_run == run_id or any(isinstance(e, dict) and e.get("run") == run_id for e in r.inputs):
+                out.append(r)
+        return out
+
     def last_finished(self, script: str, statuses: tuple[str, ...], *, real_only: bool = True) -> Run | None:
         """Последний завершённый запуск скрипта с одним из статусов. `real_only`: только запуски,
         которые действительно шли (без not_started, skipped, start_error и отмены пользователем)."""

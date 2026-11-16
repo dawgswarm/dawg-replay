@@ -1,0 +1,104 @@
+{# Панель связи. Контекст p: links_data.link_panel. #}
+{% set l = p.link %}{% set v = p.vals %}
+<div class="lpanel" data-panel-link="{{ l.id }}">
+  <div class="lpanel-head">
+    <h2>Связь: <a href="/scripts/{{ l.source | urlencode }}">{{ p.source_title }}</a> → <a href="/scripts/{{ l.target | urlencode }}">{{ p.target_title }}</a></h2>
+    {% if not l.enabled %}<span class="status status-muted">выключена</span>{% endif %}
+  </div>
+  {% if p.error %}<p class="notice notice-error" role="alert">{{ p.error | ticks }}</p>{% endif %}
+  {% if p.saved %}<p class="notice notice-ok" role="status">{{ p.saved }}</p>{% endif %}
+  {% set shown = p.problems if not p.error else [] %}
+  {% for w in p.warnings if w not in shown %}<p class="notice notice-warn" role="status">{{ w.text | ticks }}</p>{% endfor %}
+  {% for pr in shown %}<p class="notice {% if pr.level == 'error' %}notice-error{% else %}notice-warn{% endif %}">{{ pr.text | ticks }}</p>{% endfor %}
+
+  <form class="lpanel-form" hx-post="/links/{{ l.id }}" hx-target="#link-panel" hx-disabled-elt="find button[type=submit]">
+    <div class="field">
+      <label for="lp-after">Запускать {{ p.target_title }}</label>
+      <select id="lp-after" name="after">
+        {% for value, title in p.after_titles %}<option value="{{ value }}"{% if v.after == value %} selected{% endif %}>{{ title }}</option>{% endfor %}
+      </select>
+      <p class="hint">{% if v.after == "never" %}Сам ничего не запускает: когда {{ p.target_title }} запустится по расписанию, вручную или по другой связи, он возьмёт последний подходящий результат.{% else %}Отмена запуска пользователем ничего не запускает.{% endif %}</p>
+    </div>
+
+    <fieldset class="lpanel-files">
+      <legend>Передать файлы</legend>
+      <datalist id="lp-files-{{ l.id }}">
+        <option value="{{ p.main }}">главный файл итога</option>
+        {% for o in p.choices.outputs %}<option value="{{ o.name }}">{{ o.title or o.name }}{% if o.columns %}: {{ o.columns | join(', ') }}{% endif %}</option>{% endfor %}
+      </datalist>
+      {% if not p.params %}
+      <p class="hint">У {{ p.target_title }} нет параметров-таблиц и параметров-файлов: передавать некуда, связь только запускает.</p>
+      {% endif %}
+      {% set rows = v.files + [{"file": "", "param": ""}] if p.params else v.files %}
+      {% for t in rows %}
+      <div class="lpanel-row">
+        <div class="field">
+          <label for="lp-file-{{ loop.index0 }}">Файл {{ p.source_title }}</label>
+          <input id="lp-file-{{ loop.index0 }}" type="text" name="file_{{ loop.index0 }}" value="{{ t.file }}" list="lp-files-{{ l.id }}"
+                 placeholder="prices.csv, prices-*.csv или {{ p.main }}" autocomplete="off" spellcheck="false">
+        </div>
+        <span class="lpanel-to" aria-hidden="true">→</span>
+        <div class="field">
+          <label for="lp-param-{{ loop.index0 }}">в параметр</label>
+          <select id="lp-param-{{ loop.index0 }}" name="param_{{ loop.index0 }}">
+            <option value="">не передавать</option>
+            {% for prm in p.params %}<option value="{{ prm.name }}"{% if t.param == prm.name %} selected{% endif %}>{{ prm.title }} ({{ prm.kind }})</option>{% endfor %}
+            {% if t.param and t.param not in p.params | map(attribute='name') %}<option value="{{ t.param }}" selected>{{ t.param }} (нет у скрипта)</option>{% endif %}
+          </select>
+        </div>
+      </div>
+      {% endfor %}
+      <p class="hint">
+        {% if p.choices.source == "declared" %}Подсказки: файлы, которые {{ p.source_title }} объявил в манифесте.
+        {% elif p.choices.source == "last_run" %}Подсказки: файлы последнего запуска {{ p.source_title }}. Имя можно ввести и руками.
+        {% else %}{{ p.source_title }} ещё не сохранял файлов и не объявил их: введите имя файла руками.{% endif %}
+        Шаблон с <code>*</code> берёт самый новый файл, у параметра с несколькими файлами все.
+      </p>
+    </fieldset>
+
+    <div class="lpanel-grid">
+      <div class="field">
+        <label for="lp-preset">Пресет {{ p.target_title }}</label>
+        <select id="lp-preset" name="preset">
+          <option value="">без пресета</option>
+          {% for name in p.presets %}<option value="{{ name }}"{% if v.preset == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+          {% if v.preset and v.preset not in p.presets %}<option value="{{ v.preset }}" selected>{{ v.preset }} (нет)</option>{% endif %}
+        </select>
+      </div>
+      <div class="field">
+        <label for="lp-limit">Не больше запусков в сутки</label>
+        <input id="lp-limit" type="number" name="limit_per_day" min="1" step="1" inputmode="numeric" value="{{ v.limit }}" placeholder="без предела">
+      </div>
+    </div>
+    <p class="hint">Предел нужен, если связь замыкает круг: без него такую связь сохранить нельзя.</p>
+    <label class="check"><input type="checkbox" name="enabled" value="on"{% if v.enabled %} checked{% endif %}><span>Связь включена</span></label>
+    <div class="lpanel-actions">
+      <button type="submit">Сохранить</button>
+    </div>
+  </form>
+  <div class="lpanel-actions lpanel-secondary">
+    <form hx-post="/links/{{ l.id }}/toggle" hx-target="#link-panel" hx-disabled-elt="find button">
+      <button type="submit" class="secondary small">{% if l.enabled %}Выключить{% else %}Включить{% endif %}</button>
+    </form>
+    <form hx-post="/links/{{ l.id }}/delete" hx-target="#link-panel" hx-disabled-elt="find button"
+          hx-confirm="Удалить связь {{ p.source_title }} → {{ p.target_title }}?">
+      <button type="submit" class="secondary small">Удалить связь</button>
+    </form>
+  </div>
+
+  <section class="lpanel-journal" aria-labelledby="lp-journal-{{ l.id }}">
+    <h3 id="lp-journal-{{ l.id }}">Решения по связи</h3>
+    <p class="hint">{% if p.last %}Сейчас подойдёт результат <a href="/runs/{{ p.last.id }}">запуска {{ p.source_title }} от {{ p.last.created_at | when }}</a>.{% else %}Подходящего результата {{ p.source_title }} пока нет.{% endif %}</p>
+    {% if p.journal %}
+    <ul class="lpanel-log">
+      {% for j in p.journal %}
+      <li><span class="hint-inline">{{ j.at | when }}</span> {{ j.text | ticks }}
+        {% if j.source_run %}<a href="/runs/{{ j.source_run }}">источник</a>{% endif %}
+        {% if j.target_run %}<a href="/runs/{{ j.target_run }}">запуск</a>{% endif %}</li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="hint">Решений ещё не было: они появятся, когда {{ p.source_title }} закончит запуск.</p>
+    {% endif %}
+  </section>
+</div>

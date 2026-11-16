@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Связи, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/links.css"><script src="/static/links.js" defer></script>{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Связи</h1>
+  <p class="lead">Какие скрипты запускаются после других и какие файлы результата получают. Всё, что приложение запустит само, видно здесь.</p>
+</div>
+<div class="links-tools">
+  <form class="links-add" hx-post="/links" hx-target="#link-panel" hx-disabled-elt="find button">
+    <div class="field">
+      <label for="la-source">После скрипта</label>
+      <select id="la-source" name="source">{% for s in m.scripts %}<option value="{{ s.name }}">{{ s.title }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label for="la-target">запускать или передать файл в</label>
+      <select id="la-target" name="target">{% for s in m.scripts %}<option value="{{ s.name }}"{% if loop.index == 2 %} selected{% endif %}>{{ s.title }}</option>{% endfor %}</select>
+    </div>
+    <div class="field">
+      <label for="la-after">Когда</label>
+      <select id="la-after" name="after">
+        <option value="ok">после успешного</option>
+        <option value="partial">после успешного или частичного</option>
+        <option value="any">после любого исхода</option>
+        <option value="never">не запускать, только файл</option>
+      </select>
+    </div>
+    <button type="submit" class="secondary">Создать связь</button>
+  </form>
+  <a class="chip{% if m.show_all %} chip-on{% endif %}" href="/links{% if not m.show_all %}?all=1{% endif %}">{% if m.show_all %}Только скрипты со связями{% else %}Показать все скрипты{% endif %}</a>
+</div>
+<p class="hint links-help">Чтобы связать скрипты мышкой, протяните стрелку от кружка справа у одного скрипта к другому. Клик по подписи стрелки открывает её настройки, клик по скрипту открывает настройки получателя. Скрипты можно двигать, раскладка запоминается.</p>
+<div class="links-layout">
+  {% include "links/_map.html" %}
+  <aside id="link-panel" class="link-panel" aria-live="polite">
+    {% if panel and panel.kind == "link" %}{% with p = panel.p %}{% include "links/_link_panel.html" %}{% endwith %}
+    {% elif panel and panel.kind == "target" %}{% with p = panel.p %}{% include "links/_target_panel.html" %}{% endwith %}
+    {% else %}<p class="hint">Выберите стрелку или скрипт на карте.</p>{% endif %}
+  </aside>
+</div>
+{% endblock %}

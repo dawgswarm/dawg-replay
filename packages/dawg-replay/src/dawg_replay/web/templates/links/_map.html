@@ -1,0 +1,57 @@
+{# Карта связей. Контекст m: links_data.map_view. Положения узлов ставит links.js из data-x/data-y (CSP без встроенных стилей). #}
+<div id="lmap-wrap" class="lmap-wrap" hx-get="/links/_map{% if m.show_all %}?all=1{% endif %}" hx-trigger="links-changed from:body" hx-swap="outerHTML">
+{% if m.problems %}
+  <ul class="notice notice-error lmap-problems" role="alert">
+    {% for p in m.problems %}<li>{{ p.text | ticks }}</li>{% endfor %}
+  </ul>
+{% endif %}
+{% if not m.nodes %}
+  <div class="lmap-empty">
+    <p>Связей пока нет.</p>
+    <p class="hint">Создайте связь формой выше или попросите агента собрать цепочку: он соберёт её командами <code>dawg-replay link</code>.{% if not m.show_all and m.scripts %} Чтобы протянуть стрелку мышкой, <a href="/links?all=1">покажите все скрипты</a>.{% endif %}</p>
+  </div>
+{% else %}
+<div id="lmap" class="lmap" data-lmap>
+  <svg class="lmap-edges" aria-hidden="true" focusable="false">
+    <defs>
+      <marker id="lmap-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="lmap-arrowhead"/></marker>
+      <marker id="lmap-arrow-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="lmap-arrowhead-bad"/></marker>
+    </defs>
+    {% for e in m.edges %}
+    <path class="lmap-edge{% if e.dashed %} is-dashed{% endif %}{% if not e.enabled %} is-off{% endif %}{% if e.level %} is-{{ e.level }}{% endif %}"
+          data-edge="{{ e.id }}" data-from="{{ e.source }}" data-to="{{ e.target }}"
+          marker-end="url(#lmap-arrow{% if e.level == 'error' %}-bad{% endif %})"/>
+    {% endfor %}
+    <path class="lmap-edge is-draft" data-draft hidden marker-end="url(#lmap-arrow)"/>
+  </svg>
+  {% for n in m.nodes %}
+  {% set st = n.run.label | status if n.run else none %}
+  <div class="lnode{% if n.broken %} is-broken{% endif %}" data-node="{{ n.name }}" data-x="{{ n.x }}" data-y="{{ n.y }}">
+    <button type="button" class="lnode-main" hx-get="/links/target/{{ n.name | urlencode }}" hx-target="#link-panel"
+            aria-label="{{ n.title }}: настройки получателя">
+      {% if n.schedule %}<span class="lnode-meta">{{ n.schedule }}</span>{% endif %}
+      {% if n.mode %}<span class="lnode-meta lnode-mode">{{ n.mode }}</span>{% endif %}
+      <span class="lnode-title">{{ n.title }}</span>
+      {% if n.broken %}<span class="lnode-state is-bad">скрипт сломан</span>
+      {% elif st %}<span class="lnode-state"><span class="status status-{{ st.kind }}">{{ st.text }}</span> {{ n.run.created_at | when }}</span>
+      {% else %}<span class="lnode-state">ещё не запускался</span>{% endif %}
+    </button>
+    <span class="lnode-port" data-port title="Протяните к другому скрипту, чтобы создать связь"></span>
+  </div>
+  {% endfor %}
+  {% for e in m.edges %}
+  {% if e.kind == "link" %}
+  <button type="button" class="lmap-label{% if e.dashed %} is-dashed{% endif %}{% if not e.enabled %} is-off{% endif %}{% if e.level %} is-{{ e.level }}{% endif %}"
+          data-label-for="{{ e.id }}" hx-get="/links/{{ e.id }}" hx-target="#link-panel"
+          title="{% if e.problems %}{{ e.problems | map(attribute='text') | join('; ') | ticks }}{% else %}Настройки связи{% endif %}">
+    {% if e.level == "error" %}<span class="lmap-bad">ошибка:</span> {% endif %}{% if not e.enabled %}выключена: {% endif %}{{ e.label }}
+  </button>
+  {% else %}
+  <a class="lmap-label is-dashed is-ref" data-label-for="{{ e.id }}" href="/scripts/{{ e.target | urlencode }}?preset={{ e.preset | urlencode }}#launch"
+     title="Ссылка на результат в пресете, открыть пресет">{{ e.label }}</a>
+  {% endif %}
+  {% endfor %}
+</div>
+<p class="hint lmap-legend"><span class="lmap-key"></span> запускает после &nbsp; <span class="lmap-key is-dashed"></span> только передаёт файл или ссылка в пресете</p>
+{% endif %}
+</div>

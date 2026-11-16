@@ -1,0 +1,47 @@
+{# Панель получателя: режим при нескольких источниках, срок ожидания. Контекст p: links_data.target_panel. #}
+<div class="lpanel">
+  <div class="lpanel-head">
+    <h2>{{ p.title }}</h2>
+    <a class="button secondary small" href="/scripts/{{ p.name | urlencode }}">Страница скрипта</a>
+  </div>
+  {% if p.error %}<p class="notice notice-error" role="alert">{{ p.error | ticks }}</p>{% endif %}
+  {% if p.saved %}<p class="notice notice-ok" role="status">{{ p.saved }}</p>{% endif %}
+
+  {% if p.incoming %}
+  <h3>Берёт данные или запускается после</h3>
+  <ul class="lpanel-links">
+    {% for x in p.incoming %}<li><button type="button" class="linkish" hx-get="/links/{{ x.id }}" hx-target="#link-panel">{{ x.source_title }}</button> <span class="hint-inline">{{ x.after }}{% if not x.enabled %}, выключена{% endif %}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if p.outgoing %}
+  <h3>Запускает после себя или передаёт файл</h3>
+  <ul class="lpanel-links">
+    {% for x in p.outgoing %}<li><button type="button" class="linkish" hx-get="/links/{{ x.id }}" hx-target="#link-panel">{{ x.target_title }}</button> <span class="hint-inline">{{ x.after }}{% if not x.enabled %}, выключена{% endif %}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if not p.incoming and not p.outgoing %}<p class="hint">У скрипта пока нет связей. Протяните стрелку от кружка справа к другому скрипту.</p>{% endif %}
+
+  <form class="lpanel-form" hx-post="/links/target/{{ p.name | urlencode }}" hx-target="#link-panel" hx-disabled-elt="find button[type=submit]">
+    <fieldset>
+      <legend>Если источников с запуском несколько</legend>
+      {% for value, title in p.mode_titles.items() %}
+      <label class="check"><input type="radio" name="mode" value="{{ value }}"{% if p.mode.mode == value %} checked{% endif %}>
+        <span>{{ title | capitalize_first }}<span class="hint-inline">{% if value == "all" %}: один запуск, когда закончились все источники{% else %}: запуск после каждого источника со свежими файлами всех{% endif %}</span></span></label>
+      {% endfor %}
+    </fieldset>
+    <div class="lpanel-grid">
+      <div class="field">
+        <label for="tp-wait">Ждать отстающий источник, часов</label>
+        <input id="tp-wait" type="number" name="wait_hours" min="0.02" max="168" step="any" inputmode="decimal" value="{{ p.wait_hours }}">
+      </div>
+      <div class="field">
+        <label for="tp-timeout">Когда срок вышел</label>
+        <select id="tp-timeout" name="on_timeout">
+          {% for value, title in p.timeout_titles %}<option value="{{ value }}"{% if p.mode.on_timeout == value %} selected{% endif %}>{{ title }}</option>{% endfor %}
+        </select>
+      </div>
+    </div>
+    <p class="hint">{% if p.starting > 1 %}Срок считается от завершения первого источника. Пропуск виден в истории запусков.{% else %}Сейчас у скрипта {% if p.starting == 1 %}один источник{% else %}нет источников{% endif %} с запуском: режим понадобится, когда их станет несколько.{% endif %}</p>
+    <div class="lpanel-actions"><button type="submit">Сохранить</button></div>
+  </form>
+</div>
