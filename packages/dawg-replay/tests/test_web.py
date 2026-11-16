@@ -596,6 +596,33 @@ def test_library_search_filter_and_cover(logged, home, write_script):
     assert home_data.hue_for("Ozon") == home_data.hue_for("ozon") and home_data.letter_for("«Wb»") == "W"
 
 
+def test_library_head_keeps_add_button_beside_title(logged, home, write_script):
+    sites = ("DNS", "Ozon", "the-internet", "Wildberries", "Демо", "Яндекс Маркет")
+    with App(home) as app:
+        for i, site in enumerate(sites):
+            text = textwrap.dedent(f"""\
+                # /// script
+                # dependencies = ["dawg-replay-kit>=1.4,<2"]
+                # ///
+
+                # /// dawg-script
+                # contract = "1.4"
+                # name = "s{i}"
+                # title = "{site}: сбор"
+                # site = "{site}"
+                # version = 1
+                # ///
+                """)
+            app.registry.add(write_script(text, filename=f"s{i}.py"))
+    h = logged.get("/scripts").text
+    head = h.split('class="lib-head"', 1)[1].split("lib-grid", 1)[0]
+    # Кнопка идёт сразу за заголовком, фильтры отдельной строкой ниже: сколько бы ни было сайтов, кнопку они не сдвигают.
+    assert head.index("</h1>") < head.index('class="button secondary lib-add"') < head.index('class="chips lib-filters"')
+    assert all(f">{site}</a>" in head for site in sites)
+    css = (Path(__file__).parents[1] / "src/dawg_replay/web/static/app.css").read_text(encoding="utf-8")
+    assert ".lib-filters { grid-column: 1 / -1;" in css
+
+
 def test_library_reads_site_and_tags_when_manifest_has_them():
     from types import SimpleNamespace
 
