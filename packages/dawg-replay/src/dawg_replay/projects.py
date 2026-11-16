@@ -49,13 +49,8 @@ from dawg_replay_kit.manifest import Manifest
 from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
+from dawg_replay.transfer import MAIN, TRANSFER_TYPES, file_spec_problem, output_for
 from dawg_replay.values import check_partial
-
-try:  # dr-115 переносит общие куски связей в dawg_replay.transfer
-    from dawg_replay.transfer import MAIN, TRANSFER_TYPES, file_spec_problem, output_for
-except ImportError:
-    from dawg_replay.links import MAIN, TRANSFER_TYPES, file_spec_problem
-    from dawg_replay.links import _output_for as output_for
 
 if sys.version_info >= (3, 11):
     import tomllib
