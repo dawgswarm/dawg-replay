@@ -7,6 +7,7 @@
 import csv
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -97,3 +98,72 @@ def test_reference_run_and_broken_file(demo, home):
     code, data = demo("run", "demo-update-prices", *refs, "--follow")
     assert code == 1
     assert data["error"]["message"] == "Демо: цены Ozon, prices.csv: в шапке нет колонок: «price», нужна параметру `ozon`"
+
+
+# --- автозапуск по связям (dr-106): сценарии Ц3, К2 и Р плана приёмки ---------------------------
+
+
+@pytest.fixture
+def autorun(demo, home, kr, monkeypatch):
+    """Получатель запускается в этом процессе (как процесс-супервизор, только синхронно)."""
+    from dawg_replay import chain
+    from dawg_replay.app import App
+
+    started = []
+
+    def spawn(app, prepared):
+        started.append(prepared.run.script_name)
+
+        def work():  # свой поток, как свой процесс-супервизор: решения по связям принимает он
+            with App(home, keyring_backend=kr) as a:
+                launch.supervise(a, prepared.run.id, prepared.payload())
+
+        t = threading.Thread(target=work)
+        t.start()
+        t.join()
+
+    monkeypatch.setattr(chain, "_spawn", spawn)
+    monkeypatch.setattr(chain, "_spawn_waiting", lambda app, *a: None)
+    return started
+
+
+def runs_of(cli, name):
+    code, data = cli("runs", name)
+    assert code == 0
+    return data["runs"]
+
+
+def test_chain_runs_itself(demo, autorun):
+    chain(demo)
+    demo("run", "demo-wb-prices", "--follow")
+    assert autorun == []  # обновление ждёт Ozon
+    code, data = demo("link", "show", "demo-wb-prices", "demo-update-prices")
+    assert "ждёт остальных источников (Демо: цены Ozon)" in json.dumps(data, ensure_ascii=False)
+    demo("run", "demo-ozon-prices", "--follow")
+    assert autorun == ["demo-update-prices", "demo-report"]  # обновление один раз, за ним отчёт
+    (upd,) = runs_of(demo, "demo-update-prices")
+    (rep,) = runs_of(demo, "demo-report")
+    assert upd["status"] == "ok" and rep["status"] == "ok" and rep["summary"].startswith("товаров 5")
+    code, data = demo("logs", upd["id"], "--events")
+    assert any("Запущен после: Демо: цены Ozon" in str(e.get("msg")) for e in data["events"])
+
+
+def test_broken_source_file_stops_target_before_start(demo, autorun):
+    chain(demo)
+    demo("run", "demo-wb-prices", "--follow")
+    demo("run", "demo-ozon-prices", "--set", "broken=true", "--follow")
+    (upd,) = runs_of(demo, "demo-update-prices")
+    assert upd["status"] == "failed" and upd["reason"] == "not_started"
+    assert "prices.csv: в шапке нет колонок: «price», нужна параметру `ozon`" in upd["error"]
+    assert runs_of(demo, "demo-report") == []
+
+
+def test_cycle_stops_at_limit(demo, autorun):
+    demo("link", "add", "demo-ping", "demo-pong", "--file", "@main=ball")
+    demo("link", "add", "demo-pong", "demo-ping", "--file", "@main=ball", "--limit-per-day", "3")
+    demo("run", "demo-ping", "--follow")
+    pings, pongs = runs_of(demo, "demo-ping"), runs_of(demo, "demo-pong")
+    assert (len(pings), len(pongs)) == (4, 4)  # ручной пинг и 3 по связи понг → пинг, на каждый пинг свой понг
+    assert max(int(r["summary"].split()[1].rstrip(":")) for r in pings + pongs) == 8
+    code, data = demo("link", "show", "demo-pong", "demo-ping")
+    assert "не запущен: исчерпан предел 3 в сутки" in json.dumps(data, ensure_ascii=False)
