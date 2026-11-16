@@ -82,6 +82,9 @@ def fake_scheduler(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_SCHTASKS_FILE", str(state / "schtasks.json"))
     # Ведущий запуска проекта и процессы шагов в тестах не поднимаются (dawg_replay.project_runs).
     monkeypatch.setenv("DAWG_REPLAY_PROJECT_PROCESSES", "off")
+    # Стандартная библиотека узлов (dawg_replay.builtin) включается только в своих тестах:
+    # остальные проверяют пустое приложение и свои скрипты.
+    monkeypatch.setenv("DAWG_REPLAY_STDLIB", "off")
     return state
 
 

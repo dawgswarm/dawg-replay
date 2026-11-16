@@ -267,8 +267,9 @@ def routes(templates: Jinja2Templates) -> list[Route]:
     def _library(request: Request) -> dict[str, Any]:
         q = request.query_params.get("q", "")[:200]
         site = request.query_params.get("site", "")[:200]
+        builtin = request.query_params.get("builtin", "") == "1"
         with _ui(request).open_app() as app:
-            return home_data.library(app, q, site)
+            return home_data.library(app, q, site, builtin)
 
     def scripts(request: Request) -> Response:
         lib = _library(request)

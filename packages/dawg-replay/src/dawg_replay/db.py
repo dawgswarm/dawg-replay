@@ -175,7 +175,17 @@ MIGRATIONS: list[str] = [
         created_at   TEXT NOT NULL
     )
     """,
-    # 7: проекты, схемы из скриптов (dawg_replay.projects)
+    # 7: стандартная библиотека узлов (dawg_replay.builtin)
+    """
+    -- builtin: скрипт поставляется с приложением, его версии ставит и обновляет приложение.
+    ALTER TABLE scripts ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0;
+    -- Служебные значения приложения: stdlib = отпечаток поставленной библиотеки узлов.
+    CREATE TABLE app_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )
+    """,
+    # 8: проекты, схемы из скриптов (dawg_replay.projects)
     """
     CREATE TABLE projects (
         name            TEXT PRIMARY KEY,
@@ -195,7 +205,7 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (name, version)
     )
     """,
-    # 8: глобальные связи M6 заменены проектами: таблицы связей и автозапуска удаляются (M6 не выпущен,
+    # 9: глобальные связи M6 заменены проектами: таблицы связей и автозапуска удаляются (M6 не выпущен,
     # данных у пользователей нет). Колонка runs.link_id остаётся пустой: удалять колонку в SQLite
     # умеют не все версии, которые идут с поддерживаемым Python.
     """
@@ -206,7 +216,7 @@ MIGRATIONS: list[str] = [
     DROP TABLE IF EXISTS link_targets;
     DROP TABLE IF EXISTS links
     """,
-    # 9: запуски проектов (dawg_replay.project_runs)
+    # 10: запуски проектов (dawg_replay.project_runs)
     """
     -- Запуск проекта: version какая версия файла шла, retry_of с какого запуска перезапущен.
     -- status running, ok, partial, failed, cancelled. reason у failed: timeout, lost, busy.

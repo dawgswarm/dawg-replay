@@ -103,7 +103,11 @@ def _list(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     if not scripts:
         text = "скриптов нет; зарегистрировать: dawg-replay add script.py"
     else:
-        text = "\n".join(f"{s.name}  v{s.current_version}  {s.title}" + (f"  ({s.site})" if s.site else "") for s in scripts)
+        text = "\n".join(
+            f"{s.name}  v{s.current_version}  {s.title}" + (f"  ({s.site})" if s.site else "")
+            + ("  [встроенный]" if s.builtin else "")
+            for s in scripts
+        )
     return {"scripts": [s.to_dict() for s in scripts]}, text
 
 
