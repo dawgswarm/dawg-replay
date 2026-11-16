@@ -3,13 +3,13 @@
 {% block title %}{{ v.script.title }}, dawg-replay{% endblock %}
 {% block content %}
 {% set s = v.script %}
-<p class="crumbs"><a href="/scripts">Скрипты</a></p>
+<p class="crumbs"><a href="/scripts">Скрипты</a>{% if s.builtin %} / <a href="/scripts?builtin=1">Встроенные узлы</a>{% endif %}</p>
 <div class="script-head">
   {{ cover(v.cover, "l") }}
   <div>
     <h1>{{ s.title }}</h1>
     {% if s.description %}<p class="lead">{{ s.description }}</p>{% endif %}
-    <p class="script-id">{% if v.cover.site %}{{ v.cover.site }}, {% endif %}{{ s.name }}, версия {{ s.current_version }}{% for t in v.tags %}<span class="lib-tag">{{ t }}</span>{% endfor %}</p>
+    <p class="script-id">{% if v.cover.site %}{{ v.cover.site }}, {% endif %}{{ s.name }}, версия {{ s.current_version }}{% if s.builtin %}, встроенный узел: обновляется вместе с приложением{% endif %}{% for t in v.tags %}<span class="lib-tag">{{ t }}</span>{% endfor %}</p>
   </div>
 </div>
 

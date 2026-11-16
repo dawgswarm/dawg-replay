@@ -104,7 +104,7 @@ ROW_KEY = "_row"
 OUTPUTS_MAX = 50  # outputs (1.4): сколько файлов можно объявить
 OUTPUT_NAME_MAX = 200
 OUTPUT_TITLE_MAX = 80
-_OUTPUT_KEYS = ("name", "title", "columns", "main")
+_OUTPUT_KEYS = ("name", "title", "columns", "main", "optional")
 _GLOB_CHARS = frozenset("*?[")
 
 SITE_MAX = 40
@@ -241,6 +241,7 @@ class Output:
     title: str | None = None
     columns: tuple[str, ...] | None = None  # для таблиц: колонки, которые в файле будут
     main: bool = False  # главный файл итога
+    optional: bool = False  # файл бывает не в каждом запуске (ветвление): его отсутствие не поломка
 
     @property
     def label(self) -> str:
@@ -266,6 +267,8 @@ class Output:
             d["columns"] = list(self.columns)
         if self.main:
             d["main"] = True
+        if self.optional:
+            d["optional"] = True
         return d
 
 
@@ -1097,9 +1100,12 @@ def _check_outputs(raw_outputs: Any, issues: list[Issue]) -> tuple[Output, ...] 
             err("duplicate_main", "main", f"главный файл уже объявлен: `{main_at}`; `main = true` бывает у одного выхода")
         elif main and isinstance(name, str):
             main_at = name
+        optional = raw.get("optional", False)
+        if not isinstance(optional, bool):
+            err("bad_value", "optional", "`optional` задаётся true или false")
         if len(issues) == n:
             outputs.append(Output(name=name, title=title, columns=tuple(columns) if columns is not None else None,
-                                  main=main))
+                                  main=main, optional=optional))
     if len(issues) > n_before:
         return None
     return tuple(outputs)

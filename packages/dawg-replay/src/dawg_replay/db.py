@@ -175,7 +175,17 @@ MIGRATIONS: list[str] = [
         created_at   TEXT NOT NULL
     )
     """,
-    # 7: проекты, схемы из скриптов (dawg_replay.projects)
+    # 7: стандартная библиотека узлов (dawg_replay.builtin)
+    """
+    -- builtin: скрипт поставляется с приложением, его версии ставит и обновляет приложение.
+    ALTER TABLE scripts ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0;
+    -- Служебные значения приложения: stdlib = отпечаток поставленной библиотеки узлов.
+    CREATE TABLE app_meta (
+        key   TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+    )
+    """,
+    # 8: проекты, схемы из скриптов (dawg_replay.projects)
     """
     CREATE TABLE projects (
         name            TEXT PRIMARY KEY,

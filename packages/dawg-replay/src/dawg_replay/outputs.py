@@ -49,8 +49,9 @@ def output_files(output_dir: Path, limit: int = SCAN_LIMIT) -> list[str]:
 
 
 def missing(declared: tuple[Output, ...], files: list[str]) -> list[Output]:
-    """Объявленные выходы, которым не нашлось ни одного файла."""
-    return [o for o in declared if not any(o.matches(f) for f in files)]
+    """Объявленные выходы, которым не нашлось ни одного файла. Необязательные (`optional`) не в счёт:
+    их отсутствие обычный исход (ветвление)."""
+    return [o for o in declared if not o.optional and not any(o.matches(f) for f in files)]
 
 
 def check_run(app: App, run_id: str) -> list[str]:
@@ -97,7 +98,7 @@ def script_outputs(app: App, name: str) -> dict[str, Any]:
     """Что отдаёт скрипт, для настроек связи.
 
     {"source": "declared" | "last_run" | "none", "run_id": id запуска или None,
-     "outputs": [{"name", "title", "columns", "main", "pattern"}]}
+     "outputs": [{"name", "title", "columns", "main", "pattern", "optional"}]}
 
     Объявленные выходы текущей версии идут первыми. Без объявления (или если файл скрипта
     не читается) берутся файлы последнего запуска `ok` или `partial`, главный файл из `main` итога.
@@ -125,11 +126,12 @@ def script_outputs(app: App, name: str) -> dict[str, Any]:
             files.remove(main)
             files.insert(0, main)
         return {"source": "last_run", "run_id": rec.id,
-                "outputs": [{"name": f, "title": None, "columns": None, "main": f == main, "pattern": False}
+                "outputs": [{"name": f, "title": None, "columns": None, "main": f == main, "pattern": False,
+                             "optional": False}
                             for f in files]}
     return {"source": "none", "run_id": None, "outputs": []}
 
 
 def _declared(o: Output) -> dict[str, Any]:
     return {"name": o.name, "title": o.title, "columns": list(o.columns) if o.columns is not None else None,
-            "main": o.main, "pattern": o.is_pattern}
+            "main": o.main, "pattern": o.is_pattern, "optional": o.optional}

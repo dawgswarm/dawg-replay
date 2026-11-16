@@ -699,7 +699,7 @@ class Projects:
                 declared, o = output_for(src_m, e.if_file)
                 if declared and o is None:
                     warn(f"{where}: if_file `{e.if_file}` не объявлен в выходах скрипта `{src_m.name}`", edge=i)
-                elif o is not None and getattr(o, "optional", None) is False:  # поле optional с dr-116
+                elif o is not None and not o.optional:
                     warn(f"{where}: `{o.name}` у скрипта `{src_m.name}` обязательный выход, "
                          "с if_file на него стрелка будет активна всегда", edge=i)
             tables = 0

@@ -388,7 +388,8 @@ def prepare(
     cfg = app.config
     warnings: list[str] = [outdated + "; пока взяты значения по умолчанию"] if outdated else []
     api_key = app.secrets.get_api_key()
-    if api_key is None:
+    # Встроенным узлам (dawg_replay.builtin) браузер не нужен, про ключ им говорить незачем.
+    if api_key is None and (draft or not app.registry.get(manifest.name).builtin):
         warnings.append("ключ DAWG не задан (dawg-replay config set-key): браузеры DAWG в этом запуске недоступны")
     timeout_minutes = min(manifest.timeout_minutes, cfg.max_timeout_minutes)
     command, env = run_command(app)

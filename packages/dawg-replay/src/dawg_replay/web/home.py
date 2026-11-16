@@ -51,11 +51,18 @@ def cover(title: str, site: str | None) -> dict[str, str]:
     return {"letter": letter_for(key), "hue": hue_for(key), "site": site or ""}
 
 
-def library(app: Any, query: str = "", site: str = "") -> dict[str, Any]:
-    """Карточки библиотеки, список сайтов для фильтра. Фильтры: подстрока названия и сайт."""
+def library(app: Any, query: str = "", site: str = "", builtin: bool = False) -> dict[str, Any]:
+    """Карточки библиотеки, список сайтов для фильтра. Фильтры: подстрока названия и сайт.
+
+    Встроенные узлы (стандартная библиотека, dawg_replay.builtin) показываются только под своим
+    фильтром `builtin`; в «Все», счётчик скриптов и сайты они не входят."""
     items = []
+    builtin_count = 0
     for row in app.scripts_overview():
         s = row["script"]
+        if bool(s.get("builtin")) != builtin:
+            builtin_count += bool(s.get("builtin"))
+            continue
         meta = manifest_meta(app, s["name"])
         try:
             presets = [p.name for p in app.list_presets(s["name"])]
@@ -68,8 +75,11 @@ def library(app: Any, query: str = "", site: str = "") -> dict[str, Any]:
             "tags": list(meta["tags"]),
             "cover": cover(s["title"], meta["site"]),
         })
+    if builtin:
+        builtin_count = len(items)
+        site = ""
     repair.annotate(app, [i["last_run"] for i in items if i["last_run"]])
-    sites = sorted({i["cover"]["site"] for i in items if i["cover"]["site"]}, key=str.casefold)
+    sites = [] if builtin else sorted({i["cover"]["site"] for i in items if i["cover"]["site"]}, key=str.casefold)
     q = query.strip().casefold()
     shown = [
         i for i in items
@@ -77,7 +87,8 @@ def library(app: Any, query: str = "", site: str = "") -> dict[str, Any]:
             or q in (i["script"].get("description") or "").casefold())
         and (not site or i["cover"]["site"] == site)
     ]
-    return {"cards": shown, "total": len(items), "sites": sites, "query": query.strip(), "site": site}
+    return {"cards": shown, "total": len(items), "sites": sites, "query": query.strip(), "site": site,
+            "builtin": builtin, "builtin_count": builtin_count}
 
 
 def _title(app: Any, rec: Any, cache: dict[str, tuple[str, dict[str, str]]]) -> tuple[str, dict[str, str]]:

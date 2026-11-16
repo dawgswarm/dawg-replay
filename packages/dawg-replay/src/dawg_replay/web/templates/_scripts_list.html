@@ -1,6 +1,11 @@
 {% from "_icons.html" import icon %}
-<div id="scripts-list" hx-get="/scripts/_list?q={{ lib.query | urlencode }}&amp;site={{ lib.site | urlencode }}" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
-{% if not lib.total %}
+<div id="scripts-list" hx-get="/scripts/_list?q={{ lib.query | urlencode }}&amp;site={{ lib.site | urlencode }}{% if lib.builtin %}&amp;builtin=1{% endif %}" hx-trigger="runs-changed from:body" hx-swap="outerHTML" data-live-runs>
+{% if not lib.total and lib.builtin %}
+  <div class="empty">
+    <h2>Встроенных узлов нет</h2>
+    <p>Они ставятся вместе с приложением при следующем запуске. <a href="/scripts">Показать все скрипты</a></p>
+  </div>
+{% elif not lib.total %}
   <div class="empty">
     <h2>Скриптов пока нет</h2>
     <p>Попросите агента собрать скрипт под вашу задачу. Готовый файл добавьте здесь</p>
@@ -10,7 +15,7 @@
 {% elif not lib.cards %}
   <div class="empty">
     <h2>Ничего не нашлось</h2>
-    <p>{% if lib.query %}Нет скриптов, в названии или описании которых есть «{{ lib.query }}»{% if lib.site %} на сайте {{ lib.site }}{% endif %}.{% else %}Для сайта {{ lib.site }} скриптов нет.{% endif %} <a href="/scripts">Показать все скрипты</a></p>
+    <p>{% if lib.query %}Нет {% if lib.builtin %}встроенных узлов{% else %}скриптов{% endif %}, в названии или описании которых есть «{{ lib.query }}»{% if lib.site %} на сайте {{ lib.site }}{% endif %}.{% else %}Для сайта {{ lib.site }} скриптов нет.{% endif %} <a href="/scripts">Показать все скрипты</a></p>
   </div>
 {% else %}
   {% if lib.query %}<p class="hint lib-found">Найдено по «{{ lib.query }}»: {{ lib.cards | length }}. <a href="/scripts">Сбросить поиск</a></p>{% endif %}

@@ -82,6 +82,9 @@ def fake_scheduler(tmp_path, monkeypatch):
     monkeypatch.setenv("FAKE_SCHTASKS_FILE", str(state / "schtasks.json"))
     # Процесс ожидания сроков связей (dawg_replay.chain) в тестах не поднимается.
     monkeypatch.setenv("DAWG_REPLAY_CHAIN_WAITER", "off")
+    # Стандартная библиотека узлов (dawg_replay.builtin) включается только в своих тестах:
+    # остальные проверяют пустое приложение и свои скрипты.
+    monkeypatch.setenv("DAWG_REPLAY_STDLIB", "off")
     return state
 
 
