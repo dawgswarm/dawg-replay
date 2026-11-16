@@ -184,6 +184,7 @@ class Fill:
     files: list[Path]  # исходные файлы запуска-источника
     entry: dict[str, Any]  # строка снимка в runs.inputs_json
     table_files: list[Path] = field(default_factory=list)  # table: что скопировать в каталог входа
+    extra_entries: list[dict[str, Any]] = field(default_factory=list)  # склейка нескольких источников
 
 
 def _title(app: App, script: str) -> str:

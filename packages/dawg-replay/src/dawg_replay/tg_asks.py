@@ -580,10 +580,14 @@ def start(app: Any, rec: Any, payload: dict[str, Any] | None = None) -> RunAsks 
         if opened is None:
             return None
         bot, chat_id = opened
-        try:
-            title = app.registry.get(rec.script_name).title or rec.script_name
-        except ReplayError:
-            title = rec.script_name
+        from dawg_replay.project_runs import step_label
+
+        title = step_label(app, rec)  # шаг проекта: «Проект: узел»
+        if title is None:
+            try:
+                title = app.registry.get(rec.script_name).title or rec.script_name
+            except ReplayError:
+                title = rec.script_name
         hide = diagnosis.known_secrets(app, rec.script_name)
         payload = payload or {}
         values = payload.get("values") or {}

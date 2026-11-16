@@ -206,6 +206,59 @@ MIGRATIONS: list[str] = [
     DROP TABLE IF EXISTS link_targets;
     DROP TABLE IF EXISTS links
     """,
+    # 9: запуски проектов (dawg_replay.project_runs)
+    """
+    -- Запуск проекта: version какая версия файла шла, retry_of с какого запуска перезапущен.
+    -- status running, ok, partial, failed, cancelled. reason у failed: timeout, lost, busy.
+    -- driver_*: процесс-ведущий (следит за сроком), deadline срок по timeout_minutes (UTC).
+    CREATE TABLE project_runs (
+        id                  TEXT PRIMARY KEY,
+        project             TEXT NOT NULL,
+        version             INTEGER NOT NULL,
+        status              TEXT NOT NULL,
+        reason              TEXT,
+        error               TEXT,
+        created_at          TEXT NOT NULL,
+        finished_at         TEXT,
+        triggered_by        TEXT,
+        schedule_id         TEXT,
+        retry_of            TEXT,
+        deadline            TEXT,
+        cancel_requested_at TEXT,
+        driver_pid          INTEGER,
+        driver_started      REAL,
+        heartbeat_at        TEXT,
+        notify              TEXT,
+        notify_state        TEXT
+    );
+    CREATE INDEX project_runs_by_project ON project_runs (project, created_at);
+    -- Шаг: узел проекта в этом запуске. status pending, starting, running, ok, partial, failed,
+    -- not_started, cancelled, skipped, off_branch. reused 1: «готово» взято из прошлого запуска.
+    CREATE TABLE project_steps (
+        project_run TEXT NOT NULL REFERENCES project_runs(id) ON DELETE CASCADE,
+        node        TEXT NOT NULL,
+        pos         INTEGER NOT NULL,
+        status      TEXT NOT NULL,
+        run_id      TEXT,
+        reason      TEXT,
+        reused      INTEGER NOT NULL DEFAULT 0,
+        pid         INTEGER,
+        pid_started REAL,
+        updated_at  TEXT NOT NULL,
+        PRIMARY KEY (project_run, node)
+    );
+    -- Расписание проекта: задача в системном планировщике, как у скриптов (schedules)
+    CREATE TABLE project_schedules (
+        id         TEXT PRIMARY KEY,
+        project    TEXT NOT NULL,
+        spec_json  TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    -- Шаг проекта это обычный запуск: какой запуск проекта и какой узел
+    ALTER TABLE runs ADD COLUMN project_run TEXT;
+    ALTER TABLE runs ADD COLUMN project_node TEXT;
+    CREATE INDEX runs_by_project_run ON runs (project_run)
+    """,
 ]
 
 

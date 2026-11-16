@@ -80,6 +80,8 @@ def fake_scheduler(tmp_path, monkeypatch):
     monkeypatch.setenv("DAWG_REPLAY_SCHTASKS", json.dumps([sys.executable, str(FAKES / "fake_schtasks.py")]))
     monkeypatch.setenv("FAKE_CRONTAB_FILE", str(state / "crontab"))
     monkeypatch.setenv("FAKE_SCHTASKS_FILE", str(state / "schtasks.json"))
+    # Ведущий запуска проекта и процессы шагов в тестах не поднимаются (dawg_replay.project_runs).
+    monkeypatch.setenv("DAWG_REPLAY_PROJECT_PROCESSES", "off")
     return state
 
 
