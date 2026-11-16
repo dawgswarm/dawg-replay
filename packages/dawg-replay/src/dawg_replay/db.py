@@ -102,6 +102,56 @@ MIGRATIONS: list[str] = [
         rules_json TEXT NOT NULL
     )
     """,
+    # 5: связи между скриптами (dawg_replay.links)
+    """
+    -- Одна связь на пару скриптов. cond: какой исход источника подходит (ok, partial, any);
+    -- starts 0: связь только передаёт файл и сама ничего не запускает.
+    CREATE TABLE links (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        source        TEXT NOT NULL,
+        target        TEXT NOT NULL,
+        cond          TEXT NOT NULL DEFAULT 'ok',
+        starts        INTEGER NOT NULL DEFAULT 1,
+        preset        TEXT,
+        enabled       INTEGER NOT NULL DEFAULT 1,
+        limit_per_day INTEGER,
+        created_at    TEXT NOT NULL,
+        updated_at    TEXT NOT NULL,
+        UNIQUE (source, target)
+    );
+    CREATE INDEX links_by_target ON links (target);
+    -- Передачи файлов: file это имя, шаблон (prices-*.csv) или @main (главный файл итога)
+    CREATE TABLE link_files (
+        link_id INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+        pos     INTEGER NOT NULL,
+        file    TEXT NOT NULL,
+        param   TEXT NOT NULL,
+        PRIMARY KEY (link_id, pos)
+    );
+    -- Режим получателя с несколькими источниками: all (после всех) или any (после любого)
+    CREATE TABLE link_targets (
+        script       TEXT PRIMARY KEY,
+        mode         TEXT NOT NULL DEFAULT 'all',
+        wait_seconds INTEGER NOT NULL DEFAULT 21600,
+        on_timeout   TEXT NOT NULL DEFAULT 'skip'
+    );
+    -- Журнал решений по связи: запущен, не запущен и почему
+    CREATE TABLE link_log (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        link_id    INTEGER NOT NULL,
+        at         TEXT NOT NULL,
+        decision   TEXT NOT NULL,
+        text       TEXT NOT NULL,
+        source_run TEXT,
+        target_run TEXT
+    );
+    CREATE INDEX link_log_by_link ON link_log (link_id, id);
+    -- Запуск по связи: triggered_by = link, какая связь и какой запуск источника его вызвал.
+    -- inputs_json: откуда взяты файлы параметров (снимок для экрана запуска и повторов).
+    ALTER TABLE runs ADD COLUMN link_id INTEGER;
+    ALTER TABLE runs ADD COLUMN source_run TEXT;
+    ALTER TABLE runs ADD COLUMN inputs_json TEXT
+    """,
 ]
 
 

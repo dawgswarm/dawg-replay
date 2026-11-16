@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import shutil
@@ -46,7 +47,7 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import asks, devkit, hooks, insurance, logins, procinfo, repair, tg_asks, tg_notify, tg_rules
+from dawg_replay import asks, devkit, hooks, insurance, links, logins, procinfo, repair, tg_asks, tg_notify, tg_rules
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -200,21 +201,28 @@ def merge_values(
     sets: Sequence[str] | None,
     form_values: Mapping[str, Any] | None = None,
     preset_tables: Mapping[str, Any] | None = None,
+    explicit: set[str] | None = None,
 ) -> dict[str, Any]:
     """default < пресет < --params < значения формы UI < --set. Секреты сюда не принимаются.
     `preset_tables`: секретные таблицы пресета (Presets.secret_rows); загруженная в форму или
-    через --set таблица их перекрывает, сам пресет при этом не меняется."""
+    через --set таблица их перекрывает, сам пресет при этом не меняется.
+    `explicit`: сюда добавляются имена, заданные явно (не пресетом): их передача по связи не трогает."""
     values: dict[str, Any] = {}
     if preset:
         p = app.presets.get(manifest.name, preset, manifest)
         values.update(p.params)
         values.update(preset_tables or {})
+        values.update(p.results)
+    given: dict[str, Any] = {}
     if params_file:
-        values.update(read_params_file(params_file))
+        given.update(read_params_file(params_file))
     if form_values:
-        values.update(form_values)
+        given.update(form_values)
     if sets:
-        values.update(parse_set_args(manifest, sets))
+        given.update(parse_set_args(manifest, sets))
+    values.update(given)
+    if explicit is not None:
+        explicit.update(given)
     secrets_given = [p.name for p in manifest.params if p.type == "secret" and p.name in values]
     if secrets_given:
         problems = [
@@ -231,18 +239,24 @@ def merge_values(
 _NOT_RECORDED = ("run_skipped", "run_cancelled", "schedule_not_found")
 
 
-def record_not_started(app: App, schedule_id: str, target: str, preset: str | None, error: ReplayError) -> Run | None:
-    """Плановый запуск упал до создания запуска: запись `failed (not_started)` в истории скрипта,
-    чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`."""
+def record_not_started(app: App, schedule_id: str | None, target: str, preset: str | None, error: ReplayError,
+                       *, link_id: int | None = None, source_run: str | None = None,
+                       reason: str | None = None) -> Run | None:
+    """Плановый запуск или запуск по связи упал до создания запуска: запись `failed (not_started)`
+    в истории скрипта, чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`
+    или журнале связи. `reason="skipped"`: пропуск по сроку ожидания «после всех» (dr-106).
+    Сообщение `failed` в Telegram уходит так же."""
     if error.code in _NOT_RECORDED:
         return None
     try:
         version = app.registry.version(target)
     except ReplayError:
         return None  # скрипта нет: показывать негде
+    extra = {"reason": reason} if reason else {}
     rec = app.runs.record_not_started(
         run_id=new_run_id(), script_name=target, script_version=version.version, script_path=str(version.path),
         preset=normalize_preset(preset) or None, schedule_id=schedule_id, error=error.message,
+        link_id=link_id, source_run=source_run, **extra,
     )
     tg_notify.after_finish(app, rec.id, background=False)
     return rec
@@ -284,6 +298,10 @@ def prepare(
     on_wait: Callable[[dict[str, Any]], None] | None = None,
     strict_preset: bool = False,
     notify: str | None = None,
+    link_id: int | None = None,
+    source_run: str | None = None,
+    link_sources: Mapping[int, str] | None = None,
+    inputs_of: str | None = None,
 ) -> Prepared:
     """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
@@ -292,7 +310,15 @@ def prepare(
     (`preset_outdated`). Так всегда для планового запуска: без человека нельзя молча подставить `default`,
     а у скриптов действий на сайтах это может изменить не то. Без флага такие значения пропускаются
     с предупреждением в `warnings`.
-    `notify`: выбор у запуска для сообщения в Telegram об успешном итоге: None по настройкам, always, never."""
+    `notify`: выбор у запуска для сообщения в Telegram об успешном итоге: None по настройкам, always, never.
+    `link_id`, `source_run`: запуск по связи (dr-106), какая связь и какой запуск источника его вызвал;
+    такой запуск ждёт слота, как плановый. `link_sources`: {id связи: id запуска}, из каких запусков
+    брать файлы по связям; для остальных входящих связей берётся последний подходящий результат.
+    Явно заданное значение (форма, --set, --params) передачу по связи перекрывает, пресет нет.
+    Ссылки `run:`/`last:` в значениях table/file заменяются файлами (dawg_replay.links).
+    Ошибка подстановки: ReplayError `link_input`.
+    `inputs_of`: «Запустить снова» и «Перезапустить упавшие»: id исходного запуска, его снимок
+    источников переходит к параметрам, которые взяты из него как есть."""
     if notify not in (None, *tg_rules.RUN_CHOICES):
         raise ReplayError("bad_notify", f"notify: always, never или ничего, получено {notify!r}")
     recover_lost(app)
@@ -300,12 +326,29 @@ def prepare(
     if schedule_id is not None:
         _check_schedule(app, schedule_id, target, preset)
     manifest, script_path, draft, version = _target(app, target)
-    outdated = app.presets.get(manifest.name, preset, manifest).outdated() if preset else None
+    if link_id is not None:
+        sources = dict(link_sources or {})
+        if source_run is not None:
+            sources.setdefault(link_id, source_run)
+        link_sources = sources
+    # Параметры, которые придут по связям: в пресете их может не быть, это не «пресет устарел».
+    fed = set() if draft else {t.param for x in app.links.incoming(manifest.name) if x.enabled for t in x.files}
+    outdated = None
+    if preset:
+        pr = app.presets.get(manifest.name, preset, manifest)
+        if fed & set(pr.missing):
+            pr = dataclasses.replace(pr, missing={k: v for k, v in pr.missing.items() if k not in fed})
+        outdated = pr.outdated()
     if outdated and (strict_preset or schedule_id is not None):
         raise ReplayError("preset_outdated", outdated[:1].upper() + outdated[1:])
     preset_tables = app.presets.secret_rows(app.presets.get(manifest.name, preset, manifest)) if preset else {}
     preset_files = app.presets.file_values(app.presets.get(manifest.name, preset, manifest), manifest) if preset else {}
-    values = merge_values(app, manifest, preset, params_file, sets, values, {**preset_tables, **preset_files})
+    explicit: set[str] = set()
+    values = merge_values(app, manifest, preset, params_file, sets, values, {**preset_tables, **preset_files}, explicit)
+    fills = _fill_results(app, manifest, values, explicit, draft, link_sources)
+    inputs = [f.entry for f in fills]
+    if inputs_of:
+        inputs = _inherit_inputs(app, inputs_of, values, explicit) + inputs
     # Файл без пути (секретный файл из истории для «Запустить снова»): не задан, его дают заново.
     for p in manifest.params:
         if p.type == "file" and p.name in values and not _has_paths(values[p.name]):
@@ -374,8 +417,10 @@ def prepare(
             timeout_seconds=timeout_minutes * 60,
             limit=cfg.max_parallel_runs,
             schedule_id=schedule_id,
-            wait=_wait_policy(cfg, on_wait) if (wait or schedule_id) else None,
+            wait=_wait_policy(cfg, on_wait) if (wait or schedule_id or link_id is not None) else None,
             notify=notify,
+            link_id=link_id,
+            source_run=source_run,
         )
     except ReplayError as e:
         if e.code not in ("run_skipped", "run_cancelled"):  # пропущенный запуск остаётся в истории
@@ -393,6 +438,12 @@ def prepare(
         copied = _copy_inputs(run_dir, {p.name: full[p.name] for p in plain_files})
         full.update(copied)
         app.runs.set_params(run.id, {**history, **copied})
+    # Таблица из результата другого запуска: копия файла в каталог входа, рядом с загруженными.
+    for f in fills:
+        for src in f.table_files:
+            copy_files_into(run_dir / "input" / f.param, {"path": str(src), "name": src.name, "size": src.stat().st_size})
+    if inputs:
+        app.runs.set_inputs(run.id, inputs)
     # Сколько строк в таблицах запуска: секретной таблицы нет в истории, а «2 из 5» нужно и для неё.
     repair.write_table_sizes(run_dir, {p.name: len(full[p.name]) for p in manifest.params
                                        if p.type == "table" and isinstance(full.get(p.name), list)})
@@ -426,6 +477,65 @@ def prepare(
         warnings=warnings,
         env=env,
     )
+
+
+def _fill_results(app: App, manifest: Manifest, values: dict[str, Any], explicit: set[str], draft: bool,
+                  link_sources: Mapping[int, str] | None) -> list[links.Fill]:
+    """Подставляет в `values` файлы из результатов других запусков: ссылки run:/last: и передачи
+    по связям (не для явно заданных параметров). Все ошибки сразу, одной ReplayError link_input."""
+    problems: list[str] = []
+    fills: list[links.Fill] = []
+    by_name = {p.name: p for p in manifest.params}
+    for name, value in list(values.items()):
+        p = by_name.get(name)
+        ref = links.parse_ref(value) if p is not None and p.type in links.TRANSFER_TYPES else None
+        if ref is None:
+            continue  # строка «last:…» в текстовом параметре просто текст
+        try:
+            fill = links.fill_ref(app, p, ref)
+        except ReplayError as e:
+            problems.append(e.message)
+            del values[name]
+            continue
+        values[name] = fill.value
+        fills.append(fill)
+    if not draft:
+        skip = explicit | {f.param for f in fills}
+        try:
+            got, empty = links.fill_links(app, manifest, skip, dict(link_sources or {}))
+        except ReplayError as e:
+            problems.append(e.message)
+            got, empty = [], {}
+        for fill in got:
+            values[fill.param] = fill.value
+            fills.append(fill)
+        for name, why in empty.items():
+            # Подходящего результата нет: параметр не заполнен, значение пресета не подставляется.
+            values.pop(name, None)
+            p = by_name[name]
+            if p.required and p.default is None:
+                problems.append(why)
+    if problems:
+        text = problems[0] if len(problems) == 1 else "файлы из результатов не подошли:\n" + "\n".join(f"  {x}" for x in problems)
+        raise ReplayError(links.LINK_INPUT, text, problems)
+    return fills
+
+
+def _inherit_inputs(app: App, run_id: str, values: Mapping[str, Any], explicit: set[str]) -> list[dict[str, Any]]:
+    """Снимок источников исходного запуска для параметров, переданных повтору из него же:
+    файл тот же (копия в каталоге исходного запуска), таблица та же или её часть («Перезапустить упавшие»)."""
+    try:
+        rec = app.runs.get(run_id)
+    except ReplayError:
+        return []
+
+    def same(name: str) -> bool:
+        now, was = values.get(name), rec.params.get(name)
+        if now == was:
+            return True
+        return isinstance(now, list) and isinstance(was, list) and all(r in was for r in now)
+
+    return [{**e, "from_run": rec.id} for e in rec.inputs if e.get("param") in explicit and same(e["param"])]
 
 
 def _lost_message(lost: list[str]) -> str:

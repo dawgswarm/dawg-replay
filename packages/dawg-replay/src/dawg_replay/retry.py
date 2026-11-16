@@ -121,7 +121,7 @@ def start(runs: Any, app: Any, rec: Any) -> Any:
     names = {x.name for x in manifest.params}
     values = {k: v for k, v in rec.params.items() if k in names}
     values[p["param"]] = p["rows"]
-    run = runs.start(rec.script_name, values=values)
+    run = runs.start(rec.script_name, values=values, inputs_of=rec.id)
     if p["secret"]:
         # Перезапуск перезапуска: у нового запуска тоже есть откуда взять секретную таблицу.
         store = Uploads(app.paths.uploads)

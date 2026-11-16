@@ -49,6 +49,7 @@ class UiRuns:
         values: Mapping[str, Any] | None = None,
         strict_preset: bool = False,
         notify: str | None = None,
+        inputs_of: str | None = None,
     ) -> Run:
         """Создаёт запуск и ведёт его в отдельном потоке. Ошибки подготовки (параметры,
         лимит параллельных запусков) бросаются сразу как ReplayError."""
@@ -58,7 +59,7 @@ class UiRuns:
             raise ReplayError("server_stopping", "сервер останавливается, новые запуски не принимаются")
         with self._app_factory() as app:
             prepared = launch.prepare(app, target, preset=preset, sets=sets, values=values, strict_preset=strict_preset,
-                                      notify=notify)
+                                      notify=notify, inputs_of=inputs_of)
             run = prepared.run
         payload = prepared.payload()
         t = threading.Thread(target=self._supervise, args=(run.id, payload), name=f"dawg-ui-run-{run.id}", daemon=True)

@@ -46,10 +46,14 @@ def _convert(p: Param, raw: str) -> Any:
             except json.JSONDecodeError as e:
                 raise ValueError(f"список в JSON не разобран: {e}") from None
         return [by_title(p, x.strip()) for x in raw.split(",") if x.strip()]
-    if t == "table":
-        return _table_value(p, raw)
-    if t == "file":
-        return _file_value(p, raw)
+    if t in ("table", "file"):
+        from dawg_replay.links import is_ref
+
+        if is_ref(raw):  # run:<id>:<файл> или last:<скрипт>:<файл>: файл подставит запуск
+            if p.secret:
+                raise ValueError("ссылка на результат другого запуска в секретный параметр не передаётся")
+            return raw
+        return _table_value(p, raw) if t == "table" else _file_value(p, raw)
     if t == "bool":
         low = raw.strip().lower()
         if low in ("true", "1", "yes", "да"):
