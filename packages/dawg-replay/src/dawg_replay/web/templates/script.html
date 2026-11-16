@@ -34,11 +34,6 @@
   <div id="schedules" hx-get="/scripts/{{ s.name }}/_schedules" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Проверяю планировщик…</p></div>
 </section>
 
-<section class="card" aria-labelledby="links-title">
-  <div class="card-head"><h2 id="links-title">Связи</h2><a class="button secondary small" href="/links?script={{ s.name | urlencode }}">Открыть на карте</a></div>
-  <div id="script-links" hx-get="/scripts/{{ s.name | urlencode }}/_links" hx-trigger="load" hx-swap="outerHTML"><p class="hint">Загружаю связи…</p></div>
-</section>
-
 <section class="card" aria-labelledby="runs-title">
   <div class="card-head"><h2 id="runs-title">Запуски</h2>{% include "_script_minutes.html" %}{% if v.runs %}<a class="button button-secondary small" href="/scripts/{{ s.name | urlencode }}/runs.csv" download>История в CSV</a>{% endif %}</div>
   {% set sname = s.name %}{% set runs = v.runs %}

@@ -69,7 +69,7 @@ WIDGETS = {
 }
 REL = "__rel"  # поле выбора относительной даты: `<имя>__rel`
 REL_TIME = "__reltime"  # время к относительной дате у datetime
-REF = "__ref"  # table и file: ссылка на результат другого скрипта (run:… или last:…, dawg_replay.links)
+REF = "__ref"  # table и file: ссылка на результат другого скрипта (run:… или last:…, dawg_replay.transfer)
 PREVIEW_ROWS = 5
 FILE_EXPIRED = "загруженный файл устарел (хранится сутки), загрузите его заново"
 TABLE_EXPIRED = "загруженная таблица устарела (хранится сутки), загрузите файл заново"
@@ -114,7 +114,6 @@ class Field:
     ref_allowed: bool = False  # table, file без секрета: значение можно взять из результата другого скрипта
     ref: str = ""  # выбранная ссылка run:… или last:…
     ref_options: list[dict[str, str]] | None = None  # {"value", "title"}
-    fed: dict[str, Any] | None = None  # придёт по связи: {"title", "cond", "at"}
     error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
@@ -235,7 +234,6 @@ def fields_for(
     `sources`: что можно взять из результатов других скриптов (result_sources)."""
     sources = sources or {}
     ref_opts: dict[str, list[dict[str, str]]] = sources.get("options") or {}
-    fed: dict[str, dict[str, Any]] = sources.get("fed") or {}
     titles: dict[str, str] = sources.get("titles") or {}
     values = values or {}
     raw = raw or {}
@@ -297,7 +295,6 @@ def fields_for(
                 ref_allowed=allowed,
                 ref=ref,
                 ref_options=(ref_opts.get(p.name, []) + extra) if allowed else None,
-                fed=fed.get(p.name) if allowed else None,
                 error=errors.get(p.name),
             )
         )
@@ -367,18 +364,13 @@ def build_fields(app: Any, script: str, preset: str | None = None,
     }
 
 
-# --- значения из результатов других скриптов (M6, dawg_replay.links) ------------
+# --- значения из результатов других скриптов (dawg_replay.transfer) -------------
 
 
 def _is_ref(value: Any) -> bool:
-    from dawg_replay.links import is_ref
+    from dawg_replay.transfer import is_ref
 
     return is_ref(value)
-
-
-def fed_params(app: Any, manifest: Manifest) -> set[str]:
-    """Параметры, которые придут по включённым связям в этот скрипт."""
-    return {t.param for x in app.links.incoming(manifest.name) if x.enabled for t in x.files}
 
 
 def _local_short(ts: str | None) -> str:
@@ -390,19 +382,19 @@ def _local_short(ts: str | None) -> str:
 
 def ref_title(app: Any, ref_text: str) -> str:
     """Ссылка на результат словами: «Цены WB: prices.csv, последний успешный» или «запуск Цены WB от 15.11 03:12: …»."""
-    from dawg_replay import links
+    from dawg_replay import transfer
 
-    ref = links.parse_ref(ref_text)
+    ref = transfer.parse_ref(ref_text)
     if ref is None:
         return ref_text
-    file = "главный файл" if ref.file == links.MAIN else ref.file
+    file = "главный файл" if ref.file == transfer.MAIN else ref.file
     if ref.run_id:
         try:
             run = app.runs.get(ref.run_id)
         except ReplayError:
             return f"запуск {ref.run_id}: {file} (запуска нет)"
         return f"{_script_title(app, run.script_name)}, запуск от {_local_short(run.created_at)}: {file}"
-    return f"{_script_title(app, ref.script)}: {file}, {links.COND_WORDS[ref.cond]}"
+    return f"{_script_title(app, ref.script)}: {file}, {transfer.COND_WORDS[ref.cond]}"
 
 
 def _script_title(app: Any, name: str | None) -> str:
@@ -413,12 +405,11 @@ def _script_title(app: Any, name: str | None) -> str:
 
 
 def result_sources(app: Any, manifest: Manifest, values: Mapping[str, Any] | None = None) -> dict[str, Any]:
-    """Что предложить в поле «из результата другого скрипта» и что придёт по связям.
+    """Что предложить в поле «из результата другого скрипта».
 
     options: параметр -> [{"value": "last:<скрипт>:<файл>", "title"}] по объявленным выходам
-    других скриптов или файлам их последних запусков; fed: параметр -> {"title", "cond", "at"};
-    titles: подписи уже выбранных ссылок (в том числе run:…)."""
-    from dawg_replay import links, outputs
+    других скриптов или файлам их последних запусков; titles: подписи уже выбранных ссылок (в том числе run:…)."""
+    from dawg_replay import outputs, transfer
 
     params = [p for p in manifest.params if p.type in ("table", "file") and not p.secret]
     if not params:
@@ -434,20 +425,11 @@ def result_sources(app: Any, manifest: Manifest, values: Mapping[str, Any] | Non
             continue
         names = [o["name"] for o in got["outputs"]]
         if got["source"] != "none":
-            offers.append({"value": f"last:{script.name}:{links.MAIN}", "title": f"{title}: главный файл, последний успешный"})
+            offers.append({"value": f"last:{script.name}:{transfer.MAIN}", "title": f"{title}: главный файл, последний успешный"})
         for name in names:
             offers.append({"value": f"last:{script.name}:{name}", "title": f"{title}: {name}, последний успешный"})
-    fed: dict[str, dict[str, Any]] = {}
-    for x in app.links.incoming(manifest.name):
-        if not x.enabled:
-            continue
-        last = app.links.last_suitable_run(x.source, x.cond)
-        for t in x.files:
-            fed.setdefault(t.param, {"title": _script_title(app, x.source), "cond": links.COND_WORDS[x.cond],
-                                     "at": (last.finished_at or last.created_at) if last else None,
-                                     "file": "главный файл" if t.file == links.MAIN else t.file})
     titles = {v: ref_title(app, v) for v in (values or {}).values() if isinstance(v, str) and _is_ref(v)}
-    return {"options": {p.name: offers for p in params}, "fed": fed, "titles": titles}
+    return {"options": {p.name: offers for p in params}, "titles": titles}
 
 
 # --- разбор отправленной формы ---------------------------------------------------
@@ -476,14 +458,12 @@ def parse(
     require: bool = True,
     secret_set: Mapping[str, bool] | None = None,
     uploads: Uploads | None = None,
-    fed: set[str] | frozenset[str] = frozenset(),
 ) -> Submission:
     """Разбирает форму в типизированные значения и проверяет их через kit.
 
     `require=False` (сохранение пресета): обязательность не проверяется.
     `secret_set`: какие секреты уже есть в keyring (для проверки обязательных).
     `uploads`: хранилище загруженных таблиц; поле таблицы несёт id загрузки.
-    `fed`: параметры, которые придут по связям: пустое поле у них не ошибка.
     Ссылка на результат (`<имя>__ref`) идёт в значения строкой, файл подставит запуск.
     """
     secret_set = secret_set or {}
@@ -603,13 +583,13 @@ def parse(
             if p.type == "secret":
                 if p.name not in new_secrets and not secret_set.get(p.name):
                     errors[p.name] = "обязательный секрет не задан"
-            elif p.name not in values and is_blank(p, p.default) and p.name not in fed:
+            elif p.name not in values and is_blank(p, p.default):
                 errors[p.name] = {"table": "загрузите таблицу", "file": "загрузите файл"}.get(p.type, "обязательное поле")
         if not errors:
             # Итоговая проверка тем же kit, что и при запуске. Секреты подставляются заглушкой:
             # их значения форма не знает, обязательность уже проверена выше. Файлы из результатов
             # других скриптов подставит запуск, поэтому здесь их параметры не обязательны.
-            later = set(fed) | {k for k, v in values.items() if isinstance(v, str) and _is_ref(v)}
+            later = {k for k, v in values.items() if isinstance(v, str) and _is_ref(v)}
             if later:
                 manifest = replace(manifest, params=tuple(
                     replace(p, required=False) if p.name in later else p for p in manifest.params))
@@ -725,7 +705,7 @@ def submit(app: Any, script: str, form: Any) -> Submission:
             status[name] = True
         except ReplayError as e:
             sub.errors[name] = e.message
-    full = parse(manifest, form, require=True, secret_set=status, uploads=store, fed=fed_params(app, manifest))
+    full = parse(manifest, form, require=True, secret_set=status, uploads=store)
     full.secrets_saved = sub.secrets_saved
     full.new_secrets = {}
     full.errors.update({k: v for k, v in sub.errors.items() if k not in full.errors})

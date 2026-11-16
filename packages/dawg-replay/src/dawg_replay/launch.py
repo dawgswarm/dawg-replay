@@ -29,7 +29,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 import shutil
@@ -47,8 +46,8 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import (asks, chain, devkit, hooks, insurance, links, logins, outputs, procinfo, repair, tg_asks, tg_notify,
-                         tg_rules)
+from dawg_replay import (asks, devkit, hooks, insurance, logins, outputs, procinfo, repair, tg_asks, tg_notify, tg_rules,
+                         transfer)
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -241,12 +240,11 @@ _NOT_RECORDED = ("run_skipped", "run_cancelled", "schedule_not_found")
 
 
 def record_not_started(app: App, schedule_id: str | None, target: str, preset: str | None, error: ReplayError,
-                       *, link_id: int | None = None, source_run: str | None = None,
-                       reason: str | None = None) -> Run | None:
-    """Плановый запуск или запуск по связи упал до создания запуска: запись `failed (not_started)`
-    в истории скрипта, чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`
-    или журнале связи. `reason="skipped"`: пропуск по сроку ожидания «после всех» (dr-106).
-    Сообщение `failed` в Telegram уходит так же."""
+                       *, source_run: str | None = None, reason: str | None = None,
+                       project_run: str | None = None, project_node: str | None = None) -> Run | None:
+    """Плановый запуск или шаг проекта упал до создания запуска: запись `failed (not_started)` в истории
+    скрипта, чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`.
+    Сообщение `failed` в Telegram уходит так же (у шага проекта его заменяет итог проекта)."""
     if error.code in _NOT_RECORDED:
         return None
     try:
@@ -257,7 +255,7 @@ def record_not_started(app: App, schedule_id: str | None, target: str, preset: s
     rec = app.runs.record_not_started(
         run_id=new_run_id(), script_name=target, script_version=version.version, script_path=str(version.path),
         preset=normalize_preset(preset) or None, schedule_id=schedule_id, error=error.message,
-        link_id=link_id, source_run=source_run, **extra,
+        source_run=source_run, project_run=project_run, project_node=project_node, **extra,
     )
     tg_notify.after_finish(app, rec.id, background=False)
     return rec
@@ -299,10 +297,12 @@ def prepare(
     on_wait: Callable[[dict[str, Any]], None] | None = None,
     strict_preset: bool = False,
     notify: str | None = None,
-    link_id: int | None = None,
     source_run: str | None = None,
-    link_sources: Mapping[int, str] | None = None,
     inputs_of: str | None = None,
+    given: Sequence[transfer.Fill] = (),
+    unset: Sequence[str] = (),
+    project_run: str | None = None,
+    project_node: str | None = None,
 ) -> Prepared:
     """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
@@ -312,13 +312,12 @@ def prepare(
     а у скриптов действий на сайтах это может изменить не то. Без флага такие значения пропускаются
     с предупреждением в `warnings`.
     `notify`: выбор у запуска для сообщения в Telegram об успешном итоге: None по настройкам, always, never.
-    `link_id`, `source_run`: запуск по связи (dawg_replay.chain), какая связь и какой запуск источника
-    его вызвал. Слота ждёт только с `wait`: решение принимает процесс, закрывший запуск источника,
-    и ждать в нём нельзя; ожидание chain отдаёт отдельному процессу. `link_sources`: {id связи: id запуска}, из каких запусков
-    брать файлы по связям; для остальных входящих связей берётся последний подходящий результат.
-    Явно заданное значение (форма, --set, --params) передачу по связи перекрывает, пресет нет.
-    Ссылки `run:`/`last:` в значениях table/file заменяются файлами (dawg_replay.links).
-    Ошибка подстановки: ReplayError `link_input`.
+    `source_run`: запуск, после которого начат этот (для экрана запуска).
+    Ссылки `run:`/`last:` в значениях table/file заменяются файлами (dawg_replay.transfer).
+    Ошибка подстановки: ReplayError `input_error`.
+    `given`: значения из файлов, собранные заранее (стрелки проекта): поверх пресета и `values`.
+    `unset`: параметры без значения, даже если оно есть в пресете (стрелка в них неактивна).
+    `project_run`, `project_node`: шаг проекта (dawg_replay.project_runs), запуск помечается ими.
     `inputs_of`: «Запустить снова» и «Перезапустить упавшие»: id исходного запуска, его снимок
     источников переходит к параметрам, которые взяты из него как есть."""
     if notify not in (None, *tg_rules.RUN_CHOICES):
@@ -328,27 +327,21 @@ def prepare(
     if schedule_id is not None:
         _check_schedule(app, schedule_id, target, preset)
     manifest, script_path, draft, version = _target(app, target)
-    if link_id is not None:
-        sources = dict(link_sources or {})
-        if source_run is not None:
-            sources.setdefault(link_id, source_run)
-        link_sources = sources
-    # Параметры, которые придут по связям: в пресете их может не быть, это не «пресет устарел».
-    fed = set() if draft else {t.param for x in app.links.incoming(manifest.name) if x.enabled for t in x.files}
     outdated = None
     if preset:
-        pr = app.presets.get(manifest.name, preset, manifest)
-        if fed & set(pr.missing):
-            pr = dataclasses.replace(pr, missing={k: v for k, v in pr.missing.items() if k not in fed})
-        outdated = pr.outdated()
+        outdated = app.presets.get(manifest.name, preset, manifest).outdated()
     if outdated and (strict_preset or schedule_id is not None):
         raise ReplayError("preset_outdated", outdated[:1].upper() + outdated[1:])
     preset_tables = app.presets.secret_rows(app.presets.get(manifest.name, preset, manifest)) if preset else {}
     preset_files = app.presets.file_values(app.presets.get(manifest.name, preset, manifest), manifest) if preset else {}
     explicit: set[str] = set()
     values = merge_values(app, manifest, preset, params_file, sets, values, {**preset_tables, **preset_files}, explicit)
-    fills = _fill_results(app, manifest, values, explicit, draft, link_sources)
-    inputs = [f.entry for f in fills]
+    for name in unset:
+        values.pop(name, None)
+    for f in given:
+        values[f.param] = f.value
+    fills = [*given, *_fill_results(app, manifest, values)]
+    inputs = [e for f in fills for e in (f.entry, *f.extra_entries)]
     if inputs_of:
         inputs = _inherit_inputs(app, inputs_of, values, explicit) + inputs
     # Файл без пути (секретный файл из истории для «Запустить снова»): не задан, его дают заново.
@@ -422,8 +415,9 @@ def prepare(
             schedule_id=schedule_id,
             wait=_wait_policy(cfg, on_wait) if (wait or schedule_id) else None,
             notify=notify,
-            link_id=link_id,
             source_run=source_run,
+            project_run=project_run,
+            project_node=project_node,
         )
     except ReplayError as e:
         if e.code not in ("run_skipped", "run_cancelled"):  # пропущенный запуск остаётся в истории
@@ -482,45 +476,28 @@ def prepare(
     )
 
 
-def _fill_results(app: App, manifest: Manifest, values: dict[str, Any], explicit: set[str], draft: bool,
-                  link_sources: Mapping[int, str] | None) -> list[links.Fill]:
-    """Подставляет в `values` файлы из результатов других запусков: ссылки run:/last: и передачи
-    по связям (не для явно заданных параметров). Все ошибки сразу, одной ReplayError link_input."""
+def _fill_results(app: App, manifest: Manifest, values: dict[str, Any]) -> list[transfer.Fill]:
+    """Подставляет в `values` файлы из результатов других запусков по ссылкам run:/last:.
+    Все ошибки сразу, одной ReplayError input_error."""
     problems: list[str] = []
-    fills: list[links.Fill] = []
+    fills: list[transfer.Fill] = []
     by_name = {p.name: p for p in manifest.params}
     for name, value in list(values.items()):
         p = by_name.get(name)
-        ref = links.parse_ref(value) if p is not None and p.type in links.TRANSFER_TYPES else None
+        ref = transfer.parse_ref(value) if p is not None and p.type in transfer.TRANSFER_TYPES else None
         if ref is None:
             continue  # строка «last:…» в текстовом параметре просто текст
         try:
-            fill = links.fill_ref(app, p, ref)
+            fill = transfer.fill_ref(app, p, ref)
         except ReplayError as e:
             problems.append(e.message)
             del values[name]
             continue
         values[name] = fill.value
         fills.append(fill)
-    if not draft:
-        skip = explicit | {f.param for f in fills}
-        try:
-            got, empty = links.fill_links(app, manifest, skip, dict(link_sources or {}))
-        except ReplayError as e:
-            problems.append(e.message)
-            got, empty = [], {}
-        for fill in got:
-            values[fill.param] = fill.value
-            fills.append(fill)
-        for name, why in empty.items():
-            # Подходящего результата нет: параметр не заполнен, значение пресета не подставляется.
-            values.pop(name, None)
-            p = by_name[name]
-            if p.required and p.default is None:
-                problems.append(why)
     if problems:
         text = problems[0] if len(problems) == 1 else "файлы из результатов не подошли:\n" + "\n".join(f"  {x}" for x in problems)
-        raise ReplayError(links.LINK_INPUT, text, problems)
+        raise ReplayError(transfer.INPUT_ERROR, text, problems)
     return fills
 
 
@@ -628,7 +605,7 @@ def supervise(
         store.finish(run_id, status="failed", reason=REASON_START_ERROR, error=str(e))
         _append(run.stderr_path, f"dawg-replay: {e}\n")
         tg_notify.after_finish(app, run_id)
-        chain.on_finish(app, run_id)
+        _step_finished(app, run_id)
         return store.get(run_id)
     store.set_started(run_id, run.pid, procinfo.start_time(run.pid))
     # Вопросы скрипта в Telegram: сеть в своих потоках, цикл её не ждёт.
@@ -671,9 +648,15 @@ def supervise(
     outputs.check_run(app, run_id)
     # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
     tg_notify.after_finish(app, run_id)
-    # Получатели по связям: после итога и сверки выходов (файлы для передачи уже на месте).
-    chain.on_finish(app, run_id)
+    # Шаг проекта: решить следующие узлы (файлы и итог уже на месте).
+    _step_finished(app, run_id)
     return store.get(run_id)
+
+
+def _step_finished(app: App, run_id: str) -> None:
+    from dawg_replay import project_runs
+
+    project_runs.on_step_finish(app, run_id)
 
 
 def _telegram_errors(app: App, run_dir: Path, errors: list[str]) -> None:
@@ -721,7 +704,7 @@ def spawn_supervisor(app: App, prepared: Prepared) -> int:
     except OSError as e:
         app.runs.finish(run_id, status="failed", reason=REASON_START_ERROR, error=f"супервизор не запустился: {e}")
         tg_notify.after_finish(app, run_id, background=False)
-        chain.on_finish(app, run_id)
+        _step_finished(app, run_id)
         raise ReplayError("start_failed", f"не удалось запустить супервизор: {e}") from None
     assert proc.stdin is not None
     try:
@@ -790,7 +773,7 @@ def _cancel_orphan(app: App, rec: Run, grace: float) -> None:
         if _own_group(rec):
             kill_tree(rec.pid, leader_alive=_leader_alive(rec))
     if _close_lost(app, rec, reason="cancelled", killed=killed):
-        chain.on_finish(app, rec.id)  # отмена не повод, но отложенный повод этого скрипта может ждать
+        _step_finished(app, rec.id)
 
 
 # --- потерянные запуски ------------------------------------------------------
@@ -825,10 +808,12 @@ def recover_lost(app: App) -> list[Run]:
     # Закрыли мы: сообщаем сразу, процесс может быть короткой командой CLI. Потом то, что не ушло раньше.
     for r in lost:
         tg_notify.after_finish(app, r.id, background=False)
-        chain.on_finish(app, r.id)  # потерянный запуск шёл: для связей «любой исход» это повод
+        _step_finished(app, r.id)
     tg_notify.retry_pending(app)
-    # Сроки ожидания «после всех», вышедшие, пока никого не было (компьютер выключен, UI закрыт).
-    chain.tick(app)
+    # Запуски проектов, у которых не осталось ведущего процесса (выключен компьютер, процесс упал).
+    from dawg_replay import project_runs
+
+    project_runs.recover(app)
     return lost
 
 

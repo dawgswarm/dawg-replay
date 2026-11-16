@@ -36,6 +36,10 @@ EVENTS: dict[str, tuple[str, str]] = {
 }
 KEYS = tuple(EVENTS)
 SCHEDULE_KEYS = tuple(k for k in KEYS if k not in ("done_manual", "long_minutes"))
+# Проект: итог одним сообщением. Вопросы шагов идут по правилам их скриптов, файл не прикладывается.
+PROJECT_KEYS = tuple(k for k in KEYS if k not in ("ask", "attach_main"))
+PROJECT_SCHEDULE_KEYS = tuple(k for k in PROJECT_KEYS if k not in ("done_manual", "long_minutes"))
+KIND_KEYS = {"script": KEYS, "schedule": SCHEDULE_KEYS, "project": PROJECT_KEYS, "project_schedule": PROJECT_SCHEDULE_KEYS}
 MANUAL = CHOICES[PREFIX + "done_manual"]  # always, long, never
 MANUAL_WORDS = {"always": "всегда", "long": "если дольше N минут", "never": "никогда"}
 RUN_CHOICES = ("always", "never")  # выбор у запуска; None: по настройкам
@@ -87,7 +91,7 @@ def overrides(app: App, kind: str, name: str) -> dict[str, Any]:
         data = json.loads(row[0])
     except ValueError:
         return {}
-    allowed = KEYS if kind == "script" else SCHEDULE_KEYS
+    allowed = KIND_KEYS[kind]
     out = {}
     for k, v in data.items() if isinstance(data, dict) else ():
         if k in allowed:
@@ -100,14 +104,18 @@ def overrides(app: App, kind: str, name: str) -> dict[str, Any]:
 
 def set_overrides(app: App, kind: str, name: str, values: dict[str, Any]) -> dict[str, Any]:
     """Задаёт переопределения поключево: значение INHERIT (или None) снимает ключ. Остальные ключи не трогает."""
-    if kind not in ("script", "schedule"):
+    if kind not in KIND_KEYS:
         raise ValueError(kind)
-    allowed = KEYS if kind == "script" else SCHEDULE_KEYS
+    allowed = KIND_KEYS[kind]
     current = overrides(app, kind, name)
     for k, raw in values.items():
         if k not in allowed:
             if k in KEYS:
-                raise ReplayError("bad_event", f"`{k}` у расписания не задаётся: оно запускает скрипт не вручную")
+                if k in ("ask", "attach_main"):
+                    why = "у проекта не задаётся: вопросы шагов идут по правилам их скриптов, файл не прикладывается"
+                else:
+                    why = "у расписания не задаётся: оно запускает не вручную"
+                raise ReplayError("bad_event", f"`{k}` {why}")
             parse_value(k, raw)  # неизвестный ключ: понятная ошибка
         if raw is None or raw == INHERIT:
             current.pop(k, None)
@@ -137,10 +145,24 @@ def effective(app: App, script: str, schedule_id: str | None = None) -> dict[str
     return out
 
 
+def effective_project(app: App, project: str, schedule_id: str | None = None) -> dict[str, Any]:
+    """Итоговые правила для итога проекта: общие, поверх проект, поверх расписание проекта."""
+    out = general(app.config)
+    out.update(overrides(app, "project", project))
+    if schedule_id:
+        out.update(overrides(app, "project_schedule", schedule_id))
+    return out
+
+
 def layers(app: App, kind: str, name: str, script: str | None = None) -> list[dict[str, Any]]:
     """Строки для блока на странице скрипта или у расписания: ключ, своё значение или None, что наследуется."""
     if kind == "script":
         inherited, own, keys = general(app.config), overrides(app, "script", name), KEYS
+    elif kind == "project":
+        inherited, own, keys = general(app.config), overrides(app, "project", name), PROJECT_KEYS
+    elif kind == "project_schedule":
+        inherited = effective_project(app, script or "")
+        own, keys = overrides(app, "project_schedule", name), PROJECT_SCHEDULE_KEYS
     else:
         inherited = effective(app, script or "")
         own, keys = overrides(app, "schedule", name), SCHEDULE_KEYS
@@ -196,6 +218,8 @@ def plan(app: App, rec: Run, suspicion: dict[str, Any] | None = None) -> Plan:
     """Нужно ли сообщение об итоге запуска и какое. `suspicion`: тихая поломка (repair.suspicion), если есть."""
     if rec.draft or rec.status not in ("ok", "partial", "failed"):
         return NOTHING
+    if rec.project_run:
+        return NOTHING  # шаг проекта: итог приходит одним сообщением о проекте (dawg_replay.tg_project)
     rules = effective(app, rec.script_name, rec.schedule_id)
     if rec.status == "failed":
         if rec.reason == REASON_CANCELLED:
@@ -205,7 +229,7 @@ def plan(app: App, rec: Run, suspicion: dict[str, Any] | None = None) -> Plan:
         return NOTHING
     if rec.notify == "always":
         done = True
-    elif rec.trigger in ("schedule", "link"):  # запуск по связи для правил считается плановым
+    elif rec.trigger == "schedule":
         done = bool(rules["done_scheduled"])
     elif rules["done_manual"] == "always":
         done = True

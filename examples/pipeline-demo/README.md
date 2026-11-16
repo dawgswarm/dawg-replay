@@ -1,8 +1,8 @@
-# Демо связей между скриптами
+# Демо: результат одного скрипта на входе другого
 
 Шесть скриптов-заглушек без браузера и сайта: минуты DAWG не тратят, ключ DAWG не нужен (предупреждение «ключ DAWG
-не задан» при запуске можно не замечать). На них проверяются связи M6: цепочка, ожидание всех источников со
-сроком, несовпадение колонок и круг с пределом. План приёмки: [`docs/acceptance/m6-pipelines.md`](../../docs/acceptance/m6-pipelines.md).
+не задан» при запуске можно не замечать). На них проверяется передача файла результата в параметр другого скрипта
+и несовпадение колонок.
 
 | Скрипт | Что делает | Параметры | Отдаёт (`[[outputs]]`) |
 |---|---|---|---|
@@ -17,23 +17,10 @@
 ```sh
 for f in examples/pipeline-demo/demo-*.py; do dawg-replay add "$f"; done
 
-dawg-replay link add demo-wb-prices demo-update-prices --file prices.csv=wb
-dawg-replay link add demo-ozon-prices demo-update-prices --file prices.csv=ozon
-dawg-replay link add demo-update-prices demo-report --file @main=updated
-dawg-replay link mode demo-update-prices all --wait 5m --on-timeout skip
-dawg-replay link check
-
 dawg-replay run demo-wb-prices --follow
 dawg-replay run demo-ozon-prices --follow
-dawg-replay runs demo-report          # отчёт запустился сам после обновления
-```
-
-Откройте `dawg-replay ui`, экран «Связи»: там схема из четырёх скриптов.
-
-Без связей результат подставляется ссылкой:
-
-```sh
 dawg-replay run demo-update-prices --set wb=last:demo-wb-prices:prices.csv --set ozon=last:demo-ozon-prices:prices.csv --follow
+dawg-replay run demo-report --set updated=last:demo-update-prices:@main --follow
 ```
 
-Удалить демо: `dawg-replay remove <скрипт>` для каждого, связи удаляются вместе со скриптами.
+Удалить демо: `dawg-replay remove <скрипт>` для каждого.

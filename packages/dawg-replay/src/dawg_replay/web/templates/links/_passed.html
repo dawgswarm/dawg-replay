@@ -1,4 +1,0 @@
-{% if error %}<p class="field-error" role="alert">{{ error | ticks }}</p>
-{% elif existed %}<p>Связь {{ link.source }} → {{ link.target }} уже есть: <a href="/links?link={{ link.id }}">открыть на карте</a>.</p>
-{% else %}<p>Связь создана: скрипт запустится после каждого успешного запуска {{ link.source }}. <a href="/links?link={{ link.id }}">Открыть на карте</a>.</p>
-{% for w in warnings %}<p class="hint">{{ w.text | ticks }}</p>{% endfor %}{% endif %}

@@ -1,4 +1,4 @@
-"""`dawg-replay telegram set`: о чём писать в Telegram, в общих настройках, у скрипта или у расписания."""
+"""`dawg-replay telegram set`: о чём писать в Telegram, в общих настройках, у скрипта, проекта или расписания."""
 
 from __future__ import annotations
 
@@ -23,8 +23,15 @@ def _owner(app: App, args: argparse.Namespace) -> tuple[str, str] | None:
     if args.script:
         app.registry.get(args.script)
         return "script", args.script
+    if getattr(args, "project", None):
+        app.projects.get(args.project)
+        return "project", args.project
     if args.schedule:
-        app.schedules.get(args.schedule)
+        try:
+            app.schedules.get(args.schedule)
+        except ReplayError:
+            app.schedules.project_get(args.schedule)  # расписание проекта; нет и его: понятная ошибка
+            return "project_schedule", args.schedule
         return "schedule", args.schedule
     return None
 
@@ -34,8 +41,12 @@ def _rows(app: App, owner: tuple[str, str] | None) -> list[dict[str, Any]]:
         rules = tg_rules.general(app.config)
         return [{"key": k, "value": rules[k], "own": None, "title": tg_rules.EVENTS[k][0]} for k in tg_rules.KEYS]
     kind, name = owner
-    script = app.schedules.get(name).script if kind == "schedule" else None
-    return tg_rules.layers(app, kind, name, script)
+    parent = None
+    if kind == "schedule":
+        parent = app.schedules.get(name).script
+    elif kind == "project_schedule":
+        parent = app.schedules.project_get(name).project
+    return tg_rules.layers(app, kind, name, parent)
 
 
 def _set(app: App, args: argparse.Namespace) -> tuple[dict[str, Any], str]:
@@ -46,20 +57,21 @@ def _set(app: App, args: argparse.Namespace) -> tuple[dict[str, Any], str]:
         value = args.value
         if owner is None:
             if value == tg_rules.INHERIT:
-                raise ReplayError("bad_args", "inherit бывает только у скрипта (--script) или расписания (--schedule)")
+                raise ReplayError("bad_args", "inherit бывает только у скрипта (--script), проекта (--project) "
+                                              "или расписания (--schedule)")
             tg_rules.set_general(app, args.event, value)
         else:
             tg_rules.set_overrides(app, owner[0], owner[1], {args.event: value})
     rows = _rows(app, owner)
-    where = "общие настройки" if owner is None else (
-        f"скрипт {owner[1]}" if owner[0] == "script" else f"расписание {owner[1]}")
+    words = {"script": "скрипт", "schedule": "расписание", "project": "проект", "project_schedule": "расписание проекта"}
+    where = "общие настройки" if owner is None else f"{words[owner[0]]} {owner[1]}"
     lines = [f"Telegram, {where}:"]
     for r in rows:
         mark = "" if owner is None else (" (своё)" if r["own"] is not None else " (наследуется)")
         value = _value_text(r["key"], r["value"]) + mark
         lines.append(f"  {r['key']:<15} {value:<34} {r['title']}")
     lines.append("Значения: on|off; done_manual: always|long|never; long_minutes: число минут; "
-                 "у скрипта и расписания inherit снимает своё значение.")
+                 "у скрипта, проекта и расписания inherit снимает своё значение.")
     data = {"scope": owner[0] if owner else "general", "name": owner[1] if owner else None,
             "rules": {r["key"]: r["value"] for r in rows},
             "own": {r["key"]: r["own"] for r in rows if r["own"] is not None}}
@@ -75,13 +87,15 @@ def add_set(tg_sub: argparse._SubParsersAction, common: argparse.ArgumentParser)
             "Без аргументов показывает правила. События: failed (запуск упал), ask (скрипт задал вопрос), "
             "done_scheduled (запуск по расписанию закончился), done_manual (ручной запуск закончился: "
             "always, long или never), long_minutes (порог долгого ручного запуска), suspicious (похоже, сайт "
-            "поменялся), attach_main (приложить главный файл итога). С --script или --schedule правило "
-            "задаётся только для них, inherit возвращает общее."
+            "поменялся), attach_main (приложить главный файл итога). С --script, --project или --schedule правило "
+            "задаётся только для них, inherit возвращает общее. У проекта итог приходит одним сообщением: "
+            "ask и attach_main у него не задаются."
         ),
     )
     p.add_argument("event", nargs="?", choices=tg_rules.KEYS, metavar="событие")
     p.add_argument("value", nargs="?", metavar="значение")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--script", metavar="NAME", help="правило только для этого скрипта")
-    g.add_argument("--schedule", metavar="ID", help="правило только для этого расписания")
+    g.add_argument("--project", metavar="NAME", help="правило только для итога этого проекта")
+    g.add_argument("--schedule", metavar="ID", help="правило только для этого расписания (скрипта или проекта)")
     p.set_defaults(func=lambda args: run_handler(_set, args))

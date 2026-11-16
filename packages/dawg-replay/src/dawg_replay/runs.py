@@ -27,10 +27,10 @@ REASON_NOT_STARTED = "not_started"  # плановый запуск упал д�
 _LABELLED_REASONS = (REASON_CANCELLED, "timeout", REASON_LOST, REASON_SKIPPED, REASON_NOT_STARTED)
 
 
-def _trigger(schedule_id: str | None, link_id: int | None) -> str | None:
-    """runs.triggered_by: NULL вручную, schedule по расписанию, link по связи."""
-    if link_id is not None:
-        return "link"
+def _trigger(schedule_id: str | None, project_run: str | None = None) -> str | None:
+    """runs.triggered_by: NULL вручную, schedule по расписанию, project шаг запуска проекта."""
+    if project_run is not None:
+        return "project"
     return "schedule" if schedule_id else None
 
 
@@ -70,13 +70,14 @@ class Run:
     timeout_seconds: int | None
     heartbeat_at: str | None
     cancel_requested_at: str | None
-    trigger: str = "manual"  # manual, schedule или link
+    trigger: str = "manual"  # manual, schedule или project
     schedule_id: str | None = None
     notify: str | None = None  # выбор на форме запуска: None по настройкам, always, never
     notify_state: str | None = None  # сообщение об итоге в Telegram, см. dawg_replay.tg_notify
-    link_id: int | None = None  # запуск по связи (dawg_replay.links): какая связь
-    source_run: str | None = None  # и какой запуск источника его вызвал
-    inputs: list[dict[str, Any]] = field(default_factory=list)  # откуда взяты файлы параметров, см. links
+    source_run: str | None = None  # запуск, после которого начат этот
+    project_run: str | None = None  # шаг проекта: id запуска проекта (dawg_replay.project_runs)
+    project_node: str | None = None  # и id узла
+    inputs: list[dict[str, Any]] = field(default_factory=list)  # откуда взяты файлы параметров, см. transfer
 
     @property
     def running(self) -> bool:
@@ -118,8 +119,9 @@ class Run:
             "trigger": self.trigger,
             "schedule_id": self.schedule_id,
             "notify": self.notify,
-            "link_id": self.link_id,
             "source_run": self.source_run,
+            "project_run": self.project_run,
+            "project_node": self.project_node,
             "inputs": self.inputs,
         }
 
@@ -153,8 +155,9 @@ def _run(row: sqlite3.Row) -> Run:
         schedule_id=row["schedule_id"],
         notify=row["notify"],
         notify_state=row["notify_state"],
-        link_id=row["link_id"],
         source_run=row["source_run"],
+        project_run=row["project_run"],
+        project_node=row["project_node"],
         inputs=json.loads(row["inputs_json"]) if row["inputs_json"] else [],
     )
 
@@ -230,8 +233,9 @@ class RunStore:
         schedule_id: str | None = None,
         wait: WaitPolicy | None = None,
         notify: str | None = None,
-        link_id: int | None = None,
         source_run: str | None = None,
+        project_run: str | None = None,
+        project_node: str | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
@@ -256,8 +260,8 @@ class RunStore:
                 )
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
-                " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify, link_id, source_run)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify, source_run, project_run,"
+                " project_node) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -269,11 +273,12 @@ class RunStore:
                     json.dumps(params, ensure_ascii=False),
                     utcnow(),
                     timeout_seconds,
-                    _trigger(schedule_id, link_id),
+                    _trigger(schedule_id, project_run),
                     schedule_id,
                     notify,
-                    link_id,
                     source_run,
+                    project_run,
+                    project_node,
                 ),
             )
             if not free:
@@ -344,27 +349,28 @@ class RunStore:
     def record_not_started(
         self, *, run_id: str, script_name: str, script_version: int | None, script_path: str,
         preset: str | None, schedule_id: str | None, error: str,
-        link_id: int | None = None, source_run: str | None = None, reason: str = REASON_NOT_STARTED,
+        source_run: str | None = None, reason: str = REASON_NOT_STARTED,
+        project_run: str | None = None, project_node: str | None = None,
     ) -> Run:
-        """Запись о плановом запуске или запуске по связи, который не начался: без неё причина есть
-        только в логе расписания или в журнале связи. `reason`: not_started или skipped (срок ожидания вышел)."""
+        """Запись о плановом запуске или шаге проекта, который не начался: без неё причина есть
+        только в логе расписания. `reason`: not_started или skipped (срок ожидания вышел)."""
         now = utcnow()
         self._db.execute(
             "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, reason, error,"
-            " params_json, created_at, finished_at, triggered_by, schedule_id, link_id, source_run)"
-            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?, ?, ?)",
+            " params_json, created_at, finished_at, triggered_by, schedule_id, source_run, project_run, project_node)"
+            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?, ?, ?, ?)",
             (run_id, script_name, script_version, script_path, preset, reason, error, now, now,
-             _trigger(schedule_id, link_id), schedule_id, link_id, source_run),
+             _trigger(schedule_id, project_run), schedule_id, source_run, project_run, project_node),
         )
         return self.get(run_id)
 
     def set_inputs(self, run_id: str, inputs: list[dict[str, Any]]) -> None:
-        """Снимок: из каких запусков и файлов взяты значения параметров (связи и ссылки run:/last:)."""
+        """Снимок: из каких запусков и файлов взяты значения параметров (ссылки run:/last:, шаги проекта)."""
         self._db.execute("UPDATE runs SET inputs_json = ? WHERE id = ?",
                          (json.dumps(inputs, ensure_ascii=False) if inputs else None, run_id))
 
     def fed_by(self, run_id: str, limit: int = 50) -> list[Run]:
-        """Запуски, которые этот запуск вызвал по связи или которым передал файлы, новые первыми."""
+        """Запуски, начатые после этого или взявшие его файлы, новые первыми."""
         rows = self._db.execute(
             "SELECT * FROM runs WHERE id != ? AND (source_run = ? OR inputs_json LIKE ?)"
             " ORDER BY created_at DESC, id DESC LIMIT ?",
@@ -408,6 +414,11 @@ class RunStore:
         if row is None:
             raise ReplayError("run_not_found", f"запуска `{run_id}` нет; список: dawg-replay runs")
         return _run(row)
+
+    def of_project_run(self, project_run: str) -> list[Run]:
+        """Запуски-шаги одного запуска проекта, по времени создания."""
+        rows = self._db.execute("SELECT * FROM runs WHERE project_run = ? ORDER BY created_at, rowid", (project_run,))
+        return [_run(r) for r in rows]
 
     def list(self, script: str | None = None, limit: int = 20) -> list[Run]:
         if script is None:

@@ -33,7 +33,7 @@ from dawg_replay.runs import parse_ts
 from dawg_replay.uploads import Uploads
 from dawg_replay.values import rows_word
 from dawg_replay.web import home as home_data
-from dawg_replay.web import links_data, links_view, run_screen, telegram_view
+from dawg_replay.web import run_screen, telegram_view, transfer_data
 from dawg_replay.web.security import Secrets
 
 # Тело запроса загрузки: файл и поля multipart. Меньше порога SpooledTemporaryFile Starlette
@@ -333,7 +333,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                 view = app.script_view(name)
                 ctx = _script_ctx(app, name, preset, refs=refs)
                 if passed:
-                    ctx["passed"] = links_data.passed_note(app, passed, refs)
+                    ctx["passed"] = transfer_data.passed_note(app, passed, refs)
                 meta = home_data.manifest_meta(app, name)
                 view["minutes"] = minutes.period(app, days=7, script=name).to_dict()
                 repair.annotate(app, view["runs"])  # тихая поломка в истории скрипта
@@ -1030,7 +1030,6 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         Route("/settings/usage", settings_usage),
         Route("/settings/limits", settings_limits, methods=["POST"]),
         *telegram_view.routes(templates, _form),
-        *links_view.routes(templates, _form),
         Route("/settings/telegram/rules", settings_tg_rules, methods=["POST"]),
     ]
 

@@ -160,35 +160,8 @@ FAILURE_TEXT = {
 }
 
 
-def _after_line(app: App, rec: Run) -> str | None:
-    """Запуск по связи: «После: <источник>»."""
-    if rec.trigger != "link":
-        return None
-    source = None
-    if rec.source_run:
-        try:
-            source = app.runs.get(rec.source_run).script_name
-        except ReplayError:
-            source = None
-    if source is None and rec.link_id is not None:
-        try:
-            source = app.links.get(rec.link_id).source
-        except ReplayError:
-            source = None
-    if source is None:
-        return None
-    try:
-        name = app.registry.get(source).title or source
-    except ReplayError:
-        name = source
-    return f"После: {_plain(name)}"
-
-
 def failure_reason(app: App, rec: Run, scan: repair.Scan | None) -> str:
     """Причина падения одной строкой, как на экране запуска."""
-    if rec.trigger == "link" and rec.reason in (REASON_NOT_STARTED, REASON_SKIPPED) and rec.error:
-        # Запуск по связи: причина своя (файлы не подошли, срок ожидания вышел, нет места для запуска).
-        return f"Запуск по связи не начался: {_first_line(rec.error)}"
     if rec.reason in FAILURE_TEXT:
         return FAILURE_TEXT[rec.reason]
     if rec.reason == REASON_NOT_STARTED:
@@ -230,16 +203,11 @@ def compose(app: App, rec: Run, plan: tg_rules.Plan) -> Message:
     title = _title(app, rec)
     lines: list[str] = []
     document = None
-    after = _after_line(app, rec)
     if plan.kind == "failed":
         lines.append(f"Упал: {title}")
-        if after:
-            lines.append(after)
         lines.append(failure_reason(app, rec, scan))
     else:
         lines.append(f"{'Готово частично' if rec.status == 'partial' else 'Готово'}: {title}")
-        if after:
-            lines.append(after)
         if rec.summary:
             lines.append(_plain(rec.summary.strip()))
         rows = _rows_text(repair.items_counts(scan.items) if scan else None)

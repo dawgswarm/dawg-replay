@@ -1,11 +1,10 @@
-{# Связи запуска (M6): «Запущен после», откуда файлы, «Передал в», ручная передача. Контекст prov, transfer: web/links_data. #}
+{# Источники запуска: «Запущен после», откуда файлы, «Передал в», ручная передача. Контекст prov, transfer: web/transfer_data. #}
 {% if prov and (prov.after or prov.inputs or prov.passed) %}
 <section class="card run-links" aria-labelledby="run-links-title">
-  <h2 id="run-links-title" class="sr">Связи запуска</h2>
+  <h2 id="run-links-title" class="sr">Источники и передачи запуска</h2>
   {% if prov.after %}
   <p class="run-links-line"><span class="run-links-cap">Запущен после:</span>
-    {% if prov.after.script %}<a href="/scripts/{{ prov.after.script | urlencode }}">{{ prov.after.title }}</a>{% endif %}{% if prov.after.run_id %}, <a href="/runs/{{ prov.after.run_id }}">запуск{% if prov.after.created_at %} от {{ prov.after.created_at | when }}{% endif %}</a>{% endif %}
-    {% if prov.after.link_id %}<a class="hint-inline" href="/links?link={{ prov.after.link_id }}">связь на карте</a>{% endif %}</p>
+    {% if prov.after.script %}<a href="/scripts/{{ prov.after.script | urlencode }}">{{ prov.after.title }}</a>{% endif %}{% if prov.after.run_id %}, <a href="/runs/{{ prov.after.run_id }}">запуск{% if prov.after.created_at %} от {{ prov.after.created_at | when }}{% endif %}</a>{% endif %}</p>
   {% endif %}
   {% if prov.inputs %}
   <ul class="run-links-list">

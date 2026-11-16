@@ -42,6 +42,27 @@ def test_migration_idempotent(home, kr):
     conn.close()
 
 
+def test_link_tables_dropped_after_m6_links(tmp_path):
+    """База с глобальными связями M6 (миграции 5 и 6): после обновления их таблиц нет, запуски на месте."""
+    import sqlite3
+
+    from dawg_replay.db import migrate
+
+    raw = sqlite3.connect(tmp_path / "db.sqlite", isolation_level=None)
+    for i, sql in enumerate(MIGRATIONS[:6], start=1):
+        for stmt in sql.split(";"):
+            if stmt.strip():
+                raw.execute(stmt)
+        raw.execute(f"PRAGMA user_version = {i}")
+    raw.execute("INSERT INTO links (source, target, created_at, updated_at) VALUES ('a', 'b', 'now', 'now')")
+    raw.execute("INSERT INTO runs (id, script_name, script_path, status, created_at, link_id) VALUES ('r1', 'b', 'x', 'ok', 'now', 1)")
+    migrate(raw)
+    tables = {r[0] for r in raw.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+    assert not {"links", "link_files", "link_targets", "link_log", "link_rounds", "link_pending"} & tables
+    assert raw.execute("SELECT id FROM runs").fetchall() == [("r1",)]
+    raw.close()
+
+
 def test_default_home_from_env(home, kr):
     with App(keyring_backend=kr) as a:
         assert a.paths.home == home
@@ -134,7 +155,7 @@ def test_remove(app, home, kr, write_script):
     )
     r = app.remove("ozon-cards")
     assert r == {"name": "ozon-cards", "versions": [1, 2], "secrets_deleted": ["sheet_token"], "schedules_removed": [],
-                 "logins_deleted": 0, "links_removed": [], "in_projects": []}
+                 "logins_deleted": 0, "in_projects": []}
     assert app.registry.list() == []
     assert not (home / "scripts" / "ozon-cards").exists()
     assert app.db.execute("SELECT COUNT(*) FROM presets").fetchone()[0] == 0

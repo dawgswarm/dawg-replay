@@ -5,6 +5,8 @@ Linux и в Планировщик задач на Windows. Задача выз�
 
     dawg-replay run <скрипт> --preset <пресет> --follow --schedule <id>
 
+(у расписания проекта `dawg-replay project run <проект> --follow --schedule <id>`, таблица
+`project_schedules`)
 с полным путём к dawg-replay, каталогом uv в PATH и выводом в
 `<каталог данных>/schedules/<id>.log`. Расписания хранятся в таблице `schedules`;
 `list` сверяет её с планировщиком: задача пропала (missing) или осталась
@@ -253,6 +255,28 @@ class Schedule:
             "id": self.id,
             "script": self.script,
             "preset": self.preset,
+            "spec": self.spec.to_dict(),
+            "when": self.spec.describe(),
+            "cron": self.spec.cron_expr(),
+            "next_run": nxt.isoformat(timespec="minutes") if nxt else None,
+            "created_at": self.created_at,
+        }
+
+
+@dataclass(frozen=True)
+class ProjectSchedule:
+    """Расписание проекта: запускает проект целиком (dawg_replay.project_runs)."""
+
+    id: str
+    project: str
+    spec: Spec
+    created_at: str
+
+    def to_dict(self, now: datetime | None = None) -> dict[str, Any]:
+        nxt = next_run(self.spec.cron_expr(), now or datetime.now())
+        return {
+            "id": self.id,
+            "project": self.project,
             "spec": self.spec.to_dict(),
             "when": self.spec.describe(),
             "cron": self.spec.cron_expr(),
@@ -526,11 +550,64 @@ class Schedules:
             d["state"] = "unknown" if installed is None else ("ok" if s.id in installed else "missing")
             d["log"] = str(self.log_path(s.id))
             out.append(d)
-        known = {s.id for s in self.all()}
+        known = self._known()
         orphans = [] if installed is None or script is not None else [
             {"id": sid, "entry": entry} for sid, entry in sorted(installed.items()) if sid not in known
         ]
         return {"scheduler": self.backend.kind, "schedules": out, "orphans": orphans, "error": error}
+
+    def _known(self) -> set[str]:
+        """id всех расписаний приложения: скриптов и проектов."""
+        return {s.id for s in self.all()} | {s.id for s in self.project_all()}
+
+    def project_get(self, sid: str) -> ProjectSchedule:
+        row = self._db.execute("SELECT * FROM project_schedules WHERE id = ?", (sid,)).fetchone()
+        if row is None:
+            raise ReplayError("schedule_not_found", f"расписания проекта `{sid}` нет; список: dawg-replay project schedule list")
+        return _project_schedule(row)
+
+    def project_all(self, project: str | None = None) -> list[ProjectSchedule]:
+        if project is None:
+            rows = self._db.execute("SELECT * FROM project_schedules ORDER BY project, created_at")
+        else:
+            rows = self._db.execute("SELECT * FROM project_schedules WHERE project = ? ORDER BY created_at", (project,))
+        return [_project_schedule(r) for r in rows]
+
+    def project_list(self, project: str | None = None, now: datetime | None = None) -> dict[str, Any]:
+        """Расписания проектов со сверкой с планировщиком, как `list` у скриптов."""
+        try:
+            installed: dict[str, str] | None = self.backend.installed()
+            error = None
+        except ReplayError as e:
+            installed, error = None, e.message
+        out = []
+        for s in self.project_all(project):
+            d = s.to_dict(now)
+            d["state"] = "unknown" if installed is None else ("ok" if s.id in installed else "missing")
+            d["log"] = str(self.log_path(s.id))
+            out.append(d)
+        return {"scheduler": self.backend.kind, "schedules": out, "error": error}
+
+    def add_project(self, project: str, spec: Spec) -> ProjectSchedule:
+        self.app.projects.get(project)  # проект должен быть
+        if self.backend.kind == "schtasks":
+            Schtasks.schedule_args(spec)
+        sid = secrets.token_hex(4)
+        self._db.execute("INSERT INTO project_schedules (id, project, spec_json, created_at) VALUES (?, ?, ?, ?)",
+                         (sid, project, json.dumps(spec.to_dict()), utcnow()))
+        try:
+            self.backend.install(self.plan(self.project_get(sid)))
+        except BaseException:
+            self._db.execute("DELETE FROM project_schedules WHERE id = ?", (sid,))
+            self._cleanup_files(sid)
+            raise
+        return self.project_get(sid)
+
+    def remove_for_project(self, project: str) -> list[str]:
+        ids = [s.id for s in self.project_all(project)]
+        for sid in ids:
+            self.remove(sid)
+        return ids
 
     def upcoming(self, limit: int = 5, now: datetime | None = None) -> list[dict[str, Any]]:
         """Ближайшие запуски по всем расписаниям (без обращения к планировщику)."""
@@ -569,12 +646,14 @@ class Schedules:
 
     def remove(self, sid: str) -> dict[str, Any]:
         """Снимает задачу и удаляет запись. Сироту (задача без записи) тоже снимает."""
-        known = self._db.execute("SELECT 1 FROM schedules WHERE id = ?", (sid,)).fetchone() is not None
+        known = sid in self._known()
         if not known and sid not in self.backend.installed():
             raise ReplayError("schedule_not_found", f"расписания `{sid}` нет ни в приложении, ни в планировщике")
         self.backend.remove(sid)
         self._db.execute("DELETE FROM schedules WHERE id = ?", (sid,))
+        self._db.execute("DELETE FROM project_schedules WHERE id = ?", (sid,))
         tg_rules.drop(self.app, "schedule", sid)
+        tg_rules.drop(self.app, "project_schedule", sid)
         self._cleanup_files(sid)
         return {"id": sid, "was_orphan": not known}
 
@@ -589,11 +668,11 @@ class Schedules:
         """Ставит пропавшие задачи заново и снимает сирот."""
         installed = self.backend.installed()
         reinstalled = []
-        for s in self.all():
+        for s in [*self.all(), *self.project_all()]:
             if s.id not in installed:
                 self.backend.install(self.plan(s))
                 reinstalled.append(s.id)
-        known = {s.id for s in self.all()}
+        known = self._known()
         removed = [sid for sid in installed if sid not in known]
         for sid in removed:
             self.backend.remove(sid)
@@ -605,12 +684,15 @@ class Schedules:
     def log_path(self, sid: str) -> Path:
         return self.app.paths.schedules / f"{sid}.log"
 
-    def plan(self, s: Schedule) -> TaskPlan:
+    def plan(self, s: Schedule | ProjectSchedule) -> TaskPlan:
         uv = shutil.which("uv")
         if not uv:
             raise ReplayError("uv_not_found", "uv не найден в PATH: запуск по расписанию его не найдёт. "
                               "Установите uv: https://docs.astral.sh/uv/getting-started/installation/")
-        argv = [*self_command(), "run", s.script, "--preset", s.preset, "--follow", "--schedule", s.id]
+        if isinstance(s, ProjectSchedule):
+            argv = [*self_command(), "project", "run", s.project, "--follow", "--schedule", s.id]
+        else:
+            argv = [*self_command(), "run", s.script, "--preset", s.preset, "--follow", "--schedule", s.id]
         dirs = list(dict.fromkeys([str(Path(uv).absolute().parent), str(Path(argv[0]).parent)]))
         self.app.paths.schedules.mkdir(parents=True, exist_ok=True)
         return TaskPlan(
@@ -629,6 +711,10 @@ class Schedules:
                 (self.app.paths.schedules / f"{sid}{suffix}").unlink()
             except OSError:
                 pass
+
+
+def _project_schedule(row: sqlite3.Row) -> ProjectSchedule:
+    return ProjectSchedule(row["id"], row["project"], Spec.from_dict(json.loads(row["spec_json"])), row["created_at"])
 
 
 def _schedule(row: sqlite3.Row) -> Schedule:
