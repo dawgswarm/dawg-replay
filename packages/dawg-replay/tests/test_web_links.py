@@ -7,7 +7,7 @@ import sys
 import pytest
 from starlette.testclient import TestClient
 
-from dawg_replay import launch, links
+from dawg_replay import chain, launch, links
 from dawg_replay.app import App
 from dawg_replay.web import links_data
 from dawg_replay.web.security import Secrets
@@ -79,6 +79,9 @@ def secrets_():
 @pytest.fixture
 def scripts(home, kr, tmp_path, monkeypatch):
     monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
+    # Автозапуск по связям здесь не проверяется: получатель не стартует, процесс ожидания не поднимается.
+    monkeypatch.setenv(chain.ENV_WAITER, "off")
+    monkeypatch.setattr(chain, "_spawn", lambda *a, **kw: None)
     src = tmp_path / "src"
     src.mkdir()
     for fname, text in (("wb.py", SOURCE.format(name="wb-prices", title="Цены WB")),
@@ -326,3 +329,19 @@ def test_provenance_started_by_link(home, kr, scripts):
         assert prov["after"]["link_id"] == link.id
         back = links_data.provenance(a, a.runs.get(src.id))
         assert [p["id"] for p in back["passed"]] == [rec.id] and back["passed"][0]["started"]
+
+
+def test_open_round_and_journal_shown(c, secrets_, home, kr):
+    with App(home, keyring_backend=kr) as a:
+        wb, _ = a.links.add("wb-prices", "update-prices")
+        oz, _ = a.links.add("ozon-prices", "update-prices")
+        a.db.execute("INSERT INTO link_rounds (target, opened_at, deadline, arrived_json) VALUES (?, ?, ?, ?)",
+                     ("update-prices", "2026-11-16T00:00:00.000Z", "2099-01-01T00:00:00.000Z",
+                      json.dumps({str(wb.id): "20261116-000000-aaaaaa"})))
+        a.links.log(oz.id, chain.UNSUITABLE, "не запущен: Цены Ozon упал", source_run="20261116-000000-bbbbbb")
+    panel = c.get("/links/target/update-prices").text
+    assert "Ждёт Цены Ozon до" in panel and "Уже закончились:" in panel and "Цены WB" in panel
+    assert "ждёт Цены Ozon до" in c.get("/links/_map").text
+    panel = c.get(f"/links/{oz.id}").text
+    assert "Обновить мои цены ждёт Цены Ozon до" in panel
+    assert 'class="lpanel-log-unsuitable"' in panel and "не запущен: Цены Ozon упал" in panel

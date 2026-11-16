@@ -88,11 +88,12 @@
 
   <section class="lpanel-journal" aria-labelledby="lp-journal-{{ l.id }}">
     <h3 id="lp-journal-{{ l.id }}">Решения по связи</h3>
+    {% if p.round %}<p class="notice notice-warn">{{ p.target_title }} ждёт {{ p.round.waiting | map(attribute='title') | join(', ') }} до {{ p.round.deadline | when }}{% if p.round.done %}; уже закончились: {{ p.round.done | map(attribute='title') | join(', ') }}{% endif %}.</p>{% endif %}
     <p class="hint">{% if p.last %}Сейчас подойдёт результат <a href="/runs/{{ p.last.id }}">запуска {{ p.source_title }} от {{ p.last.created_at | when }}</a>.{% else %}Подходящего результата {{ p.source_title }} пока нет.{% endif %}</p>
     {% if p.journal %}
     <ul class="lpanel-log">
       {% for j in p.journal %}
-      <li><span class="hint-inline">{{ j.at | when }}</span> {{ j.text | ticks }}
+      <li class="lpanel-log-{{ j.decision }}"><span class="hint-inline">{{ j.at | when }}</span> {{ j.text | ticks }}
         {% if j.source_run %}<a href="/runs/{{ j.source_run }}">источник</a>{% endif %}
         {% if j.target_run %}<a href="/runs/{{ j.target_run }}">запуск</a>{% endif %}</li>
       {% endfor %}

@@ -7,6 +7,15 @@
   {% if p.error %}<p class="notice notice-error" role="alert">{{ p.error | ticks }}</p>{% endif %}
   {% if p.saved %}<p class="notice notice-ok" role="status">{{ p.saved }}</p>{% endif %}
 
+  {% if p.round %}
+  <div class="notice notice-warn lpanel-round" role="status">
+    <p>Ждёт {{ p.round.waiting | map(attribute='title') | join(', ') }} до {{ p.round.deadline | when }}. Затем {% if p.round.on_timeout == "run" %}запустится с тем, что есть{% else %}запуск будет пропущен{% endif %}.</p>
+    {% if p.round.done %}<p class="hint">Уже закончились: {% for d in p.round.done %}<a href="/runs/{{ d.run_id }}">{{ d.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}.</p>{% endif %}
+  </div>
+  {% endif %}
+  {% if p.pending %}
+  <p class="notice notice-ok lpanel-round" role="status">Скрипт ещё идёт по связи: следующий запуск{% if p.pending.title %} после {{ p.pending.title }}{% endif %} начнётся, когда он закончится.</p>
+  {% endif %}
   {% if p.incoming %}
   <h3>Берёт данные или запускается после</h3>
   <ul class="lpanel-links">

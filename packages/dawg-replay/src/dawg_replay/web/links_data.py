@@ -100,6 +100,40 @@ def _auto_layout(names: list[str], edges: list[tuple[str, str]]) -> dict[str, tu
     return out
 
 
+# --- круг «после всех» и отложенный запуск (dawg_replay.chain) ------------------------
+
+
+def open_round(app: Any, target: str) -> dict[str, Any] | None:
+    """Открытый круг ожидания получателя: кто уже закончился, кого ждём и до какого времени."""
+    row = app.db.execute("SELECT * FROM link_rounds WHERE target = ?", (target,)).fetchone()
+    if row is None:
+        return None
+    try:
+        arrived = json.loads(row["arrived_json"] or "{}")
+    except ValueError:
+        arrived = {}
+    starting = [x for x in app.links.incoming(target) if x.enabled and x.starts]
+    done = [{"script": x.source, "title": _title(app, x.source), "run_id": arrived[str(x.id)]}
+            for x in starting if str(x.id) in arrived]
+    waiting = [{"script": x.source, "title": _title(app, x.source)} for x in starting if str(x.id) not in arrived]
+    return {"opened_at": row["opened_at"], "deadline": row["deadline"], "done": done, "waiting": waiting,
+            "on_timeout": app.links.mode(target).on_timeout}
+
+
+def pending(app: Any, target: str) -> dict[str, Any] | None:
+    """Отложенный запуск: получатель ещё идёт по связи, следующий начнётся после него."""
+    row = app.db.execute("SELECT * FROM link_pending WHERE target = ?", (target,)).fetchone()
+    if row is None:
+        return None
+    src = None
+    try:
+        src = app.links.get(row["link_id"]).source
+    except ReplayError:
+        pass
+    return {"created_at": row["created_at"], "script": src, "title": _title(app, src) if src else None,
+            "note": row["note"]}
+
+
 # --- карта -----------------------------------------------------------------------------
 
 
@@ -139,7 +173,7 @@ def preset_refs(app: Any) -> list[dict[str, Any]]:
 
 def _node(app: Any, name: str) -> dict[str, Any]:
     node: dict[str, Any] = {"name": name, "title": _title(app, name), "broken": None, "schedule": None,
-                            "mode": None, "run": None}
+                            "mode": None, "run": None, "round": open_round(app, name), "pending": pending(app, name)}
     try:
         app.registry.manifest(name)
     except ReplayError as e:
@@ -265,6 +299,7 @@ def link_panel(app: Any, link_id: int, *, warnings: list[dict[str, Any]] | None 
         "saved": saved,
         "last": {"id": last.id, "created_at": last.finished_at or last.created_at} if last else None,
         "journal": journal,
+        "round": open_round(app, link.target) if link.starts else None,
         "main": links.MAIN,
     }
 
@@ -286,6 +321,8 @@ def target_panel(app: Any, name: str, *, error: str | None = None, saved: str | 
         "outgoing": [{"id": x.id, "target": x.target, "target_title": _title(app, x.target), "after": AFTER_SHORT[x.after],
                       "enabled": x.enabled} for x in app.links.outgoing(name)],
         "starting": sum(1 for x in incoming if x.enabled and x.starts),
+        "round": open_round(app, name),
+        "pending": pending(app, name),
         "error": error,
         "saved": saved,
     }

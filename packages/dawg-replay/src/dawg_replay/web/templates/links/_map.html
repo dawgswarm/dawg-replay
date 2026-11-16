@@ -32,6 +32,8 @@
       {% if n.schedule %}<span class="lnode-meta">{{ n.schedule }}</span>{% endif %}
       {% if n.mode %}<span class="lnode-meta lnode-mode">{{ n.mode }}</span>{% endif %}
       <span class="lnode-title">{{ n.title }}</span>
+      {% if n.round %}<span class="lnode-meta lnode-wait">ждёт {{ n.round.waiting | map(attribute='title') | join(', ') }} до {{ n.round.deadline | when }}</span>{% endif %}
+      {% if n.pending %}<span class="lnode-meta lnode-wait">следующий запуск отложен</span>{% endif %}
       {% if n.broken %}<span class="lnode-state is-bad">скрипт сломан</span>
       {% elif st %}<span class="lnode-state"><span class="status status-{{ st.kind }}">{{ st.text }}</span> {{ n.run.created_at | when }}</span>
       {% else %}<span class="lnode-state">ещё не запускался</span>{% endif %}
