@@ -91,7 +91,7 @@ def _add(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         limit_per_day=args.limit_per_day, enabled=not args.disabled,
     )
     lines = [f"связь добавлена: {link_line(link)}", *_problems_text(warnings),
-             "схема целиком: экран «Связи» или dawg-replay link check"]
+             "проверить всю схему: dawg-replay link check"]
     return {"link": link.to_dict(), "warnings": [w.to_dict() for w in warnings]}, "\n".join(lines)
 
 

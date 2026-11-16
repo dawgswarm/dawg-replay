@@ -487,10 +487,10 @@ def _fill_results(app: App, manifest: Manifest, values: dict[str, Any], explicit
     fills: list[links.Fill] = []
     by_name = {p.name: p for p in manifest.params}
     for name, value in list(values.items()):
-        ref = links.parse_ref(value)
         p = by_name.get(name)
-        if ref is None or p is None:
-            continue
+        ref = links.parse_ref(value) if p is not None and p.type in links.TRANSFER_TYPES else None
+        if ref is None:
+            continue  # строка «last:…» в текстовом параметре просто текст
         try:
             fill = links.fill_ref(app, p, ref)
         except ReplayError as e:
