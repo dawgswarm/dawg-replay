@@ -72,20 +72,20 @@ def sync(app: App, force: bool = False) -> dict[str, Any] | None:
 def _install(app: App, file: Path, report: dict[str, Any]) -> None:
     data = file.read_bytes()
     label = f"встроенный узел {file.name}"
+    name = _name_of(data)
+    row = app.db.execute("SELECT builtin FROM scripts WHERE name = ?", (name,)).fetchone() if name else None
+    if row is not None and not row["builtin"]:
+        report["skipped"].append({"name": name, "reason": "есть скрипт пользователя с тем же name, он не трогается"})
+        return
     try:
         chk = app.registry.check(data, label, builtin=True)
     except ReplayError as e:
-        name = _name_of(data)
         if e.code in ("version_exists", "version_too_low") and name and _use_known(app, name, data):
             report["unchanged"].append(name)  # откат приложения: такая версия уже есть, она и текущая
             return
         report["skipped"].append({"name": name or file.stem, "reason": e.message})
         return
     name = chk.manifest.name
-    row = app.db.execute("SELECT builtin FROM scripts WHERE name = ?", (name,)).fetchone()
-    if row is not None and not row["builtin"]:
-        report["skipped"].append({"name": name, "reason": "есть скрипт пользователя с тем же name, он не трогается"})
-        return
     if chk.status == "unchanged":
         _use_known(app, name, data)  # та же версия есть, но текущей могла быть другая
         report["unchanged"].append(name)

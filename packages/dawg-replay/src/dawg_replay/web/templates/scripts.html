@@ -7,12 +7,16 @@
     <p class="lead">Каждый скрипт повторяет путь по сайту, который один раз прошёл агент. Запустите его с карточки: со своими параметрами или готовым пресетом.</p>
   </div>
   <a class="button secondary lib-add" href="/scripts/_import">Добавить скрипт</a>
-  {% if lib.sites %}
+  {% if lib.sites or lib.builtin_count %}
   <nav class="chips lib-filters" aria-label="Сайт">
-    <a class="chip{% if not lib.site %} chip-on{% endif %}" href="/scripts{% if lib.query %}?q={{ lib.query | urlencode }}{% endif %}"{% if not lib.site %} aria-current="true"{% endif %}>Все</a>
+    {% set all_on = not lib.site and not lib.builtin %}
+    <a class="chip{% if all_on %} chip-on{% endif %}" href="/scripts{% if lib.query %}?q={{ lib.query | urlencode }}{% endif %}"{% if all_on %} aria-current="true"{% endif %}>Все</a>
     {% for site in lib.sites %}
     <a class="chip{% if lib.site == site %} chip-on{% endif %}" href="/scripts?site={{ site | urlencode }}{% if lib.query %}&amp;q={{ lib.query | urlencode }}{% endif %}"{% if lib.site == site %} aria-current="true"{% endif %}>{{ site }}</a>
     {% endfor %}
+    {% if lib.builtin_count %}
+    <a class="chip{% if lib.builtin %} chip-on{% endif %}" href="/scripts?builtin=1{% if lib.query %}&amp;q={{ lib.query | urlencode }}{% endif %}" title="Узлы, которые поставляются с приложением: склеить, отфильтровать, проверить таблицу"{% if lib.builtin %} aria-current="true"{% endif %}>Встроенные узлы</a>
+    {% endif %}
   </nav>
   {% endif %}
 </div>
