@@ -176,6 +176,22 @@ class App:
             "secrets": self.secret_status(name),
         }
 
+    def remove_project(self, name: str) -> dict[str, Any]:
+        """Удаляет проект с версиями, его расписания и правила Telegram; история запусков проекта остаётся.
+        Пока идёт запуск проекта, удалять нельзя."""
+        from dawg_replay import launch, project_runs, tg_rules
+
+        self.projects.get(name)
+        launch.recover_lost(self)
+        active = [pr.id for pr in project_runs.running(self, name)]
+        if active:
+            raise ReplayError("project_running", f"проект `{name}` сейчас запущен ({', '.join(active)}). "
+                                                 f"Дождитесь конца или остановите: dawg-replay project stop {active[0]}")
+        schedules = self.schedules.remove_for_project(name) if self.schedules.project_all(name) else []
+        tg_rules.drop(self, "project", name)
+        versions = self.projects.remove(name)
+        return {"name": name, "versions": [v.version for v in versions], "schedules_removed": schedules}
+
     def remove(self, name: str) -> dict[str, Any]:
         """Удаляет скрипт, версии, пресеты, секреты, сохранённые входы и расписания; история запусков остаётся.
         Пока идёт запуск этого скрипта, удалять нельзя: его файл и секреты ещё нужны.

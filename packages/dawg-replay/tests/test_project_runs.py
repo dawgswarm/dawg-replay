@@ -331,3 +331,125 @@ def test_step_label(scripts, tmp_path, steps):
     pr = P.start(app, two(app, tmp_path))
     assert P.step_label(app, app.runs.get(pr.step("gs").run_id)) == "Демо: Google"
     assert P.step_label(app, app.runs.get(pr.step("wb").run_id)) == "Демо: WB"
+
+
+# --- Telegram ------------------------------------------------------------------------------
+
+
+class Bot:
+    def __init__(self):
+        self.messages = []
+
+    def send_message(self, chat_id, text, reply_markup=None):
+        self.messages.append(text)
+        return len(self.messages)
+
+
+@pytest.fixture
+def tg(monkeypatch):
+    from types import SimpleNamespace
+
+    from dawg_replay import tg_notify
+
+    bot = Bot()
+    conn = SimpleNamespace(token="T0KEN", chat_id="777")
+    monkeypatch.setattr(tg_notify, "_connection", lambda app: conn)
+    monkeypatch.setattr(tg_notify, "_bot", lambda c: bot)
+    monkeypatch.setattr(tg_notify, "_record_error", lambda app, text: None)
+    return bot
+
+
+def test_one_message_for_project_and_none_for_steps(scripts, tmp_path, steps, tg):
+    from dawg_replay import tg_rules
+
+    app = scripts
+    tg_rules.set_general(app, "done_manual", "always")
+    pr = P.start(app, two(app, tmp_path, wb='values = { outcome = "partial" }', edge1='when = "ok"'))
+    assert pr.status == "partial"
+    assert len(tg.messages) == 1  # шаги своих итогов не шлют
+    text = tg.messages[0]
+    assert text.startswith("Готово частично: Демо\n2 из 3, пропущен: Google, частично: WB\n")
+    assert "пропущен: Google, WB закончился частично, а стрелка ждёт: готово" in text
+    assert "В приложении: Проекты, Демо" in text
+    assert P.get(app, pr.id).notify_state == "sent"
+
+
+def test_project_rules_and_failed_message(scripts, tmp_path, steps, tg):
+    from dawg_replay import tg_rules
+
+    app = scripts
+    name = two(app, tmp_path, oz='values = { outcome = "failed" }')
+    tg_rules.set_overrides(app, "project", name, {"failed": "off"})
+    P.start(app, name)
+    assert tg.messages == []
+    tg_rules.set_overrides(app, "project", name, {"failed": "inherit"})
+    P.start(app, name)
+    assert tg.messages[0].startswith("Упал: Демо\n1 из 3, упал: Ozon, пропущен: Google\n"
+                                   "упал: Ozon, источник упал по просьбе теста\nпропущен: Google, Ozon упал\n")
+    with pytest.raises(ReplayError) as e:
+        tg_rules.set_overrides(app, "project", name, {"attach_main": "on"})
+    assert "у проекта не задаётся" in e.value.message
+
+
+def test_cancelled_project_sends_nothing(scripts, tmp_path, monkeypatch, tg):
+    app = scripts
+    monkeypatch.setattr(P, "_spawn_step", lambda *a: None)
+    pr = P.start(app, two(app, tmp_path))
+    app.db.execute("UPDATE project_steps SET pid = 999999, pid_started = 1 WHERE project_run = ?", (pr.id,))
+    assert P.stop(app, pr.id).status == "cancelled" and tg.messages == []
+
+
+# --- CLI, расписание, удаление ------------------------------------------------------------
+
+
+def test_cli_run_status_runs_retry(scripts, tmp_path, steps, cli):
+    name = two(scripts, tmp_path, oz='values = { outcome = "failed" }')
+    code, data = cli("project", "run", name, "--follow")
+    assert code == 3 and data["project_run"]["status"] == "failed"
+    prun = data["project_run"]["id"]
+    assert [s["status"] for s in data["project_run"]["steps"]] == ["ok", "failed", "skipped"]
+    code, data = cli("project", "status", prun)
+    assert code == 0 and data["project_run"]["steps"][2]["reason"] == "Ozon упал"
+    code, data = cli("project", "runs", name)
+    assert code == 0 and [r["id"] for r in data["runs"]] == [prun]
+    code, data = cli("project", "retry", prun, "--follow")
+    assert code == 3 and data["project_run"]["retry_of"] == prun
+    code, data = cli("project", "stop", prun)
+    assert code == 1 and data["error"]["code"] == "not_running"
+
+
+def test_cli_busy_refusal(scripts, tmp_path, monkeypatch, cli):
+    monkeypatch.setattr(P, "_spawn_step", lambda *a: None)
+    name = two(scripts, tmp_path)
+    code, data = cli("project", "run", name)
+    assert code == 0 and data["project_run"]["status"] == "running"
+    code, data = cli("project", "run", name)
+    assert code == 1 and data["error"]["code"] == "project_busy"
+
+
+def test_project_schedule_and_remove(scripts, tmp_path, cli, fake_scheduler):
+    name = two(scripts, tmp_path)
+    code, data = cli("project", "schedule", "add", name, "--daily", "07:30")
+    assert code == 0, data
+    sid = data["schedule"]["id"]
+    crontab = (fake_scheduler / "crontab").read_text(encoding="utf-8")
+    assert f"project run {name} --follow --schedule {sid}" in crontab
+    code, data = cli("project", "schedule", "list")
+    assert code == 0 and [s["id"] for s in data["schedules"]] == [sid] and data["schedules"][0]["state"] == "ok"
+    code, data = cli("schedule", "list")
+    assert code == 0 and data["orphans"] == []  # задача проекта не сирота для расписаний скриптов
+    code, data = cli("telegram", "set", "done_scheduled", "off", "--schedule", sid)
+    assert code == 0 and data["scope"] == "project_schedule" and data["own"] == {"done_scheduled": False}
+    code, data = cli("project", "remove", name, "--yes")
+    assert code == 0 and data["schedules_removed"] == [sid]
+    assert sid not in (fake_scheduler / "crontab").read_text(encoding="utf-8")
+
+
+def test_scheduled_run_skipped_while_busy(scripts, tmp_path, monkeypatch, cli):
+    monkeypatch.setattr(P, "_spawn_step", lambda *a: None)
+    name = two(scripts, tmp_path)
+    code, data = cli("project", "schedule", "add", name, "--daily", "07:30")
+    sid = data["schedule"]["id"]
+    cli("project", "run", name)
+    code, data = cli("project", "run", name, "--follow", "--schedule", sid)
+    assert code == 3 and data["skipped"] and data["project_run"]["label"] == "пропущен"

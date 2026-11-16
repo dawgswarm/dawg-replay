@@ -133,8 +133,9 @@ def _remove(app: App, args: argparse.Namespace) -> tuple[dict, str]:
         raise ReplayError("confirmation_required",
                           f"будут удалены проект `{args.name}` и его версии {versions}. "
                           "Скрипты и пресеты останутся. Повторите с --yes")
-    versions = app.projects.remove(args.name)
-    return {"name": args.name, "versions": [v.version for v in versions]}, f"проект `{args.name}` удалён"
+    r = app.remove_project(args.name)
+    return r, f"проект `{args.name}` удалён" + (f", расписания сняты: {', '.join(r['schedules_removed'])}"
+                                                if r["schedules_removed"] else "")
 
 
 def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
@@ -177,3 +178,7 @@ def register(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -
     p = add("remove", _remove, "удалить проект и его версии")
     p.add_argument("name", help="имя проекта")
     p.add_argument("--yes", action="store_true", help="подтвердить удаление")
+
+    from dawg_replay import cli_project_run
+
+    cli_project_run.register(g, common)

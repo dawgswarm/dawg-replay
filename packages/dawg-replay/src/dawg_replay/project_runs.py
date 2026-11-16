@@ -470,16 +470,15 @@ def start(app: App, name: str, *, schedule_id: str | None = None, notify: str | 
     except BaseException:
         app.db.execute("ROLLBACK")
         raise
+    recorded = prun_id if schedule_id is not None else None  # плановый отказ остаётся в истории
+    if (busy or errors) and recorded:
+        tg_project.after_finish(app, recorded)
     if busy:
-        if schedule_id is not None:
-            tg_project.after_finish(app, prun_id)
         raise ReplayError("project_busy", f"Проект уже запущен: {busy[0]}. Откройте идущий запуск или остановите его: "
-                                          f"dawg-replay project stop {busy[0]}", {"running": busy[0], "run": prun_id
-                                                                                  if schedule_id else None})
+                                          f"dawg-replay project stop {busy[0]}", {"running": busy[0], "run": recorded})
     if errors:
-        if schedule_id is not None:
-            tg_project.after_finish(app, prun_id)
-        raise ReplayError("project_invalid", "проект не прошёл проверку:\n" + "\n".join(f"  {x}" for x in errors), errors)
+        raise ReplayError("project_invalid", "проект не прошёл проверку:\n" + "\n".join(f"  {x}" for x in errors),
+                          {"problems": errors, "run": recorded})
     _spawn_driver(app, prun_id)
     advance(app, prun_id)
     return get(app, prun_id)
