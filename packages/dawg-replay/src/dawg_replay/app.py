@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dawg_replay import account, logins, tg_rules
-from dawg_replay.config import Config, coerce, load_config, save_config, set_config_value
+from dawg_replay.config import Config, coerce, load_config, set_config_value, update_config
 from dawg_replay.db import connect
 from dawg_replay.errors import ReplayError
 from dawg_replay.links import Links
@@ -111,16 +111,12 @@ class App:
     def update_limits(self, max_parallel_runs: Any, max_timeout_minutes: Any,
                       rows_preview_limit: Any = None, log_limit: Any = None) -> Config:
         """Меняет лимиты разом: при ошибке в любом ничего не сохраняется. None: не трогать."""
-        cfg = self.config
         values = {"max_parallel_runs": coerce("max_parallel_runs", max_parallel_runs),
                   "max_timeout_minutes": coerce("max_timeout_minutes", max_timeout_minutes)}
         for key, raw in (("rows_preview_limit", rows_preview_limit), ("log_limit", log_limit)):
             if raw is not None:
                 values[key] = coerce(key, raw)
-        for key, value in values.items():
-            setattr(cfg, key, value)
-        save_config(self.paths.config, cfg)
-        return cfg
+        return update_config(self.paths.config, values)
 
     # --- скрипты ---
 

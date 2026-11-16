@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from dawg_replay.config import CHOICES, Config, coerce, parse_bool, save_config
+from dawg_replay.config import CHOICES, Config, coerce, parse_bool, update_config
 from dawg_replay.errors import ReplayError
 from dawg_replay.runs import REASON_CANCELLED, Run, parse_ts
 
@@ -63,20 +63,13 @@ def parse_value(key: str, raw: Any) -> Any:
 
 def set_general(app: App, key: str, raw: Any) -> dict[str, Any]:
     value = parse_value(key, raw)
-    cfg = app.config
-    setattr(cfg, PREFIX + key, value)
-    save_config(app.paths.config, cfg)
-    return general(cfg)
+    return general(update_config(app.paths.config, {PREFIX + key: value}))
 
 
 def update_general(app: App, values: dict[str, Any]) -> dict[str, Any]:
     """Меняет несколько ключей разом: при ошибке в любом ничего не сохраняется."""
-    parsed = {k: parse_value(k, v) for k, v in values.items()}
-    cfg = app.config
-    for k, v in parsed.items():
-        setattr(cfg, PREFIX + k, v)
-    save_config(app.paths.config, cfg)
-    return general(cfg)
+    parsed = {PREFIX + k: parse_value(k, v) for k, v in values.items()}
+    return general(update_config(app.paths.config, parsed))
 
 
 # --- переопределения ---------------------------------------------------------------
