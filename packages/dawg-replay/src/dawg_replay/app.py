@@ -13,6 +13,7 @@ from dawg_replay.errors import ReplayError
 from dawg_replay.paths import Paths, default_home
 from dawg_replay.preset_tables import PresetTables
 from dawg_replay.presets import Preset, Presets
+from dawg_replay.projects import Projects
 from dawg_replay.registry import Registry
 from dawg_replay.runs import STATUS_RUNNING, RunStore
 from dawg_replay.schedules import Backend as SchedulerBackend
@@ -34,6 +35,7 @@ class App:
         self.presets = Presets(self.db, PresetTables(self.paths))
         self.runs = RunStore(self.db)
         self.secrets = SecretStore(keyring_backend)
+        self.projects = Projects(self.db, self)
         self._scheduler_backend = scheduler_backend
         self._schedules: Schedules | None = None
 
@@ -209,6 +211,7 @@ class App:
             "secrets_deleted": sorted(secret_params),
             "schedules_removed": schedules,
             "logins_deleted": logins_deleted,
+            "in_projects": self.projects.using(name),
         }
 
     # --- сохранённые входы ---

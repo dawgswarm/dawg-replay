@@ -175,7 +175,27 @@ MIGRATIONS: list[str] = [
         created_at   TEXT NOT NULL
     )
     """,
-    # 7: глобальные связи M6 заменены проектами: таблицы связей и автозапуска удаляются (M6 не выпущен,
+    # 7: проекты, схемы из скриптов (dawg_replay.projects)
+    """
+    CREATE TABLE projects (
+        name            TEXT PRIMARY KEY,
+        current_version INTEGER NOT NULL,
+        created_at      TEXT NOT NULL,
+        updated_at      TEXT NOT NULL
+    );
+    -- text: файл проекта этой версии. origin: откуда версия (file из CLI, editor с холста)
+    CREATE TABLE project_versions (
+        name     TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE,
+        version  INTEGER NOT NULL,
+        title    TEXT NOT NULL,
+        sha256   TEXT NOT NULL,
+        text     TEXT NOT NULL,
+        origin   TEXT NOT NULL,
+        added_at TEXT NOT NULL,
+        PRIMARY KEY (name, version)
+    )
+    """,
+    # 8: глобальные связи M6 заменены проектами: таблицы связей и автозапуска удаляются (M6 не выпущен,
     # данных у пользователей нет). Колонка runs.link_id остаётся пустой: удалять колонку в SQLite
     # умеют не все версии, которые идут с поддерживаемым Python.
     """
