@@ -571,6 +571,10 @@ def _advance_once(app: App, prun_id: str) -> None:
     while changed:  # решения по одному узлу открывают следующие (пропуск тянет пропуск)
         changed = False
         for s in pr.steps:
+            if stopping and s.status == STARTING and _run_of(app, pr, s) is None:
+                # Процесс шага ещё не создал запуск: шаг закрывается сразу, его запуск не начнётся.
+                changed |= _set_step(app, prun_id, s.node, CANCELLED, only_from=(STARTING,), reason=why_stop)
+                continue
             if s.status != PENDING:
                 continue
             if stopping:
@@ -703,7 +707,12 @@ def run_step(app: App, prun_id: str, node_id: str) -> Run | None:
                       run_id=rec.id if rec else None, reason=_short(e.message))
         advance(app, prun_id)
         return None
-    _set_step(app, prun_id, node_id, STEP_RUNNING, only_from=(STARTING,), run_id=prepared.run.id)
+    if not _set_step(app, prun_id, node_id, STEP_RUNNING, only_from=(STARTING,), run_id=prepared.run.id):
+        # Пока готовился запуск, проект остановили или вышел срок: скрипт не начинается.
+        app.runs.finish(prepared.run.id, status="failed", reason=REASON_CANCELLED, error="запуск проекта остановлен")
+        _set_step(app, prun_id, node_id, CANCELLED, only_from=(CANCELLED,), run_id=prepared.run.id)
+        advance(app, prun_id)
+        return app.runs.get(prepared.run.id)
     return launch.supervise(app, prepared.run.id, prepared.payload())
 
 

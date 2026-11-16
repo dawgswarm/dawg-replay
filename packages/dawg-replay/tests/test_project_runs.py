@@ -453,3 +453,20 @@ def test_scheduled_run_skipped_while_busy(scripts, tmp_path, monkeypatch, cli):
     cli("project", "run", name)
     code, data = cli("project", "run", name, "--follow", "--schedule", sid)
     assert code == 3 and data["skipped"] and data["project_run"]["label"] == "пропущен"
+
+
+def test_driver_watches_deadline_and_exits(scripts, tmp_path, monkeypatch):
+    app = scripts
+    monkeypatch.setattr(P, "_spawn_step", lambda *a: None)
+    pr = P.start(app, two(app, tmp_path))  # шаги «запускаются»: процесс шага ещё не записался
+    ticks = []
+
+    def sleep(seconds):
+        ticks.append(seconds)
+        past = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(timespec="seconds").replace("+00:00", "Z")
+        app.db.execute("UPDATE project_runs SET deadline = ? WHERE id = ?", (past, pr.id))
+
+    P.drive(app, pr.id, poll=0.01, sleep=sleep)
+    pr = P.get(app, pr.id)
+    assert ticks == [0.01, 0.01] and pr.status == "failed" and pr.reason == "timeout"  # второй круг подвёл итог
+    assert {s.status for s in pr.steps} == {"cancelled", "skipped"}
