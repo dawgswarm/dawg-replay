@@ -40,7 +40,7 @@
 
 .lnode {
   position: absolute;
-  width: 13.5rem;
+  width: 12.5rem;
   border: 1.5px solid var(--line-strong);
   border-radius: var(--r-block);
   background: var(--surface);
@@ -155,3 +155,5 @@ button.linkish {
   box-shadow: none;
 }
 button.linkish:hover { background: none; color: var(--action-hover); }
+.lpanel .check .hint-inline { font-weight: 400; }
+.lpanel .check { display: flex; align-items: flex-start; gap: 0.5rem; margin-bottom: 0.5rem; }

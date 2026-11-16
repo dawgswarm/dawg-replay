@@ -27,7 +27,7 @@
   {% for n in m.nodes %}
   {% set st = n.run.label | status if n.run else none %}
   <div class="lnode{% if n.broken %} is-broken{% endif %}" data-node="{{ n.name }}" data-x="{{ n.x }}" data-y="{{ n.y }}">
-    <button type="button" class="lnode-main" hx-get="/links/target/{{ n.name | urlencode }}" hx-target="#link-panel"
+    <button type="button" class="lnode-main" hx-get="/links/target/{{ n.name | urlencode }}" hx-target="#link-panel" hx-swap="innerHTML"
             aria-label="{{ n.title }}: настройки получателя">
       {% if n.schedule %}<span class="lnode-meta">{{ n.schedule }}</span>{% endif %}
       {% if n.mode %}<span class="lnode-meta lnode-mode">{{ n.mode }}</span>{% endif %}
@@ -42,7 +42,7 @@
   {% for e in m.edges %}
   {% if e.kind == "link" %}
   <button type="button" class="lmap-label{% if e.dashed %} is-dashed{% endif %}{% if not e.enabled %} is-off{% endif %}{% if e.level %} is-{{ e.level }}{% endif %}"
-          data-label-for="{{ e.id }}" hx-get="/links/{{ e.id }}" hx-target="#link-panel"
+          data-label-for="{{ e.id }}" hx-get="/links/{{ e.id }}" hx-target="#link-panel" hx-swap="innerHTML"
           title="{% if e.problems %}{{ e.problems | map(attribute='text') | join('; ') | ticks }}{% else %}Настройки связи{% endif %}">
     {% if e.level == "error" %}<span class="lmap-bad">ошибка:</span> {% endif %}{% if not e.enabled %}выключена: {% endif %}{{ e.label }}
   </button>

@@ -1,6 +1,6 @@
 {# Сопоставление файлов запуска с параметрами выбранного скрипта. Контекст t: links_data.transfer_view. #}
 {% if t.target %}
-<form class="transfer-map" action="/scripts/{{ t.target.name | urlencode }}" method="get">
+<form class="transfer-map" action="/scripts/{{ t.target.name | urlencode }}#launch" method="get">
   <input type="hidden" name="from_run" value="{{ t.run_id }}">
   {% for r in t.rows %}
   <div class="field">

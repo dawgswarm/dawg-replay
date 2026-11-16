@@ -13,7 +13,7 @@ from dawg_replay import links, outputs
 from dawg_replay.errors import ReplayError
 
 LAYOUT_FILE = "links-layout.json"  # раскладка узлов карты: {скрипт: [x, y]}
-COL, ROW = 280, 128  # шаг автоматической раскладки
+COL, ROW = 236, 168  # шаг автоматической раскладки: шаги цепочки сверху вниз, рядом соседи по шагу
 MAX_XY = 20000
 AFTER_TITLES = (
     ("ok", "после успешного"),
@@ -68,7 +68,7 @@ def save_layout(app: Any, positions: Any) -> dict[str, tuple[int, int]]:
 
 
 def _auto_layout(names: list[str], edges: list[tuple[str, str]]) -> dict[str, tuple[int, int]]:
-    """Столбцы по самому длинному пути от источников; круги разрываются."""
+    """Ряды по самому длинному пути от источников (сверху вниз); круги разрываются."""
     succ: dict[str, list[str]] = {n: [] for n in names}
     has_in: set[str] = set()
     for a, b in edges:
@@ -95,7 +95,7 @@ def _auto_layout(names: list[str], edges: list[tuple[str, str]]) -> dict[str, tu
     out: dict[str, tuple[int, int]] = {}
     for n in sorted(names, key=lambda x: (rank[x], x)):
         r = rank[n]
-        out[n] = (24 + r * COL, 24 + rows.get(r, 0) * ROW)
+        out[n] = (24 + rows.get(r, 0) * COL, 24 + r * ROW)
         rows[r] = rows.get(r, 0) + 1
     return out
 

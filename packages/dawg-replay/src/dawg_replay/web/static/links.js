@@ -87,8 +87,10 @@
       p.setAttribute("d", r.d);
       if (label) {
         label.hidden = false;
-        label.style.left = Math.round(r.mid.x - label.offsetWidth / 2) + "px";
-        label.style.top = Math.round(r.mid.y - label.offsetHeight / 2) + "px";
+        // Подпись не выходит за край карты: иначе её начало обрезается.
+        var lx = Math.max(4, Math.min(map.offsetWidth - label.offsetWidth - 4, r.mid.x - label.offsetWidth / 2));
+        label.style.left = Math.round(lx) + "px";
+        label.style.top = Math.round(Math.max(4, r.mid.y - label.offsetHeight / 2)) + "px";
       }
     });
   }
@@ -168,7 +170,7 @@
         if (!d.moved) {
           // Клик без перетаскивания: открыть настройки получателя.
           var btn = d.node.querySelector(".lnode-main");
-          if (!cancelled && btn && window.htmx) htmx.trigger(btn, "click");
+          if (!cancelled && btn) btn.click();
           return;
         }
         var name = d.node.getAttribute("data-node");

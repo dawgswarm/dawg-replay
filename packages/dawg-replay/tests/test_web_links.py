@@ -213,8 +213,8 @@ def test_layout_saved(c, secrets_, home, kr):
 
 def test_auto_layout_columns():
     pos = links_data._auto_layout(["a", "b", "c", "d"], [("a", "b"), ("b", "c"), ("c", "a"), ("a", "c")])
-    assert pos["a"][0] < pos["b"][0] < pos["c"][0]
-    assert pos["d"][0] == pos["a"][0]
+    assert pos["a"][1] < pos["b"][1] < pos["c"][1]
+    assert pos["d"][1] == pos["a"][1]
 
 
 def test_script_block(c, secrets_, home, kr):
@@ -286,7 +286,7 @@ def test_provenance_and_transfer(c, secrets_, home, kr):
     assert "Передать в другой скрипт" in page and "Обновить мои цены" in page
     assert "Запущен после" not in page
     frag = c.get(f"/runs/{src.id}/_transfer?script=update-prices").text
-    assert 'action="/scripts/update-prices"' in frag and f'name="from_run" value="{src.id}"' in frag
+    assert 'action="/scripts/update-prices#launch"' in frag and f'name="from_run" value="{src.id}"' in frag
     assert re.search(r'<option value="prices.csv"\s+selected>', frag)  # колонки совпали с объявленными
     assert "Выберите скрипт" in c.get(f"/runs/{src.id}/_transfer?script=nope").text
 

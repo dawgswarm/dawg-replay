@@ -139,7 +139,7 @@
           <option value="">{% if fl.fed %}как по связи{% else %}не брать{% endif %}</option>
           {% for o in fl.ref_options %}<option value="{{ o.value }}"{% if fl.ref == o.value %} selected{% endif %}>{{ o.title }}</option>{% endfor %}
         </select>
-        {% if fl.ref %}<p class="hint">Файл возьмётся из результата в момент запуска{% if fl.widget == "table" %} и пройдёт ту же проверку колонок, что загруженный{% endif %}. Загруженное выше при этом не используется.</p>{% endif %}
+        {% if fl.ref %}<p class="hint">Файл возьмётся из результата в момент запуска{% if fl.widget == "table" %} и пройдёт ту же проверку колонок, что загруженный{% endif %}.{% if fl.table %} Загруженное выше при этом не используется.{% endif %}</p>{% endif %}
         {% endif %}
       </div>
     {% endif %}
