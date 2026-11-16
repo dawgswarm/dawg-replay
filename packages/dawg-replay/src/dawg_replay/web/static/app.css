@@ -845,9 +845,11 @@ a.button.button-secondary:hover { background: var(--sunken); }
 
 /* --- библиотека --- */
 
-.lib-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 0.5rem 2rem; margin-bottom: 1.4rem; }
+/* Заголовок и кнопка в первой строке, фильтры по сайтам отдельной строкой: их число не сдвигает кнопку. */
+.lib-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 1.1rem 2rem; margin-bottom: 1.4rem; }
 .lib-head .page-head { margin-bottom: 0; }
-.lib-filters { justify-content: flex-end; }
+.lib-add { margin-top: 0.35rem; }
+.lib-filters { grid-column: 1 / -1; min-width: 0; }
 .lib-found { margin: -0.4rem 0 1rem; }
 .lib-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr)); gap: 1rem; }
 .lib-card { display: flex; flex-direction: column; min-width: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); overflow: hidden; }
@@ -903,8 +905,8 @@ a.button.button-secondary:hover { background: var(--sunken); }
   .top-search { order: 5; flex: 1 1 calc(100% - 3rem); min-width: 0; }
   [data-theme-toggle] { order: 6; }
   .top-search label { max-width: none; }
-  .lib-head { align-items: flex-start; }
-  .lib-side { align-items: flex-start; max-width: 100%; }
+  .lib-head { grid-template-columns: minmax(0, 1fr); gap: 0.9rem; }
+  .lib-add { justify-self: start; margin-top: 0; }
   .lib-filters { justify-content: flex-start; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; padding-bottom: 0.15rem; }
   .lib-filters .chip { flex: none; }
   .lib-grid { grid-template-columns: minmax(0, 1fr); }
@@ -926,7 +928,6 @@ a.button.button-secondary:hover { background: var(--sunken); }
 
 /* --- импорт и удаление скрипта --- */
 
-.lib-side { display: flex; flex-direction: column; align-items: flex-end; gap: 0.75rem; }
 .dropzone-input { font: inherit; color: var(--ink-soft); max-width: 100%; }
 .dropzone-input::file-selector-button {
   margin-right: 0.75rem; min-height: 2.5rem; padding: 0.45rem 1.05rem;
