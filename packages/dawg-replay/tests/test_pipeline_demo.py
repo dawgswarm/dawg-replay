@@ -144,6 +144,7 @@ def test_chain_runs_itself(demo, autorun):
     (upd,) = runs_of(demo, "demo-update-prices")
     (rep,) = runs_of(demo, "demo-report")
     assert upd["status"] == "ok" and rep["status"] == "ok" and rep["summary"].startswith("товаров 5")
+    assert (upd["after"], rep["after"]) == ("demo-ozon-prices", "demo-update-prices")  # пометка в runs
     code, data = demo("logs", upd["id"], "--events")
     assert any("Запущен после: Демо: цены Ozon" in str(e.get("msg")) for e in data["events"])
 
