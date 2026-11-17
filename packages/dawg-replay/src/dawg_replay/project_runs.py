@@ -899,7 +899,7 @@ def _sync_one(rec: Run | None, status: str, run_id: str | None, pid: int | None,
                 setter(STEP_RUNNING, only_from=(STARTING, STEP_RUNNING), run_id=rec.id)
             return
         st = _status_of_run(rec)
-        why = _short(rec.error) if st in (NOT_STARTED, FAILED) else None
+        why = _short(rec.error or rec.summary) if st in (NOT_STARTED, FAILED) else None
         setter(st, only_from=(STARTING, STEP_RUNNING), run_id=rec.id, reason=why)
         return
     # Запуска нет: процесс ещё готовит его, или пропал до этого.
