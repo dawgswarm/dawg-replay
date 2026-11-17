@@ -324,10 +324,16 @@
       b.style.left = ((r.width / 2 - S.view.x) / S.view.k) + "px"; b.style.top = ((r.height / 2.2 - S.view.y) / S.view.k) + "px";
     }
     $$("[data-more]", world).forEach(function (btn) {
-      btn.addEventListener("click", function (ev) { ev.stopPropagation(); var id = btn.dataset.more; S.expanded[id] = !S.expanded[id]; renderNodes(); });
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation(); var id = btn.dataset.more; S.expanded[id] = !S.expanded[id]; renderNodes();
+        if (S.expanded[id] && MODE === "edit") makeRoom(id);
+      });
     });
     $$("[data-cx]", world).forEach(function (btn) {
-      btn.addEventListener("click", function (ev) { ev.stopPropagation(); var k = btn.dataset.cx; S.split[k] = !S.split[k]; renderNodes(); });
+      btn.addEventListener("click", function (ev) {
+        ev.stopPropagation(); var k = btn.dataset.cx; S.split[k] = !S.split[k]; renderNodes();
+        if (S.split[k] && MODE === "edit") makeRoom(k.split("|")[0]);
+      });
     });
     $$(".val[data-edit]", world).forEach(function (v) {
       v.addEventListener("click", function (ev) { ev.stopPropagation(); startEdit(v); });
@@ -861,32 +867,68 @@
     while (node(id)) { id = base + "-" + i; i += 1; }
     return id;
   }
-  // Свободное место рядом с точкой: новый узел не ложится поверх других и не прячет их кружки.
-  function freeSpot(x, y) {
-    var W = 260, H = 240, boxes = S.project.nodes.map(function (n) {
+  // Место для узла: ближайшая к желаемой точке позиция, где узел не задевает другие (с зазором).
+  var GAP = 24;
+  function boxesExcept(skip) {
+    return S.project.nodes.filter(function (n) { return n.id !== skip; }).map(function (n) {
       var el = nodeEl(n.id);
-      return { x: n.x || 0, y: n.y || 0, w: el ? el.offsetWidth + 20 : W, h: el ? el.offsetHeight + 20 : H };
+      return { id: n.id, x: n.x || 0, y: n.y || 0, w: el ? el.offsetWidth : 244, h: el ? el.offsetHeight : 200 };
     });
-    function free(px, py) {
-      return boxes.every(function (b) { return px + W <= b.x || px >= b.x + b.w || py + H <= b.y || py >= b.y + b.h; });
-    }
-    for (var r = 0; r < 12; r += 1) {
-      var cands = r === 0 ? [[0, 0]] : [[r * 140, 0], [0, r * 120], [r * 140, r * 120], [-r * 140, 0], [0, -r * 120]];
-      for (var i = 0; i < cands.length; i += 1) {
-        if (free(x + cands[i][0], y + cands[i][1])) return [x + cands[i][0], y + cands[i][1]];
+  }
+  function hits(b, x, y, w, h) { return x < b.x + b.w + GAP && x + w + GAP > b.x && y < b.y + b.h + GAP && y + h + GAP > b.y; }
+  function freeSpot(x, y, w, h, skip) {
+    var boxes = boxesExcept(skip);
+    function free(px, py) { return boxes.every(function (b) { return !hits(b, px, py, w, h); }); }
+    // Видимая часть холста в координатах схемы: место на экране лучше места за краем.
+    var cr = canvas.getBoundingClientRect(), k = S.view.k;
+    var vis = { x: -S.view.x / k + 8, y: -S.view.y / k + 8, w: cr.width / k - 16, h: cr.height / k - 16 };
+    function shown(px, py) { return px >= vis.x && py >= vis.y && px + w <= vis.x + vis.w && py + h <= vis.y + vis.h; }
+    if (free(x, y) && shown(x, y)) return [x, y];
+    var step = 20, best = null, fallback = null;
+    for (var r = 1; r <= 60 && !best; r += 1) {
+      for (var i = -r; i <= r; i += 1) {
+        var cands = [[i, -r], [i, r], [-r, i], [r, i]];
+        for (var j = 0; j < cands.length; j += 1) {
+          var px = x + cands[j][0] * step, py = y + cands[j][1] * step;
+          if (free(px, py)) {
+            var d = Math.pow(px - x, 2) + Math.pow(py - y, 2);
+            if (shown(px, py)) { if (!best || d < best.d) best = { x: px, y: py, d: d }; }
+            else if (!fallback || d < fallback.d) fallback = { x: px, y: py, d: d };
+          }
+        }
       }
     }
-    var maxx = Math.max.apply(null, boxes.map(function (b) { return b.x + b.w; }).concat([0]));
-    return [maxx + 20, y];
+    var pick = best || fallback;
+    return pick ? [pick.x, pick.y] : [x, y];
   }
-  function addNode(scriptName, x, y, exact) {
+  // Узел вырос (раскрыты входы или колонки): узлы, на которые он налёг, сдвигаются вниз.
+  function makeRoom(id) {
+    var n = node(id), el = nodeEl(id);
+    if (!n || !el) return;
+    var me = { x: n.x || 0, y: n.y || 0, w: el.offsetWidth, h: el.offsetHeight }, moved = false;
+    boxesExcept(id).sort(function (a, b) { return a.y - b.y; }).forEach(function (b) {
+      if (b.y >= me.y && hits(me, b.x, b.y, b.w, b.h)) {
+        var other = node(b.id), dy = me.y + me.h + GAP - b.y;
+        other.y = Math.round((other.y || 0) + dy); moved = true;
+        var oel = nodeEl(b.id); if (oel) oel.style.top = other.y + "px";
+        makeRoom(b.id);
+      }
+    });
+    if (moved) { renderWires(); changed(); }
+  }
+  function addNode(scriptName, x, y) {
     var s = S.scripts[scriptName];
     if (!s) return;
-    if (!exact) { var spot = freeSpot(x, y); x = spot[0]; y = spot[1]; }
     var n = { id: newId(scriptName), script: scriptName, preset: s.presets.length ? s.presets[0].name : null, values: {}, title: null,
       x: Math.round(x), y: Math.round(y), wait: "all" };
     S.project.nodes.push(n);
-    changed(); select({ kind: "node", id: n.id });
+    S.sel = { kind: "node", id: n.id };
+    renderNodes();
+    // Размер узла известен после отрисовки: ставим его в ближайшее свободное место.
+    var el = nodeEl(n.id), spot = freeSpot(n.x, n.y, el.offsetWidth, el.offsetHeight, n.id);
+    n.x = Math.round(spot[0]); n.y = Math.round(spot[1]);
+    el.style.left = n.x + "px"; el.style.top = n.y + "px";
+    renderWires(); renderInsp(); changed();
   }
   function removeNode(id) {
     S.project.nodes = S.project.nodes.filter(function (n) { return n.id !== id; });
@@ -1064,7 +1106,7 @@
   canvas.addEventListener("drop", function (e) {
     e.preventDefault(); canvas.classList.remove("drop");
     var name = e.dataTransfer.getData("text/plain"), w = world.getBoundingClientRect();
-    addNode(name, (e.clientX - w.left) / S.view.k - 120, (e.clientY - w.top) / S.view.k - 24, true);
+    addNode(name, (e.clientX - w.left) / S.view.k - 120, (e.clientY - w.top) / S.view.k - 24);
   });
   document.addEventListener("keydown", function (ev) {
     if (MODE !== "edit" || !pop.hidden) return;
