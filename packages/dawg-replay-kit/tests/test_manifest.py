@@ -441,4 +441,4 @@ def test_tags_at_limits():
 def test_contract_versions():
     from dawg_replay_kit.manifest import contract_versions
 
-    assert contract_versions() == ["1.4"]
+    assert contract_versions() == ["1.5"]

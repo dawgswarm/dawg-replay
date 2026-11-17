@@ -63,6 +63,10 @@ def _secret_user(script: str, param: str) -> str:
     return f"secret:{script}:{param}"
 
 
+def _run_value_user(run_id: str, name: str) -> str:
+    return f"run:{run_id}:{name}"
+
+
 class SecretStore:
     def __init__(self, backend: Backend | None = None):
         self._b = backend if backend is not None else _KeyringModule()
@@ -105,6 +109,17 @@ class SecretStore:
 
     def delete_secret(self, script: str, param: str) -> None:
         self._b.delete_password(SERVICE, _secret_user(script, param))
+
+    # Секретные выходные значения запусков (контракт 1.5, dawg_replay.run_values): значение JSON-строкой.
+
+    def set_run_value(self, run_id: str, name: str, value: str) -> None:
+        self._b.set_password(SERVICE, _run_value_user(run_id, name), value)
+
+    def get_run_value(self, run_id: str, name: str) -> str | None:
+        return self._b.get_password(SERVICE, _run_value_user(run_id, name))
+
+    def delete_run_value(self, run_id: str, name: str) -> None:
+        self._b.delete_password(SERVICE, _run_value_user(run_id, name))
 
 
 CORRUPT_API_KEY = "ключ DAWG повреждён, задайте заново: dawg-replay config set-key"

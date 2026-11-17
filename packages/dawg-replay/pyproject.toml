@@ -18,7 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-    "dawg-replay-kit>=1.4,<2",
+    "dawg-replay-kit>=1.5,<2",
     "dawg-sdk-python>=0.4,<0.5",
     "httpx>=0.27",
     "jinja2>=3.1",

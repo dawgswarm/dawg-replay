@@ -279,18 +279,29 @@ def baseline(app: Any, rec: Any, source: str, history: list[Any] | None = None) 
     return out
 
 
+def _names(items: list[str]) -> str:
+    return ", ".join(items[:5]) + (f" и ещё {len(items) - 5}" if len(items) > 5 else "")
+
+
 def judge(counter: tuple[str, int] | None, has_files: bool, history: list[int],
           missing: list[str] | None = None) -> dict[str, Any] | None:
     """Правила тихой поломки без доступа к приложению (см. описание модуля)."""
     if missing:
-        names = ", ".join(missing[:5]) + (f" и ещё {len(missing) - 5}" if len(missing) > 5 else "")
+        # Значение (контракт 1.5) записано с `=` впереди, как в ссылке run:<id>:=<имя>.
+        files = [m for m in missing if not m.startswith("=")]
+        values = [m[1:] for m in missing if m.startswith("=")]
+        parts = []
+        if files:
+            parts.append(f"{'нет файла' if len(files) == 1 else 'нет файлов'}, которые скрипт обещал отдать: {_names(files)}")
+        if values:
+            parts.append(f"{'нет значения' if len(values) == 1 else 'нет значений'}, которые скрипт обещал отдать: "
+                         f"{_names(values)}")
         return {
             "kind": "missing_output",
             "value": None,
             "median": None,
             "missing": list(missing),
-            "text": f"Запуск завершился без ошибки, но {'нет файла' if len(missing) == 1 else 'нет файлов'}, "
-                    f"которые скрипт обещал отдать: {names}.",
+            "text": "Запуск завершился без ошибки, но " + "; ".join(parts) + ".",
         }
     if counter is None:
         return None  # скрипт ничего не считал: судить не по чему

@@ -18,6 +18,7 @@
     stderr.log       сырой stderr процесса
     output/          DAWG_SCRIPT_OUTPUT_DIR
     stop             появляется при отмене (DAWG_SCRIPT_STOP_FILE)
+    values.json      выходные значения (DAWG_SCRIPT_VALUES), приложение забирает и удаляет
 
 Сохранённые входы (`kit.browser(login=...)`) лежат вне каталога запуска: в
 `DAWG_SCRIPT_LOGINS_DIR` передаётся каталог `logins_dir` (`<home>/logins/<script>/`),
@@ -80,6 +81,8 @@ ENV_RUN_ID = "DAWG_SCRIPT_RUN_ID"
 ENV_STOP_FILE = "DAWG_SCRIPT_STOP_FILE"
 ENV_LOGINS_DIR = "DAWG_SCRIPT_LOGINS_DIR"
 ENV_ANSWERS_DIR = "DAWG_SCRIPT_ANSWERS_DIR"
+ENV_VALUES = "DAWG_SCRIPT_VALUES"  # контракт 1.5: файл выходных значений (dawg_replay.run_values)
+VALUES_FILE = "values.json"
 STOP_FILE = "stop"
 
 # Переменные, которые не наследуются от процесса приложения: их значения задаёт только раннер.
@@ -288,6 +291,7 @@ class ScriptRun:
                 ENV_RUN_ID: self.run_id,
                 ENV_STOP_FILE: str(self.stop_path.resolve()),
                 ENV_ANSWERS_DIR: str(self.answers_dir.resolve()),
+                ENV_VALUES: str((self.run_dir / VALUES_FILE).resolve()),
                 # Сырые логи пишутся сразу по ходу работы; кодировка не зависит от локали Windows.
                 "PYTHONUNBUFFERED": "1",
                 "PYTHONIOENCODING": "utf-8",

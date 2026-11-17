@@ -46,8 +46,8 @@ from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import ParamsError, resolve
 from dawg_replay_kit.relative import is_relative
 
-from dawg_replay import (asks, devkit, hooks, insurance, logins, outputs, procinfo, repair, tg_asks, tg_notify, tg_rules,
-                         transfer)
+from dawg_replay import (asks, devkit, hooks, insurance, logins, outputs, procinfo, repair, run_values, tg_asks, tg_notify,
+                         tg_rules, transfer)
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
 from dawg_replay.registry import invalid_manifest
@@ -484,9 +484,9 @@ def _fill_results(app: App, manifest: Manifest, values: dict[str, Any]) -> list[
     by_name = {p.name: p for p in manifest.params}
     for name, value in list(values.items()):
         p = by_name.get(name)
-        ref = transfer.parse_ref(value) if p is not None and p.type in transfer.TRANSFER_TYPES else None
+        ref = transfer.param_ref(p, value) if p is not None else None
         if ref is None:
-            continue  # строка «last:…» в текстовом параметре просто текст
+            continue  # строка «last:…» без «=» в текстовом параметре просто текст
         try:
             fill = transfer.fill_ref(app, p, ref)
         except ReplayError as e:
@@ -644,7 +644,9 @@ def supervise(
     )
     if telegram is not None:
         _telegram_errors(app, run.run_dir, telegram.close(late=tg_asks.late_sink(app.paths, run.run_dir)))
-    # Объявленные файлы результата сверяются до сообщения об итоге: недостающий попадает в него.
+    # Выходные значения забираются и объявленные файлы сверяются до сообщения об итоге и до решения
+    # шагов проекта: недостающее попадает в итог, значения уже лежат в run_values.
+    run_values.collect(app, run_id)
     outputs.check_run(app, run_id)
     # Итог и страховка браузеров уже записаны; сообщение об итоге уходит в фоне, запуск его не ждёт.
     tg_notify.after_finish(app, run_id)
@@ -831,6 +833,7 @@ def _close_lost(app: App, rec: Run, reason: str, killed: bool) -> bool:
         return False  # итог уже поставил кто-то другой
     _remove_secret_dirs(app, rec.id)
     asks.drop_secret_answers(run_dir)
+    run_values.collect(app, rec.id)  # секретные значения не остаются в values.json на диске
     outcome = RunOutcome(
         run_id=rec.id,
         run_dir=run_dir,

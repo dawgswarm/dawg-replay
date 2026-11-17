@@ -47,7 +47,7 @@ def test_outputs_parsed():
         {"name": "prices.csv", "title": "Цены", "columns": ["sku", "price"], "main": True},
         {"name": "shots/page-*.png"},
     ]
-    assert contract_versions() == ["1.4"]
+    assert contract_versions() == ["1.5"]
 
 
 def test_optional_output():

@@ -65,7 +65,7 @@ def check_run(app: App, run_id: str) -> list[str]:
     if rec.running or rec.status not in CHECKED_STATUSES:
         return []
     try:
-        declared = load_manifest(rec.script_path).outputs
+        declared = load_manifest(rec.script_path).files_out()
     except ManifestError:
         return []
     if not declared:
@@ -98,7 +98,8 @@ def script_outputs(app: App, name: str) -> dict[str, Any]:
     """Что отдаёт скрипт, для настроек связи.
 
     {"source": "declared" | "last_run" | "none", "run_id": id запуска или None,
-     "outputs": [{"name", "title", "columns", "main", "pattern", "optional"}]}
+     "outputs": [{"name", "title", "columns", "main", "pattern", "optional"}],
+     "values": [{"name", "title", "type", "optional", "secret"}]}   # выходные значения (контракт 1.5)
 
     Объявленные выходы текущей версии идут первыми. Без объявления (или если файл скрипта
     не читается) берутся файлы последнего запуска `ok` или `partial`, главный файл из `main` итога.
@@ -106,12 +107,15 @@ def script_outputs(app: App, name: str) -> dict[str, Any]:
     """
     app.registry.get(name)
     try:
-        declared = app.registry.manifest(name).outputs
+        manifest = app.registry.manifest(name)
+        declared, values = manifest.files_out(), manifest.values_out()
     except ReplayError:
-        declared = ()
+        declared, values = (), ()
+    vals = [{"name": o.name, "title": o.title, "type": o.type, "optional": o.optional, "secret": o.secret}
+            for o in values]
     if declared:
         return {"source": "declared", "run_id": None,
-                "outputs": [_declared(o) for o in declared]}
+                "outputs": [_declared(o) for o in declared], "values": vals}
     for rec in app.runs.list(name, RUNS_SCAN):
         if rec.draft or rec.running or rec.status not in CHECKED_STATUSES:
             continue
@@ -128,8 +132,8 @@ def script_outputs(app: App, name: str) -> dict[str, Any]:
         return {"source": "last_run", "run_id": rec.id,
                 "outputs": [{"name": f, "title": None, "columns": None, "main": f == main, "pattern": False,
                              "optional": False}
-                            for f in files]}
-    return {"source": "none", "run_id": None, "outputs": []}
+                            for f in files], "values": vals}
+    return {"source": "none", "run_id": None, "outputs": [], "values": vals}
 
 
 def _declared(o: Output) -> dict[str, Any]:

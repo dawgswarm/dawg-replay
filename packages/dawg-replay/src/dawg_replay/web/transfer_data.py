@@ -79,7 +79,7 @@ def transfer_view(app: Any, rec: Any, target: str | None = None) -> dict[str, An
         return out
     declared: dict[str, Any] = {}
     try:
-        for o in app.registry.manifest(rec.script_name).outputs:
+        for o in app.registry.manifest(rec.script_name).files_out():
             declared[o.name] = o
     except ReplayError:
         pass

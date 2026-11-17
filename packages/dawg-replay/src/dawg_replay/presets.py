@@ -127,11 +127,11 @@ class Presets:
         """`files`: имена файлов таблиц. Секретная таблица пишется в отдельный файл, пресет хранит ссылку.
         Пресет с тем же именем перезаписывается целиком, прежние файлы таблиц удаляются."""
         name = clean_name(name)
-        from dawg_replay.transfer import is_ref
+        from dawg_replay.transfer import param_ref
 
-        # Ссылка на результат другого скрипта хранится строкой, файл подставит запуск.
-        ref_params = {p.name for p in manifest.params if p.type in ("table", "file") and not p.secret}
-        results = {k: v for k, v in values.items() if k in ref_params and is_ref(v)}
+        # Ссылка на результат другого скрипта хранится строкой, файл или значение подставит запуск.
+        by_name = {p.name: p for p in manifest.params}
+        results = {k: v for k, v in values.items() if k in by_name and param_ref(by_name[k], v) is not None}
         values = {k: v for k, v in values.items() if k not in results}
         # Таблица, которую скрипт не берёт из пресета (input без "preset"), в пресет не пишется.
         no_preset = {p.name for p in manifest.params if p.type == "table" and "preset" not in p.inputs}
@@ -244,8 +244,11 @@ class Presets:
         meta = stored.pop(SECRET_KEY, None)
         fmeta = stored.pop(FILE_PARAMS_KEY, None)
         refs = stored.pop(REFS_KEY, None)
-        ref_now = {p.name for p in manifest.params if p.type in ("table", "file") and not p.secret}
-        results = {k: v for k, v in (refs.items() if isinstance(refs, dict) else ()) if k in ref_now and isinstance(v, str)}
+        from dawg_replay.transfer import param_ref
+
+        by_name = {p.name: p for p in manifest.params}
+        results = {k: v for k, v in (refs.items() if isinstance(refs, dict) else ())
+                   if k in by_name and param_ref(by_name[k], v) is not None}
         file_now = {p.name for p in manifest.params if p.type == "file"}
         file_params = {
             k: [{"ref": f.get("ref"), "name": str(f.get("name") or "файл"), "size": int(f.get("size") or 0)}
