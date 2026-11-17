@@ -39,7 +39,7 @@ from dawg_replay_kit.logins import LoginError
 from dawg_replay_kit.manifest import SUPPORTED_CONTRACTS
 from dawg_replay_kit.runtime import EXIT_BAD_PARAMS, Kit, StartupError
 
-__version__ = "1.4.0"  # мажор равен мажору контракта; версия задаётся только здесь
+__version__ = "1.5.0"  # мажор равен мажору контракта; версия задаётся только здесь
 
 __all__ = [
     "SUPPORTED_CONTRACTS",
@@ -59,6 +59,7 @@ __all__ = [
     "item",
     "log",
     "metric",
+    "output",
     "progress",
     "result",
     "rows",
@@ -145,6 +146,16 @@ def result(
     в kit.output_dir: на экране запуска кнопка «Открыть результат» первой.
     """
     _runtime().events.result(status, summary, count, links, main)
+
+
+def output(name: str, value: Any) -> None:
+    """Отдать выходное значение (контракт 1.5): токен, число, ссылку, список.
+
+    Значение объявляется в манифесте блоком `[[outputs]]` с `kind = "value"`, `name` и `type`.
+    Тип проверяется сразу: не подходит, ValueError. Повторный вызов с тем же именем заменяет
+    значение. Секретное значение (`secret = true`) в журнал не пишется и маскируется в логах.
+    """
+    _runtime().values.output(name, value)
 
 
 def ask(

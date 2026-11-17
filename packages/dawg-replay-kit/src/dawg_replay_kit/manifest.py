@@ -25,12 +25,12 @@ else:
 SUPPORTED_CONTRACTS: tuple[int, ...] = (1,)
 """Мажорные версии контракта, которые понимает эта версия kit."""
 
-CONTRACT_MINORS: dict[int, int] = {1: 4}
+CONTRACT_MINORS: dict[int, int] = {1: 5}
 """Последняя минорная версия каждого мажора, которую знает эта версия kit."""
 
 
 def contract_versions() -> list[str]:
-    """Полные версии для `dawg-replay --version`: ["1.4"]."""
+    """Полные версии для `dawg-replay --version`: ["1.5"]."""
     return [f"{major}.{CONTRACT_MINORS[major]}" for major in SUPPORTED_CONTRACTS]
 
 
@@ -104,7 +104,14 @@ ROW_KEY = "_row"
 OUTPUTS_MAX = 50  # outputs (1.4): сколько файлов можно объявить
 OUTPUT_NAME_MAX = 200
 OUTPUT_TITLE_MAX = 80
-_OUTPUT_KEYS = ("name", "title", "columns", "main", "optional")
+_OUTPUT_KEYS = ("name", "title", "columns", "main", "optional", "kind")
+# outputs (1.5): выходное значение `kind = "value"`, его поля и типы
+OUTPUT_KINDS = ("file", "value")
+_VALUE_OUTPUT_KEYS = ("name", "title", "kind", "type", "optional", "secret", "choices")
+VALUE_TYPES: tuple[str, ...] = (
+    "string", "text", "int", "float", "bool", "enum", "multi_enum", "url", "url_list", "string_list",
+    "date", "time", "datetime",
+)
 _GLOB_CHARS = frozenset("*?[")
 
 SITE_MAX = 40
@@ -232,16 +239,37 @@ class Param:
 
 @dataclass(frozen=True)
 class Output:
-    """Файл, который скрипт объявил своим результатом (контракт 1.4, блок `[[outputs]]`).
+    """Результат, который скрипт объявил в манифесте (блок `[[outputs]]`).
 
-    name: путь внутри каталога результата (output dir) через `/`, можно шаблон `prices-*.csv`.
+    Файл (контракт 1.4, `kind = "file"`): name это путь внутри каталога результата (output dir)
+    через `/`, можно шаблон `prices-*.csv`.
+    Значение (контракт 1.5, `kind = "value"`): name как у параметра, `type` из VALUE_TYPES,
+    скрипт отдаёт его вызовом `kit.output(name, value)`.
     """
 
     name: str
     title: str | None = None
     columns: tuple[str, ...] | None = None  # для таблиц: колонки, которые в файле будут
     main: bool = False  # главный файл итога
-    optional: bool = False  # файл бывает не в каждом запуске (ветвление): его отсутствие не поломка
+    optional: bool = False  # бывает не в каждом запуске (ветвление): его отсутствие не поломка
+    kind: str = "file"
+    type: str | None = None  # значение: тип из VALUE_TYPES
+    secret: bool = False  # значение: не показывается и не пишется в журнал
+    choices: tuple[str, ...] | None = None  # значение enum и multi_enum: допустимые варианты
+
+    @property
+    def is_value(self) -> bool:
+        return self.kind == "value"
+
+    def as_param(self) -> Param:
+        """Значение как параметр того же типа: для проверки check_value."""
+        return Param(name=self.name, type=self.type or "string", title=self.title or self.name, choices=self.choices)
+
+    def check(self, value: Any) -> str | None:
+        """Проверка отданного значения. Относительные даты («today») не годятся: нужна сама дата."""
+        if self.type in ("date", "datetime") and relative.is_relative(value, self.type):
+            return f"нужна дата, а не выражение {value!r}"
+        return check_value(self.as_param(), value)
 
     @property
     def label(self) -> str:
@@ -261,6 +289,18 @@ class Output:
 
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {"name": self.name}
+        if self.is_value:
+            d["kind"] = "value"
+            d["type"] = self.type
+            if self.title is not None:
+                d["title"] = self.title
+            if self.optional:
+                d["optional"] = True
+            if self.secret:
+                d["secret"] = True
+            if self.choices is not None:
+                d["choices"] = list(self.choices)
+            return d
         if self.title is not None:
             d["title"] = self.title
         if self.columns is not None:
@@ -286,7 +326,21 @@ class Manifest:
     dependencies: tuple[str, ...] = field(default_factory=tuple)
     site: str | None = None  # контракт 1.1: название сайта для людей
     tags: tuple[str, ...] = ()  # контракт 1.1: метки для библиотеки скриптов
-    outputs: tuple[Output, ...] = ()  # контракт 1.4: объявленные файлы результата
+    outputs: tuple[Output, ...] = ()  # контракт 1.4: объявленные файлы результата, 1.5: и значения
+
+    def files_out(self) -> tuple[Output, ...]:
+        """Объявленные файлы результата."""
+        return tuple(o for o in self.outputs if not o.is_value)
+
+    def values_out(self) -> tuple[Output, ...]:
+        """Объявленные выходные значения (контракт 1.5)."""
+        return tuple(o for o in self.outputs if o.is_value)
+
+    def value_out(self, name: str) -> Output:
+        for o in self.outputs:
+            if o.is_value and o.name == name:
+                return o
+        raise KeyError(name)
 
     @property
     def main_output(self) -> Output | None:
@@ -930,6 +984,11 @@ def _check_manifest(data: dict[str, Any], issues: list[Issue]) -> dict[str, Any]
                         f"поле `{key}` есть в контракте с версии {v}: укажите contract = \"{v}\"",
                     )
                 )
+        raw_outputs = data.get("outputs")
+        for i, raw in enumerate(raw_outputs if isinstance(raw_outputs, list) else []):
+            if isinstance(raw, dict) and "kind" in raw and declared < (1, 5):
+                issues.append(Issue("field_needs_minor", f"outputs[{i}].kind",
+                                    "выходные значения (`kind`) есть в контракте с версии 1.5: укажите contract = \"1.5\""))
         raw_params = data.get("params")
         for i, raw in enumerate(raw_params if isinstance(raw_params, list) else []):
             t = raw.get("type") if isinstance(raw, dict) else None
@@ -1044,6 +1103,52 @@ def _output_name_problem(name: Any) -> str | None:
     return None
 
 
+def _check_value_output(raw: dict, base: str, seen: set[str], issues: list[Issue]) -> Output | None:
+    """Выходное значение `kind = "value"` (контракт 1.5)."""
+    n = len(issues)
+
+    def err(code: str, key: str, msg: str) -> None:
+        issues.append(Issue(code, f"{base}.{key}", msg))
+
+    for key in raw:
+        if key not in _VALUE_OUTPUT_KEYS:
+            err("unknown_field", key, f"у значения нет поля `{key}`; допустимы: {', '.join(_VALUE_OUTPUT_KEYS)}")
+    name = raw.get("name")
+    if name is None:
+        err("missing_field", "name", "нет обязательного поля `name`")
+    elif not isinstance(name, str) or not _PARAM_NAME_RE.match(name):
+        err("bad_value", "name", "имя значения как у параметра: латиница в нижнем регистре, цифры и `_`, с буквы")
+    elif name in seen:
+        err("duplicate_output", "name", f"значение `{name}` уже объявлено")
+    else:
+        seen.add(name)
+    t = raw.get("type")
+    if t is None:
+        err("missing_field", "type", f"нет обязательного поля `type`; допустимы: {', '.join(VALUE_TYPES)}")
+    elif t not in VALUE_TYPES:
+        err("bad_type", "type", f"тип значения {t!r} не подходит; допустимы: {', '.join(VALUE_TYPES)}")
+    title = raw.get("title")
+    if title is not None and (
+        not isinstance(title, str) or not title.strip() or "\n" in title or "\r" in title or len(title) > OUTPUT_TITLE_MAX
+    ):
+        err("bad_value", "title", f"`title` должен быть непустой строкой в одну строку, до {OUTPUT_TITLE_MAX} символов")
+    for key in ("optional", "secret"):
+        if not isinstance(raw.get(key, False), bool):
+            err("bad_value", key, f"`{key}` задаётся true или false")
+    choices = raw.get("choices")
+    if t in CHOICE_TYPES:
+        if not isinstance(choices, list) or not choices or not all(isinstance(c, str) and c for c in choices):
+            err("bad_value", "choices", "у значения enum и multi_enum нужен `choices`: непустой список строк")
+        elif len(set(choices)) != len(choices):
+            err("bad_value", "choices", "в `choices` есть повторы")
+    elif choices is not None:
+        err("bad_value", "choices", "`choices` бывает только у enum и multi_enum")
+    if len(issues) > n:
+        return None
+    return Output(name=name, title=title, optional=raw.get("optional", False), kind="value", type=t,
+                  secret=raw.get("secret", False), choices=tuple(choices) if t in CHOICE_TYPES else None)
+
+
 def _check_outputs(raw_outputs: Any, issues: list[Issue]) -> tuple[Output, ...] | None:
     if not isinstance(raw_outputs, list):
         issues.append(Issue("bad_value", "outputs", "выходы задаются таблицами `[[outputs]]`"))
@@ -1054,6 +1159,7 @@ def _check_outputs(raw_outputs: Any, issues: list[Issue]) -> tuple[Output, ...] 
     n_before = len(issues)
     outputs: list[Output] = []
     seen: set[str] = set()
+    values_seen: set[str] = set()
     main_at: str | None = None
     for i, raw in enumerate(raw_outputs):
         base = f"outputs[{i}]"
@@ -1064,6 +1170,16 @@ def _check_outputs(raw_outputs: Any, issues: list[Issue]) -> tuple[Output, ...] 
 
         def err(code: str, key: str, msg: str) -> None:
             issues.append(Issue(code, f"{base}.{key}", msg))
+
+        kind = raw.get("kind", "file")
+        if kind not in OUTPUT_KINDS:
+            err("bad_value", "kind", f"`kind` бывает {', '.join(repr(k) for k in OUTPUT_KINDS)}, получено {kind!r}")
+            continue
+        if kind == "value":
+            out = _check_value_output(raw, base, values_seen, issues)
+            if out is not None:
+                outputs.append(out)
+            continue
 
         name = raw.get("name")
         if name is None:

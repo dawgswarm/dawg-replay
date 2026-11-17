@@ -110,6 +110,9 @@ class ConsoleSink:
                 body += f"\n           главный файл: {where}"
             for link in e.get("links") or []:
                 body += f"\n           ссылка «{link.get('title')}»: {link.get('url')}"
+        elif t == "output":
+            label = e.get("title") or e["name"]
+            body = f"значение «{label}»: " + ("скрыто" if e.get("secret") else _dumps(e.get("value")))
         elif t == "ask":
             body = f"ВОПРОС: {e['question']}"
             if e.get("choices"):

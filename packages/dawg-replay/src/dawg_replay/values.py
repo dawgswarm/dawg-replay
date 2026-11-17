@@ -33,7 +33,11 @@ def read_params_file(path: str | Path) -> dict[str, Any]:
 
 def _convert(p: Param, raw: str) -> Any:
     """Строка из `--set` в значение нужного типа."""
+    from dawg_replay.transfer import param_ref
+
     t = p.type
+    if t not in ("table", "file") and param_ref(p, raw) is not None:
+        return raw  # run:<id>:=<имя> или last:<скрипт>:=<имя>: значение подставит запуск
     if t == "enum":
         return by_title(p, raw)
     if t in ("string", "text", "secret", "url", "date", "time", "datetime"):
@@ -254,6 +258,10 @@ def check_partial(manifest: Manifest, values: Mapping[str, Any], allow_secrets: 
         elif p.is_secret and not allow_secrets:
             problems.append(f"`{name}`: секрет здесь не хранится, задайте его командой `dawg-replay secret set`")
         else:
+            from dawg_replay.transfer import param_ref
+
+            if param_ref(p, value) is not None:
+                continue  # ссылку на результат проверяет запуск
             problem = check_value(p, value)
             if problem:
                 problems.append(f"`{name}`: {problem}")

@@ -269,6 +269,18 @@ MIGRATIONS: list[str] = [
     ALTER TABLE runs ADD COLUMN project_node TEXT;
     CREATE INDEX runs_by_project_run ON runs (project_run)
     """,
+    # 11: выходные значения запусков (контракт 1.5, dawg_replay.run_values)
+    """
+    -- value_json: значение JSON. У секретного NULL, само значение в хранилище паролей (run:<id>:<имя>)
+    CREATE TABLE run_values (
+        run_id     TEXT NOT NULL,
+        name       TEXT NOT NULL,
+        type       TEXT NOT NULL,
+        secret     INTEGER NOT NULL DEFAULT 0,
+        value_json TEXT,
+        PRIMARY KEY (run_id, name)
+    )
+    """,
 ]
 
 

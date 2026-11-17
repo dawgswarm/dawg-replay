@@ -170,7 +170,7 @@ def test_script_outputs_declared(app, add):
 
 def test_script_outputs_from_last_run(app, add):
     name = add(declared=False)
-    assert outputs.script_outputs(app, name) == {"source": "none", "run_id": None, "outputs": []}
+    assert outputs.script_outputs(app, name) == {"source": "none", "run_id": None, "outputs": [], "values": []}
     run(app, name, "fail")  # упавший не годится
     assert outputs.script_outputs(app, name)["source"] == "none"
     good = run(app, name, "all")

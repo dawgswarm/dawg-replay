@@ -15,6 +15,7 @@ from dawg_replay_kit.dawg_api import DEFAULT_BASE_URL
 from dawg_replay_kit.events import ConsoleSink, Emitter, JsonlSink, Sink
 from dawg_replay_kit.manifest import Manifest, ManifestError, load_manifest
 from dawg_replay_kit.parameters import Params, ParamsError
+from dawg_replay_kit.values import Values, default_path
 
 ENV_PARAMS = "DAWG_SCRIPT_PARAMS"
 ENV_EVENTS = "DAWG_SCRIPT_EVENTS"
@@ -41,6 +42,7 @@ class Kit:
         autonomous: bool,
         browsers: Browsers | None = None,
         answers_dir: Path | None = None,
+        values_path: Path | None = None,
     ):
         self.manifest = manifest
         self.params = params
@@ -51,6 +53,7 @@ class Kit:
         self.browsers = browsers if browsers is not None else Browsers(events, None, DEFAULT_BASE_URL)
         # Без каталога ответов (автономный режим) вопросы задаются в терминале.
         self.asker = Asker(events, answers_dir)
+        self.values = Values(manifest, events, values_path)
 
     @classmethod
     def from_environment(
@@ -106,7 +109,7 @@ class Kit:
             elif environ.get(ENV_EVENTS):
                 answers_dir = Path(environ[ENV_EVENTS]).parent / "answers"
         return cls(manifest, params, events, output_dir, environ.get(ENV_RUN_ID) or None, autonomous, browsers,
-                   answers_dir)
+                   answers_dir, default_path(environ, environ.get(ENV_EVENTS), autonomous))
 
     def close(self) -> None:
         # Браузеры, которые скрипт не закрыл сам (atexit, отмена), освобождаются до закрытия файла событий.
