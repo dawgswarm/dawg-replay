@@ -1,7 +1,7 @@
 """Проверка собранных пакетов перед публикацией.
 
 Ставит wheel из каталога сборки в чистое окружение и проверяет:
-- `dawg-replay --version --json` отвечает и знает контракт 1.4;
+- `dawg-replay --version --json` отвечает и знает контракт 1.5;
 - `dawg_replay_kit` импортируется;
 - пример `examples/ozon-search-cards` проходит `validate`;
 - скрипт с зависимостью `dawg-replay-kit` находит kit через `UV_FIND_LINKS`
@@ -71,7 +71,7 @@ def main(dist: Path) -> None:
         run(["uv", "pip", "install", "--quiet", "--find-links", str(dist), "dawg-replay"], env=env)
 
         info = json.loads(run([str(cli), "--version", "--json"]).stdout)
-        if "1.4" not in info.get("contract_versions", []):
+        if "1.5" not in info.get("contract_versions", []):
             raise SystemExit(f"неожиданный ответ --version: {info}")
         print("версия:", info["version"])
 
