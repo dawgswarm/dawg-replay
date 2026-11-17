@@ -14,6 +14,10 @@ WHEN_WORDS = {"partial": "готово или частично", "ok": "толь
 WAIT_WORDS = {"all": "после всех входящих", "any": "после любой входящей"}
 
 
+WHERE_WORDS = {"equals": "равно", "not_equals": "не равно", "contains": "содержит", "not_contains": "не содержит",
+               "gt": "больше", "lt": "меньше", "empty": "пусто", "not_empty": "не пусто"}
+
+
 def _problems(problems: list[P.Problem]) -> list[str]:
     return [str(p) for p in problems]
 
@@ -52,10 +56,18 @@ def _edge_line(e: P.Edge) -> str:
     parts = [f"{e.source} → {e.target}", WHEN_WORDS[e.when]]
     if e.if_file:
         parts.append(f"если есть {e.if_file}")
-    if e.files:
-        parts.append(", ".join(f.label for f in e.files))
+    if e.maps:
+        parts.append(", ".join(f.label for f in e.maps))
     if e.source_column:
         parts.append(f"колонка источника «{e.source_column}»")
+    if e.where:
+        w = e.where
+        parts.append(f"строки, где «{w.column}» {WHERE_WORDS[w.op]}" + (f" «{w.value}»" if w.value is not None else ""))
+    if e.limit:
+        parts.append(f"первые {e.limit}")
+    if e.each:
+        parts.append(f"одновременно {e.parallel}, при падении строки "
+                     + ("остальные идут" if e.on_error == "continue" else "проход останавливается"))
     return "; ".join(parts)
 
 
@@ -106,8 +118,9 @@ def _export(app: App, args: argparse.Namespace) -> tuple[dict, str]:
 def _check(app: App, args: argparse.Namespace) -> tuple[dict, str]:
     project, problems = app.projects.check_source(args.source)
     data = {"name": project.name, "problems": [p.to_dict() for p in problems]}
-    if any(p.level == "error" for p in problems):
-        raise ReplayError("invalid_project", f"{args.source}: проект с ошибками:\n" +
+    if P.run_blockers(problems):
+        what = "с ошибками" if any(p.level == "error" for p in problems) else "не запустится"
+        raise ReplayError("invalid_project", f"{args.source}: проект {what}:\n" +
                           "\n".join(f"  {x}" for x in _problems(problems)), data["problems"])
     text = "\n".join(_problems(problems)) or \
         f"{project.name}: узлов {len(project.nodes)}, стрелок {len(project.edges)}, ошибок нет"

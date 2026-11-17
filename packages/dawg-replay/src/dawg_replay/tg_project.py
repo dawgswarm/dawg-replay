@@ -111,13 +111,14 @@ def compose(app: App, pr: ProjectRun, kind: str, sus: list[str]) -> str:
     if pr.reason == P.REASON_BUSY:
         lines.append("Плановый запуск пропущен: предыдущий запуск проекта ещё идёт.")
     elif pr.reason == P.REASON_NOT_STARTED and pr.error:
-        lines.append(f"Не начался: {pr.error}")
+        lines.append(f"Плановый запуск пропущен: {pr.error}")
     else:
         counted = [s for s in pr.steps if s.status != P.OFF_BRANCH]
         good = sum(1 for s in counted if s.status in (P.OK, P.PARTIAL))
         parts = [f"{good} из {len(counted)}"]
         for status in (P.FAILED, P.NOT_STARTED, P.CANCELLED, P.SKIPPED, P.PARTIAL):
-            names = [name(s.node) for s in counted if s.status == status]
+            names = [name(s.node) + (f" (строк {s.summary()['text']})" if s.each and s.rows else "")
+                     for s in counted if s.status == status]
             if names:
                 parts.append(f"{P.STEP_TITLES[status]}: {', '.join(names)}")
         lines.append(", ".join(parts))

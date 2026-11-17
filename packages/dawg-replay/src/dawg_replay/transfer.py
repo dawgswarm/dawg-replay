@@ -193,9 +193,15 @@ def declared_outputs(manifest: Manifest | None) -> tuple[Any, ...]:
     return tuple(o for o in (getattr(manifest, "outputs", None) or ()) if not o.is_value) if manifest is not None else ()
 
 
+def value_outputs(manifest: Manifest | None) -> tuple[Any, ...]:
+    """Объявленные выходные значения (контракт 1.5, kind = "value")."""
+    outs = tuple(getattr(manifest, "outputs", None) or ()) if manifest is not None else ()
+    return tuple(o for o in outs if getattr(o, "kind", "file") == "value")
+
+
 def output_for(manifest: Manifest | None, spec: str) -> tuple[bool, Any | None]:
     """(выходы объявлены, подходящий выход или None)."""
-    outs = declared_outputs(manifest)
+    outs = tuple(o for o in declared_outputs(manifest) if getattr(o, "kind", "file") != "value")
     if not outs:
         return False, None
     for o in outs:

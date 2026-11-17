@@ -20,7 +20,7 @@
     from = "wb1"
     to = "google"
     when = "partial"
-    files = [{ from = "cards.csv", to = "cards" }]
+    map = [{ from = "cards.csv", to = "cards" }]
 
 Разбор (`parse`) проверяет синтаксис и устройство файла без приложения. Проверка `Projects.check`
 сверяет проект со скриптами и пресетами: ошибки не дают сохранить, предупреждения видны.
@@ -40,6 +40,7 @@ import json
 import re
 import sqlite3
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -49,7 +50,8 @@ from dawg_replay_kit.manifest import Manifest
 from dawg_replay.db import utcnow
 from dawg_replay.errors import ReplayError
 from dawg_replay.presets import normalize as normalize_preset
-from dawg_replay.transfer import MAIN, TRANSFER_TYPES, file_spec_problem, output_for
+from dawg_replay.edge_values import compat
+from dawg_replay.transfer import MAIN, TRANSFER_TYPES, file_spec_problem, output_for, value_outputs
 from dawg_replay.values import check_partial
 
 if sys.version_info >= (3, 11):
@@ -70,26 +72,94 @@ TEXT_MAX = 1_000_000
 
 TOP_KEYS = ("name", "title", "description", "timeout_minutes", "nodes", "edges")
 NODE_KEYS = ("id", "script", "preset", "title", "x", "y", "wait", "values", "preset_values")
-EDGE_KEYS = ("from", "to", "when", "if_file", "files", "source_column")
-FILE_KEYS = ("from", "to")
+EDGE_KEYS = ("from", "to", "when", "if_file", "map", "files", "source_column", "limit", "where", "parallel",
+             "on_error")
+MAP_KEYS = ("from", "value", "column", "to", "rows")
+WHERE_KEYS = ("column", "op", "value", "ignore_case")
+ROWS = ("first", "each", "all")
+ROWS_WORDS = {"first": "первая строка", "each": "каждая строка", "all": "вся колонка"}
+ON_ERRORS = ("continue", "stop")
+WHERE_OPS = ("equals", "not_equals", "contains", "not_contains", "gt", "lt", "empty", "not_empty")
+WHERE_ALIASES = {"eq": "equals", "ne": "not_equals"}
+WHERE_NEEDS_VALUE = ("equals", "not_equals", "contains", "not_contains", "gt", "lt")
+LIST_PARAMS = ("string_list", "url_list", "multi_enum")
+PARALLEL_MAX = 50
 
 
 # --- модель ---
 
 
 @dataclass(frozen=True)
-class FileMap:
-    """Передача по стрелке: файл результата источника (имя, шаблон или @main) в параметр получателя."""
+class Map:
+    """Соответствие стрелки: что источника идёт в вход получателя.
 
-    file: str
+    file: файл результата (имя, шаблон или @main) в table/file;
+    value: выходное значение источника во вход;
+    file + column: колонка таблицы во вход-значение, `rows` first (первая строка), each (запуск на
+    каждую строку) или all (вся колонка списком)."""
+
     param: str
+    file: str | None = None
+    value: str | None = None
+    column: str | None = None
+    rows: str = "first"
 
-    def to_dict(self) -> dict[str, str]:
-        return {"file": self.file, "param": self.param}
+    @property
+    def kind(self) -> str:
+        if self.value is not None:
+            return "value"
+        return "column" if self.column is not None else "file"
+
+    @property
+    def each(self) -> bool:
+        return self.kind == "column" and self.rows == "each"
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"kind": self.kind, "file": self.file, "value": self.value, "column": self.column,
+                "param": self.param, "rows": self.rows}
+
+    def to_file(self) -> dict[str, Any]:
+        """Как в файле проекта: { from, value, column, to, rows }."""
+        out: dict[str, Any] = {"value": self.value} if self.value is not None else {"from": self.file}
+        if self.column is not None:
+            out["column"] = self.column
+            if self.rows != "first":
+                out["rows"] = self.rows
+        out["to"] = self.param
+        return out
 
     @property
     def label(self) -> str:
-        return f"{'главный файл' if self.file == MAIN else self.file} → {self.param}"
+        if self.kind == "value":
+            return f"значение {self.value} → {self.param}"
+        what = "главный файл" if self.file == MAIN else self.file
+        if self.kind == "column":
+            return f"{what}, колонка «{self.column}» ({ROWS_WORDS[self.rows]}) → {self.param}"
+        return f"{what} → {self.param}"
+
+
+FileMap = Map  # прежнее имя
+
+
+@dataclass(frozen=True)
+class Where:
+    """Условие на строки таблицы стрелки, операции как у std-filter-rows."""
+
+    column: str
+    op: str
+    value: str | None = None
+    ignore_case: bool = True
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"column": self.column, "op": self.op, "value": self.value, "ignore_case": self.ignore_case}
+
+    def to_file(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"column": self.column, "op": self.op}
+        if self.value is not None:
+            out["value"] = self.value
+        if not self.ignore_case:
+            out["ignore_case"] = False
+        return out
 
 
 @dataclass(frozen=True)
@@ -115,12 +185,27 @@ class Edge:
     target: str
     when: str = "partial"
     if_file: str | None = None
-    files: tuple[FileMap, ...] = ()
+    maps: tuple[Map, ...] = ()
     source_column: str | None = None
+    limit: int | None = None  # первые N строк таблицы колонок
+    where: Where | None = None  # условие на строки таблицы колонок
+    parallel: int = 1  # проход по строкам: сколько запусков узла одновременно
+    on_error: str = "continue"  # проход по строкам: continue или stop
+
+    @property
+    def files(self) -> tuple[Map, ...]:
+        """Только файлы в table/file."""
+        return tuple(m for m in self.maps if m.kind == "file")
+
+    @property
+    def each(self) -> tuple[Map, ...]:
+        return tuple(m for m in self.maps if m.each)
 
     def to_dict(self) -> dict[str, Any]:
         return {"from": self.source, "to": self.target, "when": self.when, "if_file": self.if_file,
-                "files": [f.to_dict() for f in self.files], "source_column": self.source_column}
+                "map": [m.to_dict() for m in self.maps], "source_column": self.source_column,
+                "limit": self.limit, "where": self.where.to_dict() if self.where else None,
+                "parallel": self.parallel, "on_error": self.on_error}
 
 
 @dataclass(frozen=True)
@@ -175,16 +260,23 @@ class Project:
 
 @dataclass(frozen=True)
 class Problem:
-    level: str  # error: не сохраняется, warning: сохранить можно
+    level: str  # error: не сохраняется; blocker: сохраняется, но не запускается; warning: сохранить можно
     text: str
     node: str | None = None  # id узла
     edge: int | None = None  # номер стрелки в файле, с 0
+    param: str | None = None  # вход узла, к которому относится
 
     def to_dict(self) -> dict[str, Any]:
-        return {"level": self.level, "text": self.text, "node": self.node, "edge": self.edge}
+        return {"level": self.level, "text": self.text, "node": self.node, "edge": self.edge, "param": self.param}
 
     def __str__(self) -> str:
-        return ("ошибка: " if self.level == "error" else "предупреждение: ") + self.text
+        prefix = {"error": "ошибка: ", "blocker": "не запустится: "}.get(self.level, "предупреждение: ")
+        return prefix + self.text
+
+
+def run_blockers(problems: list[Problem]) -> list[Problem]:
+    """Что не даёт запустить проект: ошибки и пустые обязательные входы."""
+    return [p for p in problems if p.level in ("error", "blocker")]
 
 
 @dataclass(frozen=True)
@@ -296,6 +388,49 @@ def parse(text: str, label: str | Path = "проект") -> Project:
         data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
         raise invalid(label, [Problem("error", f"ошибка TOML: {e}")]) from None
+    return _from_data(data, label)
+
+
+def from_dict(data: dict[str, Any], label: str | Path = "проект") -> Project:
+    """Project из `Project.to_dict()` (редактор шлёт JSON) с той же проверкой устройства, что у файла."""
+    if not isinstance(data, dict):
+        raise invalid(label, [Problem("error", "проект: нужен объект")])
+    top = {k: v for k, v in data.items() if k in TOP_KEYS and k not in ("nodes", "edges") and v is not None}
+    nodes = []
+    for n in data.get("nodes") or []:
+        nodes.append({k: v for k, v in n.items() if v is not None and not (k == "values" and v == {})}
+                     if isinstance(n, dict) else n)
+    edges = []
+    for e in data.get("edges") or []:
+        if not isinstance(e, dict):
+            edges.append(e)
+            continue
+        out = {k: v for k, v in e.items() if v is not None and k not in ("map", "files", "where")}
+        if out.get("when") == "partial":
+            out.pop("when")
+        if out.get("parallel") == 1:
+            out.pop("parallel")
+        if out.get("on_error") == "continue":
+            out.pop("on_error")
+        maps = []
+        for m in e.get("map", e.get("files")) or []:
+            if isinstance(m, dict) and "param" in m:
+                maps.append(Map(m["param"], m.get("file"), m.get("value"), m.get("column"),
+                                m.get("rows") or "first").to_file())
+            else:
+                maps.append(m)
+        if maps:
+            out["map"] = maps
+        w = e.get("where")
+        if isinstance(w, dict):
+            out["where"] = {k: v for k, v in w.items() if v is not None and not (k == "ignore_case" and v is True)}
+        elif w is not None:
+            out["where"] = w
+        edges.append(out)
+    return _from_data({**top, "nodes": nodes, "edges": edges}, label)
+
+
+def _from_data(data: dict[str, Any], label: str | Path) -> Project:
     issues = _Issues()
     _unknown(issues, data, TOP_KEYS, "проект")
 
@@ -387,6 +522,92 @@ def _parse_nodes(raw: Any, issues: _Issues) -> list[Node]:
     return nodes
 
 
+def _parse_maps(item: dict, where: str, issues: _Issues, at: dict[str, Any]) -> list[Map]:
+    """Поле map (или прежнее files) стрелки."""
+    if "map" in item and "files" in item:
+        issues.err(f"{where}: map и files сразу; files это прежнее имя map, оставьте одно", **at)
+    key = "map" if "map" in item else "files"
+    raw = item.get(key, [])
+    if not isinstance(raw, list):
+        issues.err(f"{where}: {key} это список {{ from = \"файл\", to = \"вход\" }}", **at)
+        return []
+    maps: list[Map] = []
+    params: set[str] = set()
+    for f in raw:
+        if not isinstance(f, dict) or not _str(f.get("to")) or (not _str(f.get("from")) and not _str(f.get("value"))):
+            issues.err(f"{where}: в {key} нужно {{ from = \"cards.csv\", to = \"вход\" }} "
+                       "или {{ value = \"значение\", to = \"вход\" }}", **at)
+            continue
+        _unknown(issues, f, MAP_KEYS, f"{where}, {key}", **at)
+        param = f["to"].strip()
+        if "from" in f and "value" in f:
+            issues.err(f"{where}: в вход `{param}` и from, и value: файл или значение, что-то одно", **at)
+            continue
+        column, rows = f.get("column"), f.get("rows")
+        if "value" in f:
+            if column is not None or rows is not None:
+                issues.err(f"{where}: column и rows бывают только у файла-таблицы (from), не у value", **at)
+                continue
+            m = Map(param, value=f["value"].strip())
+        else:
+            bad = file_spec_problem(f["from"])
+            if bad:
+                issues.err(f"{where}: {bad}", **at)
+                continue
+            file = f["from"].strip() if f["from"] != MAIN else MAIN
+            if column is not None and not _str(column):
+                issues.err(f"{where}: column это название колонки строкой", **at)
+                continue
+            if rows is not None and column is None:
+                issues.err(f"{where}: rows бывает только с column (колонка таблицы во вход)", **at)
+                continue
+            if rows is not None and rows not in ROWS:
+                issues.err(f"{where}: rows `{rows}`: first (первая строка), each (запуск на каждую) "
+                           "или all (вся колонка списком)", **at)
+                continue
+            m = Map(param, file=file, column=column.strip() if column else None, rows=rows or "first")
+        if param in params:
+            issues.err(f"{where}: во вход `{param}` этой стрелки уже что-то идёт", **at)
+            continue
+        params.add(param)
+        maps.append(m)
+    return maps
+
+
+def _parse_where(raw: Any, where: str, issues: _Issues, at: dict[str, Any]) -> Where | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or not _str(raw.get("column")) or not _str(raw.get("op")):
+        issues.err(f"{where}: where это {{ column = \"колонка\", op = \"equals\", value = \"да\" }}", **at)
+        return None
+    _unknown(issues, raw, WHERE_KEYS, f"{where}, where", **at)
+    op = WHERE_ALIASES.get(raw["op"], raw["op"])
+    if op not in WHERE_OPS:
+        issues.err(f"{where}: where op `{raw['op']}`: {', '.join(WHERE_OPS)}", **at)
+        return None
+    value = raw.get("value")
+    if value is not None and (isinstance(value, bool) or not isinstance(value, (str, int, float))):
+        issues.err(f"{where}: where value это строка или число", **at)
+        return None
+    if op in WHERE_NEEDS_VALUE and (value is None or str(value).strip() == ""):
+        issues.err(f"{where}: для where op = \"{op}\" нужно value", **at)
+        return None
+    if op in ("gt", "lt") and _number(value) is None:
+        issues.err(f"{where}: для where op = \"{op}\" value это число", **at)
+        return None
+    ic = raw.get("ignore_case", True)
+    if not isinstance(ic, bool):
+        issues.err(f"{where}: where ignore_case это true или false", **at)
+        ic = True
+    return Where(raw["column"].strip(), op, None if value is None else str(value), ic)
+
+
+def _number(v: Any) -> float | None:
+    from dawg_replay.edge_values import number
+
+    return number(v)
+
+
 def _parse_edges(raw: Any, ids: set[str], issues: _Issues) -> list[Edge]:
     if not isinstance(raw, list):
         issues.err("edges: нужен список стрелок [[edges]]")
@@ -414,7 +635,7 @@ def _parse_edges(raw: Any, ids: set[str], issues: _Issues) -> list[Edge]:
             ok = False
         if ok and (src, dst) in pairs:
             issues.err(f"{where}: такая стрелка уже есть (стрелка {pairs[(src, dst)] + 1}); "
-                       "несколько файлов перечислите в files одной стрелки", **at)
+                       "несколько входов перечислите в map одной стрелки", **at)
             ok = False
         when = item.get("when", "partial")
         if when not in WHENS:
@@ -430,30 +651,31 @@ def _parse_edges(raw: Any, ids: set[str], issues: _Issues) -> list[Edge]:
         if sc is not None and not _str(sc):
             issues.err(f"{where}: source_column это название колонки строкой", **at)
             sc = None
-        files: list[FileMap] = []
-        raw_files = item.get("files", [])
-        if not isinstance(raw_files, list):
-            issues.err(f"{where}: files это список {{ from = \"файл\", to = \"параметр\" }}", **at)
-            raw_files = []
-        params: set[str] = set()
-        for f in raw_files:
-            if not isinstance(f, dict) or not _str(f.get("from")) or not _str(f.get("to")):
-                issues.err(f"{where}: в files нужно {{ from = \"cards.csv\", to = \"параметр\" }}", **at)
-                continue
-            _unknown(issues, f, FILE_KEYS, f"{where}, files", **at)
-            bad = file_spec_problem(f["from"])
-            if bad:
-                issues.err(f"{where}: {bad}", **at)
-                continue
-            param = f["to"].strip()
-            if param in params:
-                issues.err(f"{where}: в параметр `{param}` этой стрелки уже идёт файл", **at)
-                continue
-            params.add(param)
-            files.append(FileMap(f["from"].strip() if f["from"] != MAIN else MAIN, param))
+        maps = _parse_maps(item, where, issues, at)
+        has_column = any(m.kind == "column" for m in maps)
+        has_each = any(m.each for m in maps)
+        limit = item.get("limit")
+        if limit is not None and (not isinstance(limit, int) or isinstance(limit, bool) or limit < 1):
+            issues.err(f"{where}: limit это целое число строк больше нуля", **at)
+            limit = None
+        cond = _parse_where(item.get("where"), where, issues, at)
+        parallel = item.get("parallel", 1)
+        if not isinstance(parallel, int) or isinstance(parallel, bool) or not 1 <= parallel <= PARALLEL_MAX:
+            issues.err(f"{where}: parallel это целое число от 1 до {PARALLEL_MAX}", **at)
+            parallel = 1
+        on_error = item.get("on_error", "continue")
+        if on_error not in ON_ERRORS:
+            issues.err(f"{where}: on_error `{on_error}`: continue (остальные строки идут дальше) или stop", **at)
+            on_error = "continue"
+        if (limit is not None or cond is not None) and not has_column:
+            issues.err(f"{where}: limit и where выбирают строки таблицы для колонки; "
+                       "добавьте в map {{ from = \"файл\", column = \"колонка\", to = \"вход\" }}", **at)
+        if ("parallel" in item or "on_error" in item) and not has_each:
+            issues.err(f"{where}: parallel и on_error задают проход по строкам, нужен rows = \"each\" в map", **at)
         if ok:
             pairs[(src, dst)] = i
-            edges.append(Edge(src, dst, when, if_file, tuple(files), sc.strip() if sc else None))
+            edges.append(Edge(src, dst, when, if_file, tuple(maps), sc.strip() if sc else None, limit, cond,
+                              parallel, on_error))
     return edges
 
 
@@ -519,10 +741,18 @@ def dump(project: Project, preset_values: dict[str, dict[str, Any]] | None = Non
             lines.append(_line("when", e.when))
         if e.if_file:
             lines.append(_line("if_file", e.if_file))
-        if e.files:
-            lines.append(_line("files", [{"from": f.file, "to": f.param} for f in e.files]))
+        if e.maps:
+            lines.append(_line("map", [m.to_file() for m in e.maps]))
         if e.source_column:
             lines.append(_line("source_column", e.source_column))
+        if e.limit is not None:
+            lines.append(_line("limit", e.limit))
+        if e.where is not None:
+            lines.append(_line("where", e.where.to_file()))
+        if e.parallel != 1:
+            lines.append(_line("parallel", e.parallel))
+        if e.on_error != "continue":
+            lines.append(_line("on_error", e.on_error))
     return "\n".join(lines) + "\n"
 
 
@@ -686,7 +916,8 @@ class Projects:
             have |= set(n.values)
             covered[n.id] = have
 
-        into: dict[tuple[str, str], list[tuple[int, Edge, FileMap]]] = {}
+        into: dict[tuple[str, str], list[tuple[int, Edge, Map]]] = {}
+        each_into: dict[str, list[tuple[int, Edge, Map]]] = {}
         for i, e in enumerate(project.edges):
             where = f"стрелка {e.source} → {e.target}"
             src_m, dst_m = manifests.get(project.node(e.source).script), manifests.get(project.node(e.target).script)
@@ -698,33 +929,43 @@ class Projects:
                     warn(f"{where}: `{o.name}` у скрипта `{src_m.name}` обязательный выход, "
                          "с if_file на него стрелка будет активна всегда", edge=i)
             tables = 0
-            for f in e.files:
+            for f in e.maps:
                 into.setdefault((e.target, f.param), []).append((i, e, f))
+                if f.each:
+                    each_into.setdefault(e.target, []).append((i, e, f))
                 if dst_m is None:
                     continue
                 try:
                     p = dst_m.param(f.param)
                 except KeyError:
-                    err(f"{where}: у скрипта `{dst_m.name}` нет параметра `{f.param}`", edge=i)
+                    err(f"{where}: у скрипта `{dst_m.name}` нет входа `{f.param}`", edge=i, param=f.param)
+                    continue
+                at = {"edge": i, "param": f.param}
+                if f.kind == "value":
+                    self._check_value_map(project, e, f, p, src_m, err, warn, at)
+                    continue
+                if f.kind == "column":
+                    self._check_column_map(e, f, p, src_m, err, warn, at)
                     continue
                 if p.type not in TRANSFER_TYPES:
-                    err(f"{where}: параметр `{f.param}` типа {p.type}, файл передаётся только в table или file", edge=i)
+                    err(f"{where}: вход `{f.param}` типа {p.type}: файл идёт только в table или file; "
+                        f"значение из колонки: {{ from = \"{f.file}\", column = \"колонка\", to = \"{f.param}\" }}", **at)
                     continue
                 if p.is_secret:
-                    err(f"{where}: параметр `{f.param}` секретный, передавать в него файл нельзя", edge=i)
+                    err(f"{where}: вход `{f.param}` секретный, передавать в него файл нельзя", **at)
                     continue
                 if p.type == "table":
                     tables += 1
                 declared, o = output_for(src_m, f.file)
                 if declared and o is None:
                     what = "главный файл" if f.file == MAIN else f"файл `{f.file}`"
-                    warn(f"{where}: {what} не объявлен в выходах скрипта `{src_m.name}`", edge=i)
+                    warn(f"{where}: {what} не объявлен в выходах скрипта `{src_m.name}`", **at)
                 elif o is not None and p.type == "table" and p.columns and getattr(o, "columns", None):
                     lack = [c for c in p.columns if c not in tuple(o.columns)]
                     if lack:
                         cols = ", ".join(f"`{c}`" for c in lack)
                         word = "колонки" if len(lack) == 1 else "колонок"
-                        warn(f"{where}: в `{o.name}` нет {word} {cols}, нужны параметру `{f.param}`", edge=i)
+                        warn(f"{where}: в `{o.name}` нет {word} {cols}, нужны параметру `{f.param}`", **at)
             if e.source_column and dst_m is not None and tables == 0:
                 warn(f"{where}: source_column действует только на таблицы, а таблиц стрелка не передаёт", edge=i)
 
@@ -736,10 +977,13 @@ class Projects:
                 p = m.param(param)
             except KeyError:
                 continue
-            if p.type == "file" and not p.multiple:
-                names = ", ".join(f"{e.source} → {e.target}" for _, e, _ in items)
+            names = ", ".join(f"{e.source} → {e.target}" for _, e, _ in items)
+            if any(f.kind != "file" for _, _, f in items):
+                err(f"узел `{target}`: во вход `{param}` идут несколько стрелок: {names}; значение берётся из одной",
+                    node=target, edge=items[1][0], param=param)
+            elif p.type == "file" and not p.multiple:
                 err(f"узел `{target}`: в параметр `{param}` (один файл) идут несколько стрелок: {names}",
-                    node=target, edge=items[1][0])
+                    node=target, edge=items[1][0], param=param)
             elif p.type == "table":
                 cols = []
                 for _, e, f in items:
@@ -750,21 +994,82 @@ class Projects:
                     warn(f"узел `{target}`: в таблицу `{param}` идут файлы с разными колонками; "
                          "при склейке шаг не стартует", node=target)
 
+        for target, items in each_into.items():
+            tables = {(e.source, f.file) for _, e, f in items}
+            if len(tables) > 1:
+                what = "; ".join(f"{src}: {'главный файл' if file == MAIN else file}" for src, file in sorted(tables))
+                err(f"узел `{target}`: проход по строкам идёт по одной таблице одного узла, а здесь несколько ({what}). "
+                    "Сведите таблицы в одну узлом-скриптом", node=target, edge=items[1][0])
+
         for n in project.nodes:
             m = manifests.get(n.script)
             if m is None:
                 continue
-            fed = {f.param for e in project.incoming(n.id) for f in e.files}
-            lack = [p.title for p in m.params if p.required and p.type != "secret" and p.default is None
-                    and p.name not in covered.get(n.id, set()) and p.name not in fed]
-            if lack:
-                titles = ", ".join(f"«{t}»" for t in lack)
-                warn(f"узел `{n.id}`: нет значения {titles}: без него шаг не стартует", node=n.id)
+            fed = {f.param for e in project.incoming(n.id) for f in e.maps}
+            for p in m.params:
+                if (p.required and p.type != "secret" and p.default is None
+                        and p.name not in covered.get(n.id, set()) and p.name not in fed):
+                    out.append(Problem("blocker", f"узел `{n.id}`: не задан «{p.title}»", node=n.id, param=p.name))
 
         cyc = _cycle(project)
         if cyc:
             err("круг: " + " → ".join(cyc) + ". Циклов в проекте быть не может; повторы делайте внутри узла-скрипта")
         return out
+
+    def _check_value_map(self, project: Project, e: Edge, f: Map, p: Any, src_m: Manifest | None,
+                         err: Callable[..., None], warn: Callable[..., None], at: dict[str, Any]) -> None:
+        where = f"стрелка {e.source} → {e.target}"
+        if p.type in TRANSFER_TYPES:
+            err(f"{where}: вход `{f.param}` типа {p.type}: в него идёт файл {{ from = \"файл\", to = \"{f.param}\" }}, "
+                "а не значение", **at)
+            return
+        if any(m.each for x in project.incoming(e.source) for m in x.maps):
+            err(f"{where}: у узла `{e.source}` проход по строкам, его значения собраны в таблицу values.csv; "
+                f"возьмите колонку: {{ from = \"values.csv\", column = \"{f.value}\", to = \"{f.param}\" }}", **at)
+            return
+        if src_m is None:
+            return
+        out = next((o for o in value_outputs(src_m) if o.name == f.value), None)
+        if out is None:
+            have = ", ".join(f"`{o.name}`" for o in value_outputs(src_m))
+            err(f"{where}: у скрипта `{src_m.name}` нет выходного значения `{f.value}`; "
+                + (f"есть: {have}" if have else "значения объявляются в [[outputs]] с kind = \"value\" (контракт 1.5)"),
+                **at)
+            return
+        if getattr(out, "secret", False) and not p.is_secret:
+            err(f"{where}: значение `{f.value}` секретное, а вход «{p.title}» нет: оно попало бы в историю запусков",
+                **at)
+            return
+        level = compat(getattr(out, "type", None), p)
+        if level == "error":
+            err(f"{where}: значение `{f.value}` ({out.type}) не подходит входу «{p.title}» ({p.type})", **at)
+        elif level == "warning":
+            warn(f"{where}: значение `{f.value}` ({out.type}) во вход «{p.title}» ({p.type}): "
+                 "подойдёт ли, видно при старте шага", **at)
+
+    @staticmethod
+    def _check_column_map(e: Edge, f: Map, p: Any, src_m: Manifest | None,
+                          err: Callable[..., None], warn: Callable[..., None], at: dict[str, Any]) -> None:
+        where = f"стрелка {e.source} → {e.target}"
+        if p.type in TRANSFER_TYPES:
+            err(f"{where}: вход `{f.param}` типа {p.type}: колонка идёт во вход-значение; "
+                f"таблица целиком: {{ from = \"{f.file}\", to = \"{f.param}\" }} без column", **at)
+            return
+        if f.rows == "all" and p.type not in LIST_PARAMS:
+            err(f"{where}: rows = \"all\" (вся колонка списком) только для входов-списков "
+                f"({', '.join(LIST_PARAMS)}), а «{p.title}» типа {p.type}", **at)
+            return
+        declared, o = output_for(src_m, f.file)
+        what = "главный файл" if f.file == MAIN else f"файл `{f.file}`"
+        if declared and o is None:
+            warn(f"{where}: {what} не объявлен в выходах скрипта `{src_m.name}`", **at)
+            return
+        cols = tuple(getattr(o, "columns", None) or ()) if o is not None else ()
+        if cols and f.column not in cols:
+            warn(f"{where}: в `{o.name}` не объявлена колонка «{f.column}»; объявлены: "
+                 + ", ".join(f"«{c}»" for c in cols), **at)
+        if cols and e.where is not None and e.where.column not in cols:
+            warn(f"{where}: в `{o.name}` не объявлена колонка «{e.where.column}» из where", **at)
 
     @staticmethod
     def _secret(m: Manifest, name: str) -> bool:
@@ -866,7 +1171,7 @@ class Projects:
         problems = self.check(project, importing=importing)
         if any(p.level == "error" for p in problems):
             raise invalid(label, problems)
-        warnings = [p for p in problems if p.level == "warning"]
+        warnings = [p for p in problems if p.level != "error"]  # и пустые обязательные входы
         stored = self._stored_text(text, project)
         sha = self._sha(stored)
         exists = self._exists(project.name)

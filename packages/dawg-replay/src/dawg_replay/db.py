@@ -281,6 +281,31 @@ MIGRATIONS: list[str] = [
         PRIMARY KEY (run_id, name)
     )
     """,
+    # 12: проход по строкам в проекте (dawg_replay.project_runs)
+    """
+    -- Шаг с проходом по строкам: сколько строк выбрано (у обычного шага NULL)
+    ALTER TABLE project_steps ADD COLUMN rows_total INTEGER;
+    -- Строка прохода: свой запуск скрипта. idx порядок прохода с 0, key значения колонок each
+    -- (JSON, по нему перезапуск находит строку прошлого запуска), label их подпись для людей.
+    CREATE TABLE project_step_rows (
+        project_run TEXT NOT NULL REFERENCES project_runs(id) ON DELETE CASCADE,
+        node        TEXT NOT NULL,
+        idx         INTEGER NOT NULL,
+        status      TEXT NOT NULL,
+        key         TEXT NOT NULL,
+        label       TEXT NOT NULL,
+        values_json TEXT,
+        run_id      TEXT,
+        reason      TEXT,
+        reused      INTEGER NOT NULL DEFAULT 0,
+        pid         INTEGER,
+        pid_started REAL,
+        updated_at  TEXT NOT NULL,
+        PRIMARY KEY (project_run, node, idx)
+    );
+    -- Запуск строки прохода: номер строки (idx), у запуска-сборки шага -1
+    ALTER TABLE runs ADD COLUMN project_row INTEGER
+    """,
 ]
 
 
