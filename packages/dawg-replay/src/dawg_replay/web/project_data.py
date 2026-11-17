@@ -136,8 +136,12 @@ def script_card(app: Any, name: str) -> dict[str, Any] | None:
         names = []
     for pname in names:
         presets.append(_preset_view(app, name, m, pname))
+    try:
+        secrets_set = sorted(k for k, v in app.secret_status(name).items() if v)
+    except ReplayError:
+        secrets_set = []
     return {
-        "name": name, "title": s.title, "description": s.description, "site": meta["site"],
+        "name": name, "title": s.title, "description": s.description, "site": meta["site"], "secrets_set": secrets_set,
         "builtin": bool(getattr(s, "builtin", False)), "cover": cover(s.title, meta["site"]),
         "params": [_param(p) for p in m.params], "outputs": _outputs(app, name), "presets": presets,
     }

@@ -32,6 +32,16 @@
   .pl-covers { display: none; }
 }
 
+/* --- редактор: свои кнопки без общих стилей app.css (:where не добавляет веса селектору) --- */
+:where(.pe) button { display: revert; min-height: 0; padding: 0; border: 0; border-radius: 0; background: none; color: inherit; font: inherit;
+  box-shadow: none; white-space: normal; transition: none; text-align: inherit; }
+:where(.pe) button:hover { background: none; color: inherit; border-color: transparent; }
+:where(.pe) button[disabled] { opacity: 1; }
+.pe-search input { width: 100%; min-height: 0; background: var(--sunken); border: 1px solid var(--line); border-radius: var(--r-control); padding: 0.45rem 0.6rem;
+  color: var(--ink); font: inherit; font-size: 0.85rem; }
+.pe-search input:focus { border-color: var(--action); outline: none; }
+.pe-insp input.pe-box, .pe-insp textarea.pe-box { min-height: 2.1rem; padding: 0.4rem 0.55rem; border-color: var(--line); background: var(--sunken); }
+
 /* --- редактор: раскладка во всё окно --- */
 body.pe-body { min-height: 100vh; display: flex; flex-direction: column; }
 body.pe-body .page { max-width: none; width: 100%; padding: 0; margin: 0; flex: 1; display: flex; flex-direction: column; min-height: 0; }
@@ -48,7 +58,7 @@ body.pe-body #flash { padding: 0.6rem 1rem 0; }
 .pe-sep { color: var(--ink-faint); }
 .pe-title { font: 600 1.1rem/1.2 var(--font-display); color: var(--ink); background: none; border: 1px solid transparent; border-radius: 8px;
   padding: 0.25rem 0.5rem; max-width: 22rem; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 4rem; cursor: text; }
-.pe-title:hover { border-color: var(--line-strong); }
+.pe-title:hover { border-color: var(--line-strong); color: var(--ink); }
 .pe-title-input { font: 600 1.1rem/1.2 var(--font-display); width: 20rem; max-width: 50vw; padding: 0.25rem 0.5rem; }
 .pe-check { display: inline-block; max-width: 24rem; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 4rem;
   border: 0; border-radius: var(--r-pill); padding: 0.25rem 0.7rem; font-size: 0.85rem; color: var(--ok); background: var(--ok-bg); cursor: default; }
@@ -59,12 +69,12 @@ body.pe-body #flash { padding: 0.6rem 1rem 0; }
 .pe-spacer { flex: 1 1 0; min-width: 0; }
 .pe-ghost { background: none; border: 1px solid var(--line-strong); border-radius: var(--r-control); padding: 0.4rem 0.75rem; color: var(--ink);
   text-decoration: none; display: inline-flex; gap: 0.5rem; align-items: center; font-size: 0.9rem; cursor: pointer; }
-.pe-ghost:hover { border-color: var(--ink-faint); }
+.pe-ghost:hover { border-color: var(--ink-faint); color: var(--ink); }
 .pe-ghost small { color: var(--ink-soft); }
 .pe-runform { margin: 0; }
 .pe-primary { background: var(--action); color: var(--action-ink); border: 0; border-radius: var(--r-control); padding: 0.5rem 1rem; font-weight: 600;
   display: inline-flex; gap: 0.5rem; align-items: center; cursor: pointer; font-size: 0.92rem; }
-.pe-primary:hover { background: var(--action-hover); }
+.pe-primary:hover { background: var(--action-hover); color: var(--action-ink); }
 .pe-primary[disabled] { background: var(--line-strong); color: var(--ink-faint); cursor: not-allowed; }
 
 .pe-main { flex: 1; display: grid; grid-template-columns: 15.5rem minmax(0, 1fr) 21rem; min-height: 0; }
@@ -339,3 +349,23 @@ a.pe-steprow:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
 .pe-title-static { font: 600 1.05rem/1.2 var(--font-display); overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
 .pe-main.pe-main-run { grid-template-columns: minmax(0, 1fr) 21rem; }
 @media (max-width: 760px) { .pe-main.pe-main-run { grid-template-columns: minmax(0, 1fr); } }
+/* Наведение: общий сброс выше снимает фон, здесь он возвращается кнопкам с подложкой. */
+.pe-choice:not([aria-checked="true"]):hover, button.pe-pill:hover, button.pe-box:hover, .pe-colchip:not([aria-pressed="true"]):hover { background: var(--sunken); }
+.pe-colchip[aria-pressed="true"]:hover { background: var(--action-soft); color: var(--action); }
+.pe-seg button[aria-pressed="true"]:hover, .pe-segrow button[aria-pressed="true"]:hover { background: var(--surface); }
+.pe-seg button:hover, .pe-segrow button:hover { color: var(--ink); }
+.pe-check:hover { color: inherit; }
+.pe-check.bad:hover { background: var(--failed-bg); color: var(--failed); }
+.pe-check.warn:hover { background: var(--partial-bg); color: var(--partial); }
+.pe-check:not(.bad):not(.warn):hover { background: var(--ok-bg); color: var(--ok); }
+.pe-edge-chip:hover { background: var(--surface-2); color: var(--action); }
+.pe-primary[disabled]:hover { background: var(--line-strong); color: var(--ink-faint); }
+.pe-toggle:hover { color: var(--ink); }
+.pe-danger:hover { color: var(--failed); }
+.pe-more:hover { color: var(--action); }
+.pe-zoom button, .pe-addnode, .pe-pitem .pe-plus, .pe-stepper button { display: inline-grid; place-items: center; text-align: center; }
+.pe-addnode { display: none; }
+@media (max-width: 1100px) { .pe-addnode { display: inline-grid; } }
+.pe-search { font-weight: 400; margin: 0; display: block; }
+.pe-src { max-width: 7.2rem; overflow: hidden; text-overflow: ellipsis; }
+.pe-prow .pn { min-width: 3.2rem; }

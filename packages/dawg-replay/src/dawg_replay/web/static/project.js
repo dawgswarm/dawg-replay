@@ -114,11 +114,13 @@
       if (Object.prototype.hasOwnProperty.call(pr.values, p.name)) return { src: "preset", v: valueText(p, pr.values[p.name]), tag: "пресет" };
       if (pr.files[p.name]) return { src: "preset", v: pr.files[p.name], tag: "пресет" };
     }
+    var sc = script(n);
+    if (p.secret && sc && (sc.secrets_set || []).indexOf(p.name) >= 0) return { src: "preset", v: "••••", tag: "сохранён" };
     if (p.default != null) return { src: "def", v: valueText(p, p.default), tag: "по умолч." };
     if (p.required) return { src: "empty", v: "", tag: "не задано" };
     return { src: "none", v: "—", tag: "" };
   }
-  function isBad(n, p) { return p.required && !p.secret && resolve(n, p).src === "empty"; }
+  function isBad(n, p) { return p.required && resolve(n, p).src === "empty"; }
 
   function localBlockers() {
     var out = [];
@@ -422,7 +424,7 @@
       maxx = Math.max(maxx, (n.x || 0) + w); maxy = Math.max(maxy, (n.y || 0) + h);
     });
     var pad = 40, k = Math.min(1, (r.width - pad * 2) / Math.max(1, maxx - minx), (r.height - pad * 2) / Math.max(1, maxy - miny));
-    k = Math.max(0.35, k);
+    k = Math.max(r.width < 700 ? 0.6 : 0.35, k);
     S.view = { k: k, x: pad - minx * k + Math.max(0, (r.width - pad * 2 - (maxx - minx) * k) / 2), y: pad - miny * k };
     applyView();
   }
@@ -827,9 +829,28 @@
     while (node(id)) { id = base + "-" + i; i += 1; }
     return id;
   }
-  function addNode(scriptName, x, y) {
+  // Свободное место рядом с точкой: новый узел не ложится поверх других и не прячет их кружки.
+  function freeSpot(x, y) {
+    var W = 260, H = 240, boxes = S.project.nodes.map(function (n) {
+      var el = nodeEl(n.id);
+      return { x: n.x || 0, y: n.y || 0, w: el ? el.offsetWidth + 20 : W, h: el ? el.offsetHeight + 20 : H };
+    });
+    function free(px, py) {
+      return boxes.every(function (b) { return px + W <= b.x || px >= b.x + b.w || py + H <= b.y || py >= b.y + b.h; });
+    }
+    for (var r = 0; r < 12; r += 1) {
+      var cands = r === 0 ? [[0, 0]] : [[r * 140, 0], [0, r * 120], [r * 140, r * 120], [-r * 140, 0], [0, -r * 120]];
+      for (var i = 0; i < cands.length; i += 1) {
+        if (free(x + cands[i][0], y + cands[i][1])) return [x + cands[i][0], y + cands[i][1]];
+      }
+    }
+    var maxx = Math.max.apply(null, boxes.map(function (b) { return b.x + b.w; }).concat([0]));
+    return [maxx + 20, y];
+  }
+  function addNode(scriptName, x, y, exact) {
     var s = S.scripts[scriptName];
     if (!s) return;
+    if (!exact) { var spot = freeSpot(x, y); x = spot[0]; y = spot[1]; }
     var n = { id: newId(scriptName), script: scriptName, preset: s.presets.length ? s.presets[0].name : null, values: {}, title: null,
       x: Math.round(x), y: Math.round(y), wait: "all" };
     S.project.nodes.push(n);
@@ -1007,7 +1028,7 @@
   canvas.addEventListener("drop", function (e) {
     e.preventDefault(); canvas.classList.remove("drop");
     var name = e.dataTransfer.getData("text/plain"), w = world.getBoundingClientRect();
-    addNode(name, (e.clientX - w.left) / S.view.k - 120, (e.clientY - w.top) / S.view.k - 24);
+    addNode(name, (e.clientX - w.left) / S.view.k - 120, (e.clientY - w.top) / S.view.k - 24, true);
   });
   document.addEventListener("keydown", function (ev) {
     if (MODE !== "edit" || !pop.hidden) return;
@@ -1061,7 +1082,7 @@
     var bar = $(".pe-runbar", canvas);
     if (!bar) { bar = document.createElement("div"); bar.className = "pe-runbar"; canvas.appendChild(bar); }
     var r = S.run, st = r.status;
-    bar.innerHTML = '<span>Запуск ' + esc(r.created_at ? r.created_at.replace("T", " ").slice(0, 16) : "") + ":</span>" +
+    bar.innerHTML = "<span>Проект:</span>" +
       '<span class="stchip ' + esc(st) + '">' + esc(r.label) + "</span>" +
       (r.status === "running" ? '<button type="button" class="pe-ghost" data-stop>' + (r.cancel_requested ? "Останавливается…" : "Остановить") + "</button>" : "") +
       (r.can_retry ? '<button type="button" class="pe-primary" data-retry>↻ Перезапустить с упавшего</button>' : "") +
