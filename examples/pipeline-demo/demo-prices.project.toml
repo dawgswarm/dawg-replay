@@ -1,0 +1,88 @@
+name = "demo-prices"
+title = "Демо: цены WB и Ozon"
+description = "Два источника цен, обновление по меньшей цене, общая таблица цен и ветка по числу изменений."
+
+[[nodes]]
+id = "wb"
+script = "demo-wb-prices"
+x = 40
+y = 40
+
+[[nodes]]
+id = "ozon"
+script = "demo-ozon-prices"
+x = 40
+y = 240
+
+[[nodes]]
+id = "update"
+script = "demo-update-prices"
+x = 340
+y = 40
+
+[[nodes]]
+id = "all"
+script = "std-merge-tables"
+title = "Все цены"
+x = 340
+y = 300
+values = { source_column = "Площадка", source_names = ["WB", "Ozon"] }
+
+[[nodes]]
+id = "check"
+script = "std-if"
+title = "Изменений больше трёх?"
+x = 640
+y = 40
+values = { check = "rows_gt", rows = 3 }
+
+[[nodes]]
+id = "report"
+script = "demo-report"
+title = "Отчёт"
+x = 940
+y = 0
+
+[[nodes]]
+id = "few"
+script = "demo-report"
+title = "Отчёт: мало изменений"
+x = 940
+y = 160
+
+[[edges]]
+from = "wb"
+to = "update"
+map = [{ from = "prices.csv", to = "wb" }]
+
+[[edges]]
+from = "ozon"
+to = "update"
+map = [{ from = "prices.csv", to = "ozon" }]
+
+[[edges]]
+from = "wb"
+to = "all"
+map = [{ from = "prices.csv", to = "table_1" }]
+
+[[edges]]
+from = "ozon"
+to = "all"
+map = [{ from = "prices.csv", to = "table_2" }]
+
+[[edges]]
+from = "update"
+to = "check"
+map = [{ from = "updated.csv", to = "table" }]
+
+[[edges]]
+from = "check"
+to = "report"
+if_file = "yes.csv"
+map = [{ from = "yes.csv", to = "updated" }]
+
+[[edges]]
+from = "check"
+to = "few"
+if_file = "no.csv"
+map = [{ from = "no.csv", to = "updated" }]
