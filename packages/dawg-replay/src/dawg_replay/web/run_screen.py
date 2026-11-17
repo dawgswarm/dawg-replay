@@ -132,7 +132,7 @@ class Views:
                     need = fix = None  # панель починки не должна ломать экран запуска
             keep = ("id", "script", "version", "draft", "status", "reason", "label", "created_at", "started_at",
                     "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested", "trigger", "schedule_id",
-                    "preset")
+                    "preset", "project_run", "project_row")
             info = {k: r.get(k) for k in keep}
             info["title"] = title
             info["suspects"] = insurance.pending_suspects(run_dir)
@@ -174,6 +174,22 @@ def mark_questions(views: Views, runs: list[dict[str, Any]]) -> list[dict[str, A
             except (ReplayError, OSError):
                 r["question"] = None
     return runs
+
+
+def _step_of(app: Any, rec: Any) -> dict[str, Any] | None:
+    """Шаг проекта: «Шаг проекта <проект>, узел <узел>», строка прохода, ссылка на запуск проекта."""
+    if not getattr(rec, "project_run", None):
+        return None
+    from dawg_replay import project_runs
+
+    label = project_runs.step_label(app, rec)
+    row = None
+    if rec.project_row is not None and rec.project_row >= 0 and rec.project_node:
+        try:
+            row = next((r.label for r in project_runs.step_rows(app, rec.project_run, rec.project_node) if r.index == rec.project_row), None)
+        except ReplayError:
+            row = None
+    return {"label": label, "project_run": rec.project_run, "row": row, "collected": getattr(rec, "collected", False)}
 
 
 def views_of(request: Request) -> Views:
@@ -604,6 +620,7 @@ def routes(templates: Jinja2Templates) -> list[Route]:
             ctx["run_params"] = params_view(app, rec.to_dict())
             # Связи (M6): что запустило этот запуск, откуда файлы, кому он передал; передача вручную.
             ctx["prov"] = transfer_data.provenance(app, rec)
+            ctx["step"] = _step_of(app, rec)
             ctx["transfer"] = transfer_data.transfer_view(app, rec) if not rec.running and not rec.draft else None
         return page(request, "run/run.html", **ctx)
 

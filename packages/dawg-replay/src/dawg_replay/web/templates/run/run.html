@@ -13,6 +13,7 @@
     </div>
     {{ panels.metrics | safe }}
   </section>
+  {% if step %}<p class="notice run-step" role="note">{% if step.collected %}Сборка шага{% else %}Шаг{% endif %} проекта: {{ step.label or "проект" }}{% if step.row %}, строка «{{ step.row }}»{% endif %}. <a href="/projects/runs/{{ step.project_run }}">Весь запуск проекта</a></p>{% endif %}
   {% include "run/_links.html" %}
   {{ panels.repair | safe }}
   {{ panels.suspects | safe }}

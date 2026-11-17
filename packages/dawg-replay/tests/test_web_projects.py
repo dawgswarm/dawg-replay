@@ -312,3 +312,81 @@ def test_add_from_run_new_and_existing(c, project, home, kr, monkeypatch):
         assert [n.id for n in p.nodes] == ["wb1", "google", "wb", "gs"] and len(p.edges) == 2
     r = post(c, "/projects/_add_from_run", {"run_id": run_id, "target": "gs", "project": ""})
     assert "Выберите хотя бы один файл" in r.text
+
+
+# --- часть 2: значения, колонки, проход по строкам (dr-119, dr-120) -----------------------------------
+
+LOGIN = """\
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["dawg-replay-kit>=1.5,<2"]
+# ///
+
+# /// dawg-script
+# contract = "1.5"
+# name = "login"
+# title = "Вход в кабинет"
+# version = 1
+#
+# [[outputs]]
+# kind = "value"
+# name = "token"
+# title = "Токен"
+# type = "string"
+# secret = true
+#
+# [[outputs]]
+# kind = "value"
+# name = "shop"
+# type = "int"
+# ///
+
+import dawg_replay_kit as kit
+kit.result("ok", "ok")
+"""
+
+
+def test_value_and_column_maps_from_editor(c, project, home, kr, tmp_path):
+    with App(home, keyring_backend=kr) as app:
+        register(app, tmp_path, LOGIN, "login.py")
+    d = c.get("/projects/wb-to-google/_data").json()
+    login = d["scripts"]["login"]
+    assert [(o["name"], o["kind"], o["secret"]) for o in login["outputs"]] == [("token", "value", True), ("shop", "value", False)]
+    p = d["project"]
+    p["nodes"].append({"id": "login", "script": "login", "preset": None, "values": {}, "title": None, "x": 0, "y": 300, "wait": "all"})
+    p["nodes"].append({"id": "wb2", "script": "wb", "preset": None, "values": {}, "title": None, "x": 0, "y": 500, "wait": "all"})
+    base = {"when": "partial", "if_file": None, "source_column": None, "limit": None, "where": None, "parallel": 1, "on_error": "continue"}
+    p["edges"].append({**base, "from": "login", "to": "wb1",
+                       "map": [{"kind": "value", "file": None, "value": "shop", "column": None, "param": "pages", "rows": "first"}]})
+    p["edges"].append({**base, "from": "wb1", "to": "wb2", "parallel": 2, "limit": 5,
+                       "where": {"column": "name", "op": "not_empty", "value": None, "ignore_case": True},
+                       "map": [{"kind": "column", "file": "cards.csv", "value": None, "column": "sku", "param": "shop", "rows": "each"}]})
+    r = post_json(c, "/projects/wb-to-google/save", {"project": p, "base_version": 1})
+    assert r.status_code == 200, r.text
+    d2 = c.get("/projects/wb-to-google/_data").json()
+    edges = {(e["from"], e["to"]): e for e in d2["project"]["edges"]}
+    assert edges[("login", "wb1")]["map"][0]["kind"] == "value"
+    e = edges[("wb1", "wb2")]
+    assert e["map"][0]["rows"] == "each" and e["parallel"] == 2 and e["limit"] == 5 and e["where"]["op"] == "not_empty"
+
+
+def test_collected_run_has_no_again(c, project, home, kr, monkeypatch):
+    from dawg_replay import runs
+
+    run_id = finished_run(home, kr, monkeypatch)
+    assert "Запустить снова" in c.get(f"/runs/{run_id}").text
+    with App(home, keyring_backend=kr) as app:
+        app.db.execute("UPDATE runs SET project_row = ? WHERE id = ?", (runs.COLLECTED, run_id))
+    html = c.get(f"/runs/{run_id}").text
+    assert "Запустить снова" not in html and "Сборка шага проекта" in html
+    assert "сборка шага проекта" in post(c, f"/runs/{run_id}/again").text
+
+
+def test_step_run_says_which_project(c, project, home, kr, monkeypatch):
+    run_id = finished_run(home, kr, monkeypatch)
+    with App(home, keyring_backend=kr) as app:
+        pr = project_runs.start(app, "wb-to-google")
+        app.db.execute("UPDATE runs SET project_run = ?, project_node = 'wb1' WHERE id = ?", (pr.id, run_id))
+    html = c.get(f"/runs/{run_id}").text
+    assert "Шаг проекта: Карточки WB в Google:" in html
+    assert f'href="/projects/runs/{pr.id}"' in html

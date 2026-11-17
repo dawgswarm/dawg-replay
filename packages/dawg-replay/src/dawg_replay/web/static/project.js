@@ -930,7 +930,11 @@
   }
   function payload() {
     var p = clone(S.project);
-    p.edges.forEach(function (e) { (e.map || []).forEach(function (m) { delete m.__to; }); });
+    p.edges.forEach(function (e) {
+      (e.map || []).forEach(function (m) { delete m.__to; });
+      // Одновременность и «при падении» бывают только у прохода по строкам.
+      if (!(e.map || []).some(function (m) { return m.rows === "each"; })) { e.parallel = 1; e.on_error = "continue"; }
+    });
     return p;
   }
   function save() {

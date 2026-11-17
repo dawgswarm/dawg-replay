@@ -978,6 +978,8 @@ def routes(templates: Jinja2Templates) -> list[Route]:
                     rec = app.runs.get(run_id)
                     if rec.draft:
                         raise ReplayError("draft_run", "черновой запуск повторяется только из терминала")
+                    if getattr(rec, "collected", False):
+                        raise ReplayError("collected_run", "это сборка шага проекта, её не запускают: перезапустите проект с упавшего")
                     presets = [p.name for p in app.list_presets(rec.script_name)]
                     values = launch.again_values(app, rec)
                 except ReplayError as e:

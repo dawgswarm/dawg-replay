@@ -574,7 +574,7 @@ def again_note(app: Any, rec: Any, run_dir: Path) -> str | None:
 _RUN_FIELDS = (
     "id", "script", "version", "draft", "status", "reason", "label", "created_at",
     "started_at", "finished_at", "exit_code", "summary", "error", "killed", "cancel_requested",
-    "trigger", "schedule_id",
+    "trigger", "schedule_id", "project_run", "project_row",
 )
 
 _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {
