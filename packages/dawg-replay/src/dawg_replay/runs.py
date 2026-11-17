@@ -77,6 +77,7 @@ class Run:
     source_run: str | None = None  # запуск, после которого начат этот
     project_run: str | None = None  # шаг проекта: id запуска проекта (dawg_replay.project_runs)
     project_node: str | None = None  # и id узла
+    project_row: int | None = None  # проход по строкам: номер строки (с 0); None у обычного шага и у сборки
     inputs: list[dict[str, Any]] = field(default_factory=list)  # откуда взяты файлы параметров, см. transfer
 
     @property
@@ -122,6 +123,7 @@ class Run:
             "source_run": self.source_run,
             "project_run": self.project_run,
             "project_node": self.project_node,
+            "project_row": self.project_row,
             "inputs": self.inputs,
         }
 
@@ -158,6 +160,7 @@ def _run(row: sqlite3.Row) -> Run:
         source_run=row["source_run"],
         project_run=row["project_run"],
         project_node=row["project_node"],
+        project_row=row["project_row"],
         inputs=json.loads(row["inputs_json"]) if row["inputs_json"] else [],
     )
 
@@ -236,6 +239,7 @@ class RunStore:
         source_run: str | None = None,
         project_run: str | None = None,
         project_node: str | None = None,
+        project_row: int | None = None,
     ) -> Run:
         """Создаёт запись `running`, если не превышен лимит параллельных запусков.
 
@@ -261,7 +265,7 @@ class RunStore:
             self._db.execute(
                 "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status,"
                 " params_json, created_at, timeout_seconds, triggered_by, schedule_id, notify, source_run, project_run,"
-                " project_node) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                " project_node, project_row) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     run_id,
                     script_name,
@@ -279,6 +283,7 @@ class RunStore:
                     source_run,
                     project_run,
                     project_node,
+                    project_row,
                 ),
             )
             if not free:
@@ -350,17 +355,32 @@ class RunStore:
         self, *, run_id: str, script_name: str, script_version: int | None, script_path: str,
         preset: str | None, schedule_id: str | None, error: str,
         source_run: str | None = None, reason: str = REASON_NOT_STARTED,
-        project_run: str | None = None, project_node: str | None = None,
+        project_run: str | None = None, project_node: str | None = None, project_row: int | None = None,
     ) -> Run:
         """Запись о плановом запуске или шаге проекта, который не начался: без неё причина есть
         только в логе расписания. `reason`: not_started или skipped (срок ожидания вышел)."""
         now = utcnow()
         self._db.execute(
             "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, reason, error,"
-            " params_json, created_at, finished_at, triggered_by, schedule_id, source_run, project_run, project_node)"
-            " VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?, ?, ?, ?)",
+            " params_json, created_at, finished_at, triggered_by, schedule_id, source_run, project_run, project_node,"
+            " project_row) VALUES (?, ?, ?, ?, 0, ?, 'failed', ?, ?, '{}', ?, ?, ?, ?, ?, ?, ?, ?)",
             (run_id, script_name, script_version, script_path, preset, reason, error, now, now,
-             _trigger(schedule_id, project_run), schedule_id, source_run, project_run, project_node),
+             _trigger(schedule_id, project_run), schedule_id, source_run, project_run, project_node, project_row),
+        )
+        return self.get(run_id)
+
+    def record_collected(
+        self, *, run_id: str, script_name: str, script_version: int | None, script_path: str, preset: str | None,
+        status: str, summary: str, created_at: str, project_run: str, project_node: str,
+    ) -> Run:
+        """Сборка шага с проходом по строкам: готовая запись без процесса. Её каталог результата
+        держит склеенные файлы строк и values.csv, стрелки дальше берут файлы из неё."""
+        self._db.execute(
+            "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, summary,"
+            " params_json, created_at, started_at, finished_at, triggered_by, project_run, project_node)"
+            " VALUES (?, ?, ?, ?, 0, ?, ?, ?, '{}', ?, ?, ?, 'project', ?, ?)",
+            (run_id, script_name, script_version, script_path, preset, status, summary, created_at, created_at,
+             utcnow(), project_run, project_node),
         )
         return self.get(run_id)
 

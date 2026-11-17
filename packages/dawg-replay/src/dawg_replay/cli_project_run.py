@@ -29,9 +29,24 @@ def _titles(app: App, pr: P.ProjectRun) -> dict[str, str]:
 
 
 def _step_line(title: str, s: P.Step) -> str:
-    extra = f": {s.reason}" if s.reason and s.status not in (P.OK, P.STEP_RUNNING) else ""
+    if s.each and s.rows:
+        extra = f", строк {s.summary()['text']}"
+    else:
+        extra = f": {s.reason}" if s.reason and s.status not in (P.OK, P.STEP_RUNNING) else ""
     run = f"  [{s.run_id}]" if s.run_id else ""
     return f"  {title}: {s.title}{extra}{run}"
+
+
+def _row_lines(s: P.Step) -> list[str]:
+    """Строки прохода, которые не дошли до «готово»: подпись, статус, причина, запуск."""
+    out = []
+    for r in s.rows:
+        if r.status in (P.OK, P.PENDING, P.STARTING, P.STEP_RUNNING):
+            continue
+        why = f": {r.reason}" if r.reason else ""
+        run = f"  [{r.run_id}]" if r.run_id else ""
+        out.append(f"    строка {r.index + 1} «{r.label}»: {r.title}{why}{run}")
+    return out
 
 
 def _show(app: App, pr: P.ProjectRun) -> str:
@@ -44,7 +59,9 @@ def _show(app: App, pr: P.ProjectRun) -> str:
     lines = [head]
     if pr.error:
         lines.append(f"  {pr.error}")
-    lines += [_step_line(titles[s.node], s) for s in pr.steps]
+    for s in pr.steps:
+        lines.append(_step_line(titles[s.node], s))
+        lines += _row_lines(s)
     return "\n".join(lines)
 
 
@@ -62,14 +79,15 @@ def _follow(app: App, pr: P.ProjectRun, args: argparse.Namespace) -> P.ProjectRu
         if hasattr(signal, name):
             sig = getattr(signal, name)
             previous[sig] = signal.signal(sig, on_signal)
-    seen: dict[str, str] = {}
+    seen: dict[str, Any] = {}
     titles = _titles(app, pr)
     stopped = False
     try:
         while True:
             for s in pr.steps:
-                if seen.get(s.node) != s.status:
-                    seen[s.node] = s.status
+                mark = (s.status, s.summary()["text"] if s.each else None)
+                if seen.get(s.node) != mark:
+                    seen[s.node] = mark
                     if not args.json and s.status != P.PENDING:
                         print(_step_line(titles.get(s.node, s.node), s), flush=True)
             if not pr.running:

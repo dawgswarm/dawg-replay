@@ -241,7 +241,8 @@ _NOT_RECORDED = ("run_skipped", "run_cancelled", "schedule_not_found")
 
 def record_not_started(app: App, schedule_id: str | None, target: str, preset: str | None, error: ReplayError,
                        *, source_run: str | None = None, reason: str | None = None,
-                       project_run: str | None = None, project_node: str | None = None) -> Run | None:
+                       project_run: str | None = None, project_node: str | None = None,
+                       project_row: int | None = None) -> Run | None:
     """Плановый запуск или шаг проекта упал до создания запуска: запись `failed (not_started)` в истории
     скрипта, чтобы причина была видна в интерфейсе, а не только в `schedules/<id>.log`.
     Сообщение `failed` в Telegram уходит так же (у шага проекта его заменяет итог проекта)."""
@@ -255,7 +256,7 @@ def record_not_started(app: App, schedule_id: str | None, target: str, preset: s
     rec = app.runs.record_not_started(
         run_id=new_run_id(), script_name=target, script_version=version.version, script_path=str(version.path),
         preset=normalize_preset(preset) or None, schedule_id=schedule_id, error=error.message,
-        source_run=source_run, project_run=project_run, project_node=project_node, **extra,
+        source_run=source_run, project_run=project_run, project_node=project_node, project_row=project_row, **extra,
     )
     tg_notify.after_finish(app, rec.id, background=False)
     return rec
@@ -303,6 +304,7 @@ def prepare(
     unset: Sequence[str] = (),
     project_run: str | None = None,
     project_node: str | None = None,
+    project_row: int | None = None,
 ) -> Prepared:
     """`values`: проверенные значения без секретов (форма UI, dawg_replay.forms).
     `schedule_id`: запуск по расписанию; оно должно быть в приложении и совпадать со скриптом и пресетом.
@@ -317,7 +319,9 @@ def prepare(
     Ошибка подстановки: ReplayError `input_error`.
     `given`: значения из файлов, собранные заранее (стрелки проекта): поверх пресета и `values`.
     `unset`: параметры без значения, даже если оно есть в пресете (стрелка в них неактивна).
-    `project_run`, `project_node`: шаг проекта (dawg_replay.project_runs), запуск помечается ими.
+    `project_run`, `project_node`: шаг проекта (dawg_replay.project_runs), запуск помечается ими;
+    `project_row`: номер строки прохода по строкам.
+    Значение из `given` для секрета (`type = "secret"`, токен по стрелке) идёт вместо хранилища.
     `inputs_of`: «Запустить снова» и «Перезапустить упавшие»: id исходного запуска, его снимок
     источников переходит к параметрам, которые взяты из него как есть."""
     if notify not in (None, *tg_rules.RUN_CHOICES):
@@ -340,6 +344,7 @@ def prepare(
         values.pop(name, None)
     for f in given:
         values[f.param] = f.value
+    given_names = {f.param for f in given}
     fills = [*given, *_fill_results(app, manifest, values)]
     inputs = [e for f in fills for e in (f.entry, *f.extra_entries)]
     if inputs_of:
@@ -361,7 +366,7 @@ def prepare(
     secret_names = [p.name for p in manifest.params if p.is_secret]
     missing: list[str] = []
     for p in manifest.params:
-        if p.type != "secret":
+        if p.type != "secret" or p.name in given_names:
             continue
         value = app.secrets.get_secret(manifest.name, p.name)
         if value is not None and has_control_chars(value):
@@ -418,6 +423,7 @@ def prepare(
             source_run=source_run,
             project_run=project_run,
             project_node=project_node,
+            project_row=project_row,
         )
     except ReplayError as e:
         if e.code not in ("run_skipped", "run_cancelled"):  # пропущенный запуск остаётся в истории
