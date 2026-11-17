@@ -34,6 +34,9 @@ def _trigger(schedule_id: str | None, project_run: str | None = None) -> str | N
     return "schedule" if schedule_id else None
 
 
+COLLECTED = -1  # project_row запуска-сборки шага с проходом по строкам
+
+
 def new_run_id() -> str:
     """Сортируется по времени, уникален: `20261114-153012-a1b2c3`."""
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-") + secrets.token_hex(3)
@@ -77,7 +80,12 @@ class Run:
     source_run: str | None = None  # запуск, после которого начат этот
     project_run: str | None = None  # шаг проекта: id запуска проекта (dawg_replay.project_runs)
     project_node: str | None = None  # и id узла
-    project_row: int | None = None  # проход по строкам: номер строки (с 0); None у обычного шага и у сборки
+    project_row: int | None = None  # проход по строкам: номер строки (с 0), COLLECTED у сборки шага
+
+    @property
+    def collected(self) -> bool:
+        """Сборка шага с проходом по строкам: склеенные файлы строк, скрипт сам не шёл."""
+        return self.project_row == COLLECTED
     inputs: list[dict[str, Any]] = field(default_factory=list)  # откуда взяты файлы параметров, см. transfer
 
     @property
@@ -377,10 +385,10 @@ class RunStore:
         держит склеенные файлы строк и values.csv, стрелки дальше берут файлы из неё."""
         self._db.execute(
             "INSERT INTO runs (id, script_name, script_version, script_path, draft, preset, status, summary,"
-            " params_json, created_at, started_at, finished_at, triggered_by, project_run, project_node)"
-            " VALUES (?, ?, ?, ?, 0, ?, ?, ?, '{}', ?, ?, ?, 'project', ?, ?)",
+            " params_json, created_at, started_at, finished_at, triggered_by, project_run, project_node, project_row)"
+            " VALUES (?, ?, ?, ?, 0, ?, ?, ?, '{}', ?, ?, ?, 'project', ?, ?, ?)",
             (run_id, script_name, script_version, script_path, preset, status, summary, created_at, created_at,
-             utcnow(), project_run, project_node),
+             utcnow(), project_run, project_node, COLLECTED),
         )
         return self.get(run_id)
 

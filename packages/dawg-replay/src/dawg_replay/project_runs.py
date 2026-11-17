@@ -200,8 +200,8 @@ class ProjectRun:
     def label(self) -> str:
         if self.status == FAILED and self.reason == REASON_TIMEOUT:
             return "упал (таймаут)"
-        if self.status == FAILED and self.reason == REASON_BUSY:
-            return "пропущен"
+        if self.status == FAILED and self.reason in (REASON_BUSY, REASON_NOT_STARTED):
+            return "пропущен"  # плановый: прошлый ещё идёт или проект не запустится
         return PROJECT_TITLES.get(self.status, self.status)
 
     def step(self, node: str) -> Step | None:
@@ -350,8 +350,9 @@ def _run_of(app: App, pr: ProjectRun, step: Step) -> Run | None:
             return app.runs.get(step.run_id)
         except ReplayError:
             return None
-    row = app.db.execute("SELECT id FROM runs WHERE project_run = ? AND project_node = ? AND project_row IS NULL"
-                         " ORDER BY created_at DESC, rowid DESC LIMIT 1", (pr.id, step.node)).fetchone()
+    row = app.db.execute("SELECT id FROM runs WHERE project_run = ? AND project_node = ?"
+                         " AND (project_row IS NULL OR project_row < 0) ORDER BY created_at DESC, rowid DESC LIMIT 1",
+                         (pr.id, step.node)).fetchone()
     return app.runs.get(row[0]) if row else None
 
 
@@ -1077,11 +1078,18 @@ def _build_collected(app: App, project: Project, pr: ProjectRun, node_id: str, g
             _write_table(out / "values.csv", header, table)
 
     run_status = {OK: "ok", PARTIAL: "partial"}.get(status, "failed")
-    event: dict[str, Any] = {"t": "result", "status": run_status, "summary": summary}
+    ts = utcnow()
+    labels = ", ".join(f"«{r.label}»" for r in good)
+    events: list[dict[str, Any]] = [{"t": "log", "ts": ts, "level": "info",
+                                     "msg": f"сборка прохода по строкам: файлы строк {labels}"}]
+    events += [{"t": "artifact", "ts": ts, "path": f.relative_to(out).as_posix(), "label": f.name}
+               for f in sorted(out.rglob("*")) if f.is_file()]
+    event: dict[str, Any] = {"t": "result", "ts": ts, "status": run_status, "summary": summary}
     if mains and len(set(mains)) == 1 and (out / mains[0]).is_file():
         event["main"] = mains[0]
-    (app.paths.run_dir(merge_id) / "events.jsonl").write_text(json.dumps(event, ensure_ascii=False) + "\n",
-                                                               encoding="utf-8")
+    events.append(event)
+    (app.paths.run_dir(merge_id) / "events.jsonl").write_text(
+        "".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events), encoding="utf-8")
     try:
         version = app.registry.version(node.script)
         ver, path = version.version, str(version.path)

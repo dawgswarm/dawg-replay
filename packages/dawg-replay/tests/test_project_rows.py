@@ -128,7 +128,7 @@ def test_each_runs_once_per_row_and_merges(scripts, tmp_path, steps):
         rec = app.runs.get(r.run_id)
         assert (rec.project_run, rec.project_node, rec.project_row, rec.params["city"]) == (pr.id, "wb", r.index, r.label)
     merged = app.runs.get(wb.run_id)
-    assert (merged.status, merged.project_row, merged.trigger) == ("ok", None, "project")
+    assert (merged.status, merged.collected, merged.trigger) == ("ok", True, "project")
     assert table(out(app, wb.run_id, "prices.csv")) == [
         {"Город": "Москва", "sku": "A-Москва", "price": "10"}, {"Город": "Казань", "sku": "A-Казань", "price": "10"},
         {"Город": "Тверь", "sku": "A-Тверь", "price": "10"}]
@@ -168,6 +168,8 @@ def test_continue_after_failed_row_gives_partial_and_retry_repeats_only_failed(s
     text = cli_text(capsys, ["project", "status", pr.id])
     assert "WB по городу: частично, строк 2 из 3, упало 1" in text
     assert "строка 2 «Казань»: упал" in text
+    runs_text = cli_text(capsys, ["runs", "wb"])
+    assert "узел wb, строка 2]" in runs_text and f"[шаг проекта {pr.id}, узел wb, сборка строк]" in runs_text
 
     steps.clear()
     again = P.retry(app, pr.id)
@@ -433,3 +435,50 @@ def test_blocker_saves_but_does_not_run(scripts, tmp_path, steps):
         P.start(app, "b")
     assert e.value.code == "project_invalid" and "не задан «Город»" in e.value.message
     assert steps == []
+
+
+def test_run_pages_open_for_row_and_collected_runs(scripts, tmp_path, steps, home, kr):
+    from starlette.testclient import TestClient
+
+    from dawg_replay.web.security import Secrets
+    from dawg_replay.web.server import create_app
+
+    app = scripts
+    pr = P.start(app, rows_project(app, tmp_path))
+    wb = pr.step("wb")
+    base = "http://127.0.0.1:54372"
+    secrets_ = Secrets(port=54372)
+    with TestClient(create_app(home, secrets_, keyring_backend=kr), base_url=base, follow_redirects=False) as c:
+        assert c.get(f"/?token={secrets_.token}").status_code == 303
+        for run_id in (wb.run_id, wb.rows[0].run_id):
+            page = c.get(f"/runs/{run_id}")
+            assert page.status_code == 200, page.text[:500]
+        assert "prices.csv" in c.get(f"/runs/{wb.run_id}").text
+
+
+def test_scheduled_run_with_blocker_is_skipped_and_notified(scripts, tmp_path, steps, monkeypatch):
+    from dawg_replay import tg_project
+
+    app = scripts
+    sent = []
+    monkeypatch.setattr(tg_project, "after_finish", lambda app_, prun_id: sent.append(prun_id))
+    f = tmp_path / "b.project.toml"
+    f.write_text('name = "b"\n[[nodes]]\nid = "wb"\nscript = "wb"\n', encoding="utf-8")
+    app.projects.add(f)
+    app.db.execute("INSERT INTO project_schedules (id, project, spec_json, created_at) VALUES ('s1', 'b', '{}', 'now')")
+    with pytest.raises(ReplayError) as e:
+        P.start(app, "b", schedule_id="s1")
+    skipped = P.get(app, e.value.details["run"])
+    assert (skipped.status, skipped.label, skipped.trigger) == ("failed", "пропущен", "schedule")
+    assert "узел `wb`: не задан «Город»" in skipped.error and sent == [skipped.id] and steps == []
+    text = tg_project.compose(app, skipped, "failed", [])
+    assert "Плановый запуск пропущен: проект не прошёл проверку: узел `wb`: не задан «Город»" in text
+
+
+def test_telegram_text_counts_rows(scripts, tmp_path, steps):
+    from dawg_replay import tg_project
+
+    app = scripts
+    pr = P.start(app, rows_project(app, tmp_path, wb='values = { fail = "Казань" }'))
+    text = tg_project.compose(app, pr, "done", [])
+    assert "частично: WB по городу (строк 2 из 3, упало 1)" in text
