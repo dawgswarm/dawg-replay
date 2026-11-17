@@ -11,7 +11,7 @@
   <div class="pl-actions">
     <form class="pl-new" hx-post="/projects/_new" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
       <label class="sr" for="pl-title">Название нового проекта</label>
-      <input id="pl-title" name="title" type="text" maxlength="120" placeholder="Например, «Карточки WB в Google»" required>
+      <input id="pl-title" name="title" type="text" maxlength="120" placeholder="Название, например «WB в Google»" required>
       <button type="submit">Новый проект</button>
     </form>
     <form class="pl-import" hx-post="/projects/_import" hx-encoding="multipart/form-data" hx-target="#pl-import-result" hx-swap="innerHTML" hx-disabled-elt="find button">

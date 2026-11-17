@@ -6,7 +6,7 @@
 .pl-head .page-head { margin-bottom: 0; }
 .pl-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; justify-content: flex-end; }
 .pl-new { display: flex; gap: 0.5rem; }
-.pl-new input { width: 17rem; max-width: 100%; }
+.pl-new input { width: 19rem; max-width: 100%; }
 .pl-file { position: relative; overflow: hidden; cursor: pointer; }
 .pl-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .pl-problems { margin: 0.4rem 0 0; padding-left: 1.2rem; }
@@ -126,7 +126,8 @@ body.pe-body #flash { padding: 0.6rem 1rem 0; }
 .pe-node.has-error { border-color: var(--failed); }
 .pe-node-head { display: grid; grid-template-columns: 1.9rem minmax(0, 1fr); gap: 0.55rem; align-items: center; padding: 0.6rem 0.75rem 0.5rem; cursor: move; }
 .pe-node-head .pe-av { width: 1.9rem; height: 1.9rem; font-size: 0.85rem; border-radius: 0.55rem; }
-.pe-node-head b { display: block; font-size: 0.85rem; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pe-node-head b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; font-size: 0.85rem; line-height: 1.25;
+  overflow: hidden; overflow-wrap: anywhere; }
 .pe-preset { display: block; margin-top: 1px; font-size: 0.75rem; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pe-preset.none { color: var(--ink-faint); }
 .pe-params, .pe-outs { border-top: 1px solid var(--line); padding: 0.3rem 0; font-size: 0.75rem; }

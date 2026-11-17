@@ -68,7 +68,9 @@
     if (!n) return "";
     if (n.title) return n.title;
     var s = script(n), base = s ? s.title : n.script;
-    return n.preset ? base + ": " + n.preset : base;
+    // Узел скрипта один: хватает названия скрипта. Несколько: «скрипт: пресет», чтобы их различать.
+    var same = S.project.nodes.filter(function (x) { return x.script === n.script; }).length;
+    return same > 1 && n.preset ? base + ": " + n.preset : base;
   }
   function presetOf(n) {
     var s = script(n);
@@ -375,6 +377,35 @@
     var s = script(m.__to), p = s && s.params.find(function (x) { return x.name === m.param; });
     return p ? p.title : m.param;
   }
+  // Точка на кривой провода, где подпись не ложится на узлы: от середины к краям.
+  function bezier(a, b, t) {
+    var dx = Math.max(60, Math.abs(b.x - a.x) / 2), p1 = { x: a.x + dx, y: a.y }, p2 = { x: b.x - dx, y: b.y }, u = 1 - t;
+    return { x: u * u * u * a.x + 3 * u * u * t * p1.x + 3 * u * t * t * p2.x + t * t * t * b.x,
+      y: u * u * u * a.y + 3 * u * u * t * p1.y + 3 * u * t * t * p2.y + t * t * t * b.y };
+  }
+  function chipSpot(a, b, w, h) {
+    var boxes = S.project.nodes.map(function (n) {
+      var el = nodeEl(n.id);
+      return el ? { x: n.x || 0, y: n.y || 0, w: el.offsetWidth, h: el.offsetHeight } : null;
+    }).filter(Boolean);
+    function clear(p) {
+      return boxes.every(function (bx) {
+        return p.x + w / 2 + 4 <= bx.x || p.x - w / 2 - 4 >= bx.x + bx.w || p.y + h / 2 + 4 <= bx.y || p.y - h / 2 - 4 >= bx.y + bx.h;
+      });
+    }
+    var ts = [0.5, 0.42, 0.58, 0.34, 0.66, 0.26, 0.74, 0.18, 0.82, 0.1, 0.9];
+    for (var i = 0; i < ts.length; i += 1) {
+      var p = bezier(a, b, ts[i]);
+      if (clear(p)) return p;
+    }
+    // Свободного места на проводе нет (узлы рядом): подпись над верхним краем узлов, которые она бы закрыла.
+    var mid = bezier(a, b, 0.5);
+    var over = boxes.filter(function (bx) {
+      return !(mid.x + w / 2 + 4 <= bx.x || mid.x - w / 2 - 4 >= bx.x + bx.w || mid.y + h / 2 + 4 <= bx.y || mid.y - h / 2 - 4 >= bx.y + bx.h);
+    });
+    if (!over.length) return mid;
+    return { x: mid.x, y: Math.min.apply(null, over.map(function (bx) { return bx.y; })) - h / 2 - 6 };
+  }
   function edgeActive(e) {
     if (!S.run) return true;
     var st = S.run.steps_by_node[e.from];
@@ -399,8 +430,9 @@
         if (on) {
           var chip = document.createElement("button");
           chip.type = "button"; chip.className = "pe-edge-chip"; chip.textContent = mapText(m) + (e.if_file ? ", если есть " + e.if_file : "");
-          chip.style.left = (a.x + b.x) / 2 + "px"; chip.style.top = (a.y + b.y) / 2 + "px";
           world.appendChild(chip);
+          var spot = chipSpot(a, b, chip.offsetWidth, chip.offsetHeight);
+          chip.style.left = spot.x + "px"; chip.style.top = spot.y + "px";
         }
       });
     });
