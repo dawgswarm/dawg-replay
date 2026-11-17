@@ -42,4 +42,17 @@
       <p class="hint">Полностью: <a href="/runs/{{ run.id }}/stderr.log" download>скачать stderr.log</a> или <code>dawg-replay logs {{ run.id }}</code> в терминале.</p>
     {% endif %}
   {% endif %}
+  {% set vals = s.get("values") or [] %}
+  {% if vals %}
+  <dl class="result-values" aria-label="Значения, которые отдал скрипт">
+    {% for v in vals %}
+    <div class="result-value"><dt>{{ v.title or v.name }}</dt><dd>
+      {%- if v.secret %}<span class="muted" title="Секретное значение не показывается">••••••</span>
+      {%- elif v.value is sameas true %}да{% elif v.value is sameas false %}нет
+      {%- elif v.value is iterable and v.value is not string %}{{ v.value | join(", ") }}
+      {%- else %}<code>{{ v.value }}</code>{% endif -%}
+    </dd></div>
+    {% endfor %}
+  </dl>
+  {% endif %}
 </div>

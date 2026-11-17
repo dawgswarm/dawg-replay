@@ -149,6 +149,7 @@ class RunView:
         self.open_sessions: dict[str, dict[str, Any]] = {}
         self.provisioning = 0
         self.result: dict[str, Any] | None = None
+        self.values: dict[str, dict[str, Any]] = {}  # выходные значения (kit.output), имя -> {name, title, secret, value}
         self.asks: dict[str, asks.Question] = {}
         self.run: dict[str, Any] | None = None
 
@@ -181,6 +182,7 @@ class RunView:
                 "artifacts": list(self.artifacts),
                 "browsers": self._browsers(),
                 "result": self.result,
+                "values": list(self.values.values()),
                 "asks": [q.to_dict() for q in self.asks.values()],
                 "question": self.question(),
             }
@@ -435,6 +437,18 @@ class RunView:
                        **result_extras(e, self.output_dir)}
         self._emit("result", self.result)
 
+    def _on_output(self, e: dict[str, Any]) -> None:
+        name = e["name"]
+        if not isinstance(name, str) or not name:
+            raise ValueError("значение без имени")
+        secret = bool(e.get("secret"))
+        item = {"name": name, "title": e.get("title") or None, "secret": secret,
+                "value": None if secret else e.get("value")}
+        self.values[name] = item
+        shown = "скрыто" if secret else json.dumps(item["value"], ensure_ascii=False)
+        self._add_log({"ts": e.get("ts"), "level": "info", "msg": f"значение «{item['title'] or name}»: {shown}"})
+        self._emit("values", {"values": list(self.values.values())})
+
     # --- лента и изменения -------------------------------------------------------
 
     def _raw(self, line: str, why: str) -> None:
@@ -573,6 +587,7 @@ _HANDLERS: dict[str, Callable[[RunView, dict[str, Any]], None]] = {
     "artifact": RunView._on_artifact,
     "session": RunView._on_session,
     "result": RunView._on_result,
+    "output": RunView._on_output,
     "ask": RunView._on_ask,
     "ask_closed": RunView._on_ask_closed,
 }

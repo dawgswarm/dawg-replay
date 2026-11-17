@@ -56,6 +56,7 @@ PANELS_BY_KIND = {
     "artifact": ("files",),
     "browsers": ("head",),
     "result": ("result", "files"),
+    "values": ("result",),
     "ask": ("ask", "head"),
     "run": ("head", "ask", "result", "repair", "suspects", "files", "trail", "items"),
 }

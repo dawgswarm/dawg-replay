@@ -1,10 +1,13 @@
-"""Файл результата одного запуска как значение параметра `table` или `file` другого.
+"""Файл результата одного запуска как значение параметра `table` или `file` другого,
+выходное значение (контракт 1.5) как значение параметра любого несекретного типа, кроме table и file.
 
 Ссылка на результат как значение параметра, в `--set`, форме, пресете и расписании:
 
     run:<id запуска>:<файл>
     last:<скрипт>:<файл>          последний успешный запуск скрипта
     last:<скрипт>:<файл>:partial  последний успешный или частичный
+    run:<id запуска>:=<имя>       выходное значение запуска
+    last:<скрипт>:=<имя>[:partial]
 
 Файл задаётся именем, шаблоном (`prices-*.csv`) или `@main` (главный файл из `kit.result`).
 Подстановка проверяет таблицу по колонкам и типам параметра; ошибка: ReplayError `input_error`,
@@ -63,15 +66,26 @@ class Ref:
     run_id: str | None = None
     script: str | None = None
     partial: bool = False
+    value: str | None = None  # выходное значение (контракт 1.5) вместо файла; file тогда пустой
 
     @property
     def cond(self) -> str:
         return "partial" if self.partial else "ok"
 
+    @property
+    def target(self) -> str:
+        return f"={self.value}" if self.value is not None else self.file
+
     def text(self) -> str:
         if self.run_id:
-            return f"run:{self.run_id}:{self.file}"
-        return f"last:{self.script}:{self.file}" + (":partial" if self.partial else "")
+            return f"run:{self.run_id}:{self.target}"
+        return f"last:{self.script}:{self.target}" + (":partial" if self.partial else "")
+
+    def fits(self, p: Param) -> bool:
+        """Подходит ли ссылка параметру: файл в несекретный table/file, значение в несекретный остальной."""
+        if p.is_secret:
+            return False
+        return (p.type not in TRANSFER_TYPES) if self.value is not None else (p.type in TRANSFER_TYPES)
 
 
 def parse_ref(value: Any) -> Ref | None:
@@ -81,14 +95,33 @@ def parse_ref(value: Any) -> Ref | None:
     kind, _, rest = value.partition(":")
     if kind == "run":
         run_id, _, file = rest.partition(":")
-        return Ref(file=file, run_id=run_id) if run_id and file else None
+        if not run_id or not file:
+            return None
+        return _value_ref(Ref(file=file, run_id=run_id))
     if kind == "last":
         script, _, file = rest.partition(":")
         partial = file.endswith(":partial")
         if partial:
             file = file[: -len(":partial")]
-        return Ref(file=file, script=script, partial=partial) if script and file else None
+        return _value_ref(Ref(file=file, script=script, partial=partial)) if script and file else None
     return None
+
+
+def _value_ref(ref: Ref) -> Ref | None:
+    """`=имя` вместо файла: ссылка на выходное значение. Имя как у параметра."""
+    if not ref.file.startswith("="):
+        return ref
+    name = ref.file[1:]
+    if not name or not (name[0].isascii() and name[0].isalpha()) or not all(
+            c.isascii() and (c.isalnum() or c == "_") for c in name):
+        return None
+    return Ref(file="", run_id=ref.run_id, script=ref.script, partial=ref.partial, value=name)
+
+
+def param_ref(p: Param, value: Any) -> Ref | None:
+    """Ссылка на результат, если значение ею является и подходит параметру."""
+    ref = parse_ref(value)
+    return ref if ref is not None and ref.fits(p) else None
 
 
 def is_ref(value: Any) -> bool:
@@ -156,8 +189,8 @@ def source_files(app: App, run: Run, spec: str) -> list[Path]:
 
 
 def declared_outputs(manifest: Manifest | None) -> tuple[Any, ...]:
-    """Объявленные выходы (контракт 1.4, dr-105): у каждого name, title, columns, main."""
-    return tuple(getattr(manifest, "outputs", None) or ()) if manifest is not None else ()
+    """Объявленные файлы результата (контракт 1.4), без выходных значений: у каждого name, title, columns, main."""
+    return tuple(o for o in (getattr(manifest, "outputs", None) or ()) if not o.is_value) if manifest is not None else ()
 
 
 def value_outputs(manifest: Manifest | None) -> tuple[Any, ...]:
@@ -234,8 +267,10 @@ def _entry(p: Param, run: Run, spec: str, files: list[Path], **extra: Any) -> di
 
 
 def fill_ref(app: App, p: Param, ref: Ref) -> Fill:
-    """Значение из ссылки run:/last:. Нет запуска или файла: ReplayError input_error."""
-    if p.type not in TRANSFER_TYPES or p.secret:
+    """Значение из ссылки run:/last:. Нет запуска, файла или значения: ReplayError input_error."""
+    if not ref.fits(p):
+        if ref.value is not None:
+            raise ReplayError(INPUT_ERROR, f"`{p.name}`: выходное значение подходит несекретным параметрам, кроме table и file")
         raise ReplayError(INPUT_ERROR, f"`{p.name}`: ссылка на результат подходит только несекретным table и file")
     if ref.run_id:
         try:
@@ -250,9 +285,28 @@ def fill_ref(app: App, p: Param, ref: Ref) -> Fill:
             raise ReplayError(INPUT_ERROR, f"{_title(app, ref.script)}: нет результата ({COND_WORDS[ref.cond]}), "
                                           f"он нужен параметру `{p.name}`")
     title = _title(app, run.script_name)
+    if ref.value is not None:
+        return fill_value(app, p, run, ref.value, ref=ref.text())
     value, files = _fill_from(app, p, run, ref.file, title)
     return Fill(p.name, value, files, _entry(p, run, ref.file, files, ref=ref.text()),
                 files if p.type == "table" else [])
+
+
+def fill_value(app: App, p: Param, run: Run, name: str, **extra: Any) -> Fill:
+    """Выходное значение `name` запуска в параметр (шаг проекта и ссылки =имя). Число в текст
+    превращается строкой; не подходит по типу: ReplayError input_error."""
+    from dawg_replay import run_values
+
+    title = _title(app, run.script_name)
+    got = run_values.read(app, run.id)
+    if name not in got:
+        raise ReplayError(INPUT_ERROR, f"{title}: в запуске {run.id} нет значения `{name}`, оно нужно параметру `{p.name}`")
+    value = run_values.coerce(p, got[name])
+    problem = check_value(p, value)
+    if problem:
+        raise ReplayError(INPUT_ERROR, f"{title}, значение `{name}`: {problem}, нужно параметру `{p.name}`")
+    entry = {"param": p.name, "source": run.script_name, "run": run.id, "value": name, "files": [], **extra}
+    return Fill(p.name, value, [], entry, [])
 
 
 
