@@ -31,6 +31,7 @@ from dawg_replay.runner import VALUES_FILE
 if TYPE_CHECKING:
     from dawg_replay.app import App
 
+KEEP_SECRET_RUNS = 5  # секретные значения храним у стольких последних запусков скрипта
 CHECKED_STATUSES = ("ok", "partial")  # у них необъявленное обязательное значение это тихая поломка
 SOURCE = "dawg-replay-values"  # source строк журнала о приёме значений
 
@@ -111,6 +112,8 @@ def collect(app: App, run_id: str) -> list[str]:
             continue
         _store(app, run_dir, run_id, o, value)
     path.unlink(missing_ok=True)
+    if any(o.secret for o in outs.values()):
+        prune_secrets(app, rec.script_name)
 
     if rec.status not in CHECKED_STATUSES or rec.draft:
         return []
@@ -197,12 +200,52 @@ def shown(app: App, run_id: str) -> list[dict[str, Any]]:
     return items
 
 
-def forget(app: App, run_id: str) -> None:
-    """Удаляет значения запуска и его секреты из хранилища паролей (для чистки истории)."""
+def _project_kept(app: App) -> set[str]:
+    """Запуски-шаги, чьи значения ещё могут понадобиться проекту: шаги идущих запусков проектов
+    и последнего завершённого запуска проекта, если его можно перезапустить с упавшего (не «готово»)."""
+    keep_runs = {r["id"] for r in app.db.execute("SELECT id FROM project_runs WHERE status = 'running'")}
+    last: dict[str, Any] = {}
+    for r in app.db.execute("SELECT id, project, status FROM project_runs WHERE status != 'running'"
+                            " ORDER BY created_at, rowid"):
+        last[r["project"]] = r
+    keep_runs |= {r["id"] for r in last.values() if r["status"] != "ok"}
+    if not keep_runs:
+        return set()
+    marks = ",".join("?" * len(keep_runs))
+    rows = app.db.execute(f"SELECT run_id FROM project_steps WHERE run_id IS NOT NULL AND project_run IN ({marks})",
+                          tuple(keep_runs))
+    return {r["run_id"] for r in rows}
+
+
+def prune_secrets(app: App, script: str, keep: int = KEEP_SECRET_RUNS) -> list[str]:
+    """Секретные значения в хранилище паролей остаются у `keep` последних запусков скрипта и у шагов,
+    нужных проекту (_project_kept); у остальных стираются. Запуски не удаляются, поэтому без этого
+    вход по расписанию копил бы по записи в день. Несекретные значения остаются. Возвращает id
+    запусков, у которых секреты стёрты."""
+    rows = app.db.execute(
+        "SELECT DISTINCT v.run_id FROM run_values v JOIN runs r ON r.id = v.run_id"
+        " WHERE v.secret = 1 AND r.script_name = ? ORDER BY r.created_at DESC, r.rowid DESC", (script,)).fetchall()
+    old = [r["run_id"] for r in rows[keep:]]
+    if not old:
+        return []
+    kept = _project_kept(app)
+    dropped = [run_id for run_id in old if run_id not in kept]
+    for run_id in dropped:
+        _forget_secrets(app, run_id)
+    return dropped
+
+
+def _forget_secrets(app: App, run_id: str) -> None:
     for r in app.db.execute("SELECT name FROM run_values WHERE run_id = ? AND secret = 1", (run_id,)).fetchall():
         try:
             app.secrets.delete_run_value(run_id, r["name"])
         except Exception:  # noqa: BLE001, S110 - хранилища нет: секрет туда и не попал
             pass
+    app.db.execute("DELETE FROM run_values WHERE run_id = ? AND secret = 1", (run_id,))
+
+
+def forget(app: App, run_id: str) -> None:
+    """Удаляет значения запуска и его секреты из хранилища паролей (для чистки истории)."""
+    _forget_secrets(app, run_id)
     app.db.execute("DELETE FROM run_values WHERE run_id = ?", (run_id,))
     (app.paths.run_dir(run_id) / VALUES_FILE).unlink(missing_ok=True)

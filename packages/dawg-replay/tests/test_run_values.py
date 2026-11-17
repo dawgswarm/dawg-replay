@@ -284,3 +284,39 @@ def test_run_screen_shows_values(scripts, kr):
         html = client.get(f"/runs/{rec.id}").text
     assert "result-values" in html and "Заказов" in html and "42" in html
     assert "tok-XYZ-123" not in html
+
+
+def secrets_in_keyring(kr):
+    return sorted(u for (_, u) in kr.store if u.startswith("run:"))
+
+
+def test_secret_values_kept_for_last_five_runs(scripts, kr):
+    app = scripts
+    recs = [run(app, "login") for _ in range(7)]
+    assert secrets_in_keyring(kr) == sorted(f"run:{r.id}:token" for r in recs[2:])
+    assert run_values.read(app, recs[0].id) == {"orders": 42, "city": "Москва"}  # несекретные остаются
+    assert run_values.read(app, recs[2].id)["token"] == "tok-XYZ-123"
+    assert [v["name"] for v in run_values.shown(app, recs[0].id)] == ["orders", "city"]
+
+
+def add_project_run(app, prun_id, project, status, run_ids, created_at):
+    app.db.execute("INSERT INTO project_runs (id, project, version, status, created_at) VALUES (?, ?, 1, ?, ?)",
+                   (prun_id, project, status, created_at))
+    for i, rid in enumerate(run_ids):
+        app.db.execute("INSERT INTO project_steps (project_run, node, pos, status, run_id, updated_at)"
+                       " VALUES (?, ?, ?, 'ok', ?, ?)", (prun_id, f"n{i}", i, rid, created_at))
+
+
+def test_secret_values_kept_for_projects(scripts, kr):
+    app = scripts
+    recs = [run(app, "login") for _ in range(3)]
+    # a: последний запуск проекта упал, его можно перезапустить с упавшего: шаг нужен
+    add_project_run(app, "pa1", "a", "ok", [recs[1].id], "2026-11-17T01:00:00Z")
+    add_project_run(app, "pa2", "a", "failed", [recs[0].id], "2026-11-17T02:00:00Z")
+    # b: последний запуск «готово», прошлый упавший уже не перезапустить: шаг не нужен
+    add_project_run(app, "pb1", "b", "failed", [recs[1].id], "2026-11-17T01:00:00Z")
+    add_project_run(app, "pb2", "b", "ok", [], "2026-11-17T02:00:00Z")
+    # c: запуск проекта ещё идёт
+    add_project_run(app, "pc1", "c", "running", [recs[2].id], "2026-11-17T03:00:00Z")
+    assert run_values.prune_secrets(app, "login", keep=0) == [recs[1].id]
+    assert secrets_in_keyring(kr) == sorted([f"run:{recs[0].id}:token", f"run:{recs[2].id}:token"])
