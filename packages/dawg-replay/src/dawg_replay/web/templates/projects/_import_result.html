@@ -1,0 +1,6 @@
+{% if error %}
+<div class="notice notice-error" role="alert">
+  <p>{{ error | ticks }}</p>
+  {% if problems %}<ul class="pl-problems">{% for p in problems %}<li>{{ (p.text if p is mapping else p) | ticks }}</li>{% endfor %}</ul>{% endif %}
+</div>
+{% endif %}

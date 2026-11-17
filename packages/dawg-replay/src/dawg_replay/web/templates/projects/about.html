@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}{{ a.info.title }}: настройки проекта, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/project.css">{% endblock %}
+{% block content %}
+{% set p = a.info %}
+<p class="crumbs"><a href="/projects">Проекты</a> / <a href="/projects/{{ p.name | urlencode }}">{{ p.title }}</a></p>
+<div class="pl-head">
+  <div class="page-head">
+    <h1>{{ p.title }}</h1>
+    {% if p.description %}<p class="lead">{{ p.description }}</p>{% endif %}
+    <p class="hint">{{ p.name }}, версия {{ p.current_version }}</p>
+  </div>
+  <div class="pl-actions">
+    <a class="button secondary" href="/projects/{{ p.name | urlencode }}">Открыть схему</a>
+    <form hx-post="/projects/{{ p.name | urlencode }}/run" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button"><button type="submit">{{ icon("play", "ico ico-s") }}Запустить проект</button></form>
+  </div>
+</div>
+<div class="pa-grid">
+  <section class="pa-card" id="schedule" aria-labelledby="h-schedule"><h2 id="h-schedule">Расписание</h2>{% include "projects/_schedules.html" %}</section>
+  <section class="pa-card" id="telegram" aria-labelledby="h-tg"><h2 id="h-tg">Telegram</h2>{% include "projects/_telegram.html" %}</section>
+  <section class="pa-card pa-wide" id="runs" aria-labelledby="h-runs"><h2 id="h-runs">История запусков</h2>
+    {% if a.history %}
+    <ul class="pa-list">
+      {% for r in a.history %}
+      <li class="pa-row"><a href="/projects/runs/{{ r.id }}"><span class="stchip {{ r.status }}">{{ r.label }}</span> {{ r.created_at | when }}</a>
+        <span class="meta">{{ "по расписанию" if r.trigger == "schedule" else "вручную" }}{% if r.retry_of %}, перезапуск{% endif %} · {{ r.summary }}{% if r.version != p.current_version %} · версия {{ r.version }}{% endif %}</span></li>
+      {% endfor %}
+    </ul>
+    {% else %}<p class="hint">Проект ещё не запускался.</p>{% endif %}
+  </section>
+  <section class="pa-card" id="versions" aria-labelledby="h-versions"><h2 id="h-versions">Версии</h2>
+    <p class="hint">Каждое сохранение на холсте и каждая правка файла агентом дают новую версию.</p>
+    <ul class="pa-list pe-gap">
+      {% for v in a.versions[:15] %}
+      <li class="pa-row"><span>Версия {{ v.version }} <span class="meta">{{ v.added_at | when }}, {{ "из файла" if v.origin == "file" else "на холсте" }}</span></span>
+        {% if v.current %}<span class="meta">текущая</span>{% else %}
+        <form hx-post="/projects/{{ p.name | urlencode }}/rollback" hx-target="#flash" hx-swap="innerHTML" hx-confirm="Сделать текущей версию {{ v.version }}?">
+          <input type="hidden" name="version" value="{{ v.version }}"><button type="submit" class="secondary">Вернуть</button></form>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </section>
+  <section class="pa-card" aria-labelledby="h-file"><h2 id="h-file">Файл проекта</h2>
+    <p class="hint">Файл переносит проект на другой компьютер вместе с несекретными значениями пресетов. Агент правит проект через него: <code>dawg-replay project export {{ p.name }}</code>.</p>
+    <p><a class="button secondary" href="/projects/{{ p.name | urlencode }}/export">Скачать {{ p.name }}.project.toml</a></p>
+    <h2 class="pe-gap pa-danger">Удаление</h2>
+    <p class="hint">Удаляются проект, его версии, расписания и правила Telegram. История запусков и скрипты остаются.</p>
+    <form hx-post="/projects/{{ p.name | urlencode }}/delete" hx-target="#flash" hx-swap="innerHTML" hx-confirm="Удалить проект «{{ p.title }}»?"><button type="submit" class="secondary pa-danger">Удалить проект</button></form>
+  </section>
+</div>
+{% endblock %}

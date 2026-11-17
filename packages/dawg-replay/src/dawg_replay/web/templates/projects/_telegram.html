@@ -1,0 +1,30 @@
+<div id="pa-telegram">
+{% set p = a.info %}
+{% if not a.tg_connected %}
+<p class="hint">Telegram не подключён. Подключите бота в <a href="/settings#telegram">Настройках</a>: итог проекта придёт одним сообщением.</p>
+{% else %}
+{% if a.tg_notice %}<p class="notice notice-ok" role="status">{{ a.tg_notice }}</p>{% endif %}
+{% if a.tg_error %}<p class="notice notice-error" role="alert">{{ a.tg_error }}</p>{% endif %}
+<p class="hint">Итог проекта приходит одним сообщением. Шаги своих сообщений не шлют, вопросы скриптов идут как обычно.</p>
+<form class="pa-tg pe-gap" hx-post="/projects/{{ p.name | urlencode }}/telegram" hx-target="#pa-telegram" hx-swap="outerHTML" hx-disabled-elt="find button">
+  {% for r in a.tg %}
+  <div class="row"><span class="t">{{ r.title }}<small>{% if r.own is none %}как в общих настройках{% else %}своё правило{% endif %}</small></span>
+    {% if r.key == "long_minutes" %}
+    <input name="long_minutes" type="number" min="1" max="1440" inputmode="numeric" value="{{ r.own if r.own is not none else '' }}" placeholder="как в общих: {{ r.inherited }}" aria-label="{{ r.title }}">
+    {% else %}
+    <fieldset class="pa-seg"><legend>{{ r.title }}</legend>
+      <input type="radio" name="{{ r.key }}" id="tg-{{ r.key }}-i" value="inherit"{% if r.own is none %} checked{% endif %}><label for="tg-{{ r.key }}-i">как в общих</label>
+      {% if r.key == "done_manual" %}
+        {% for value, title in a.manual %}<input type="radio" name="{{ r.key }}" id="tg-{{ r.key }}-{{ value }}" value="{{ value }}"{% if r.own == value %} checked{% endif %}><label for="tg-{{ r.key }}-{{ value }}">{{ title }}</label>{% endfor %}
+      {% else %}
+        <input type="radio" name="{{ r.key }}" id="tg-{{ r.key }}-on" value="on"{% if r.own is true %} checked{% endif %}><label for="tg-{{ r.key }}-on">писать</label>
+        <input type="radio" name="{{ r.key }}" id="tg-{{ r.key }}-off" value="off"{% if r.own is false %} checked{% endif %}><label for="tg-{{ r.key }}-off">не писать</label>
+      {% endif %}
+    </fieldset>
+    {% endif %}
+  </div>
+  {% endfor %}
+  <p><button type="submit" class="secondary">Сохранить</button></p>
+</form>
+{% endif %}
+</div>

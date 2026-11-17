@@ -1,0 +1,29 @@
+<div id="pa-schedules">
+{% set p = a.info %}
+{% if a.scheduler_error %}<p class="notice notice-error" role="alert">Планировщик недоступен: {{ a.scheduler_error }}</p>{% endif %}
+{% if a.sched_notice %}<p class="notice notice-ok" role="status">{{ a.sched_notice }}</p>{% endif %}
+{% if a.schedules %}
+<ul class="pa-list">
+  {% for s in a.schedules %}
+  <li class="pa-row"><span>{{ s.when }}<span class="meta">{% if s.next_run %}, дальше {{ s.next_run | when_next }}{% endif %}{% if s.state == "missing" %}, нет в планировщике{% endif %}</span></span>
+    <form hx-post="/projects/{{ p.name | urlencode }}/schedules/{{ s.id }}/delete" hx-target="#pa-schedules" hx-swap="outerHTML" hx-confirm="Снять расписание «{{ s.when }}»?"><button type="submit" class="secondary">Снять</button></form></li>
+  {% endfor %}
+</ul>
+{% else %}<p class="hint">Проект запускается только вручную.</p>{% endif %}
+{% set f = a.form or {} %}
+<form class="pa-when pe-gap" hx-post="/projects/{{ p.name | urlencode }}/schedules" hx-target="#pa-schedules" hx-swap="outerHTML" hx-disabled-elt="find button[type=submit]">
+  <fieldset class="pa-seg"><legend>Как часто</legend>
+    {% for value, title in a.kinds %}<input type="radio" name="kind" id="k-{{ value }}" value="{{ value }}"{% if (f.kind or "daily") == value %} checked{% endif %}><label for="k-{{ value }}">{{ title }}</label>{% endfor %}
+  </fieldset>
+  <div class="w-weekly"><fieldset class="pa-seg"><legend>День недели</legend>
+    {% for d in a.weekdays %}<input type="radio" name="weekday" id="wd-{{ loop.index }}" value="{{ loop.index }}"{% if (f.weekday or "1") == loop.index | string %} checked{% endif %}><label for="wd-{{ loop.index }}">{{ d }}</label>{% endfor %}
+  </fieldset></div>
+  <div class="w-daily w-weekly"><label class="hint" for="pa-time">Время</label> <input id="pa-time" name="time" type="time" value="{{ f.time or '09:00' }}"></div>
+  <div class="w-hours"><fieldset class="pa-seg"><legend>Каждые</legend>
+    {% for n in a.every_hours %}<input type="radio" name="hours" id="h-{{ n }}" value="{{ n }}"{% if (f.hours or "6") == n | string %} checked{% endif %}><label for="h-{{ n }}">{% if n == 1 %}час{% else %}{{ n }} ч{% endif %}</label>{% endfor %}
+  </fieldset></div>
+  <div class="w-cron"><label class="hint" for="pa-cron">Выражение cron</label> <input id="pa-cron" name="cron" type="text" value="{{ f.cron or '' }}" placeholder="30 9 * * 1-5" spellcheck="false"></div>
+  {% if a.sched_error %}<p class="field-error" role="alert">{{ a.sched_error }}</p>{% endif %}
+  <p class="pe-gap"><button type="submit">Добавить расписание</button></p>
+</form>
+</div>

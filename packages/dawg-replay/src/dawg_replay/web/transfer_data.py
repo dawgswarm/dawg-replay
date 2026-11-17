@@ -115,6 +115,8 @@ def transfer_view(app: Any, rec: Any, target: str | None = None) -> dict[str, An
         rows.append({**prm, "pick": pick})
     out["target"] = {"name": target, "title": _title(app, target)}
     out["rows"] = rows
+    out["projects"] = [{"name": i.name, "title": i.title} for i in app.projects.list()]
+    out["preset"] = rec.preset
     return out
 
 

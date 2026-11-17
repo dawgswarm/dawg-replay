@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ data.project.title }}: {{ data.run.label }}, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/project.css"><script src="/static/project.js" defer></script>{% endblock %}
+{% block content %}
+<div class="pe" id="pe" data-mode="run" data-project="{{ data.project.name }}">
+  <header class="pe-top">
+    <a class="pe-crumb" href="/projects">Проекты</a><span class="pe-sep" aria-hidden="true">/</span>
+    <a class="pe-crumb" href="/projects/{{ data.project.name | urlencode }}">{{ data.project.title }}</a><span class="pe-sep" aria-hidden="true">/</span>
+    <span class="pe-title-static">Запуск {{ data.run.created_at | when }}{% if data.version != data.info.current_version %}, версия {{ data.version }}{% endif %}</span>
+    <span class="pe-spacer"></span>
+    <a class="pe-ghost" href="/projects/{{ data.project.name | urlencode }}/about#runs">История запусков</a>
+  </header>
+  <div class="pe-main pe-main-run">
+    <section class="pe-canvas" id="pe-canvas" aria-label="Схема запуска" tabindex="0">
+      <div class="pe-world" id="pe-world"><svg class="pe-wires" id="pe-wires" aria-hidden="true"></svg></div>
+      <div class="pe-zoom">
+        <button type="button" data-zoom="-1" title="Уменьшить" aria-label="Уменьшить">−</button>
+        <button type="button" data-zoom="1" title="Увеличить" aria-label="Увеличить">+</button>
+        <button type="button" data-zoom="0" title="Показать всё" aria-label="Показать всё">⤢</button>
+      </div>
+    </section>
+    <aside class="pe-insp" id="pe-insp" aria-label="Ход запуска"></aside>
+  </div>
+  <div class="pe-pop" id="pe-pop" role="listbox" hidden></div>
+</div>
+<script type="application/json" id="pe-data">{{ data | tojson }}</script>
+{% endblock %}

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Проекты, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/project.css"><script src="/static/project.js" defer></script>{% endblock %}
+{% block content %}
+<div class="pl-head">
+  <div class="page-head">
+    <h1>Проекты</h1>
+    <p class="lead">Проект это схема из ваших скриптов: что запускать первым, кому передать результат, когда идти дальше. У проекта своё расписание и своя история запусков.</p>
+  </div>
+  <div class="pl-actions">
+    <form class="pl-new" hx-post="/projects/_new" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <label class="sr" for="pl-title">Название нового проекта</label>
+      <input id="pl-title" name="title" type="text" maxlength="120" placeholder="Название, например «WB в Google»" required>
+      <button type="submit">Новый проект</button>
+    </form>
+    <form class="pl-import" hx-post="/projects/_import" hx-encoding="multipart/form-data" hx-target="#pl-import-result" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <label class="button secondary pl-file">Импорт файла<input type="file" name="file" accept=".toml" data-autosubmit></label>
+    </form>
+  </div>
+</div>
+<div id="pl-import-result"></div>
+{% if removed %}<p class="notice notice-ok" role="status">Проект «{{ removed }}» удалён вместе с расписаниями. История его запусков осталась.</p>{% endif %}
+{% if not items %}
+<div class="empty">
+  <h2>Проектов пока нет</h2>
+  <p>Назовите проект выше и соберите схему на холсте: перетащите скрипты и протяните стрелки от результата одного к входу другого.</p>
+  <p>Агент может написать файл проекта сам: <code>dawg-replay project add wb.project.toml</code>, и он появится здесь.</p>
+</div>
+{% else %}
+<ul class="pl-list">
+  {% for it in items %}{% set p = it.project %}{% set r = it.last_run %}
+  <li class="pl-card">
+    <div class="pl-covers" aria-hidden="true">
+      {% for c in it.covers %}<span class="cover-tile hue-{{ c.hue }}">{{ c.letter }}</span>{% else %}<span class="cover-tile hue-teal">·</span>{% endfor %}
+    </div>
+    <div class="pl-body">
+      <h2><a href="/projects/{{ p.name | urlencode }}">{{ p.title }}</a></h2>
+      <p class="pl-meta">{{ it.nodes }} {{ it.nodes | plural("узел", "узла", "узлов") }}{% if it.schedules %} · {{ it.schedules | join(", ") }}{% else %} · без расписания{% endif %}</p>
+      {% if r %}
+      <p class="pl-last"><a href="/projects/runs/{{ r.id }}"><span class="status status-{{ 'running' if r.running else ('ok' if r.status == 'ok' else ('partial' if r.status == 'partial' else 'failed')) }}">{{ r.label }}</span> <span class="last-when">{{ r.created_at | when }}</span></a></p>
+      {% else %}<p class="pl-last never">Ещё не запускался</p>{% endif %}
+    </div>
+    <form class="pl-run" hx-post="/projects/{{ p.name | urlencode }}/run" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button">
+      <button type="submit" class="secondary">{{ icon("play", "ico ico-s") }}Запустить</button>
+    </form>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% endblock %}
