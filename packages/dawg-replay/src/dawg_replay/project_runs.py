@@ -437,7 +437,9 @@ def start(app: App, name: str, *, schedule_id: str | None = None, notify: str | 
     base = get(app, retry_of) if retry_of else None
     stored = app.projects.load(name, base.version if base else None)
     project = stored.project
-    errors = [str(x) for x in app.projects.check(project) if x.level == "error"]
+    from dawg_replay.projects import run_blockers
+
+    errors = [x.text for x in run_blockers(app.projects.check(project))]
     if schedule_id is not None:
         _check_schedule(app, schedule_id, name)
     prun_id = new_id()
