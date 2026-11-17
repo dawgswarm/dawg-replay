@@ -103,8 +103,7 @@ def test_parse_defaults_and_order():
     e1, e2 = pr.edges
     assert (e1.when, e1.if_file, e1.source_column) == ("partial", None, "Магазин")
     assert (e2.when, e2.if_file) == ("ok", "report.pdf")
-    assert [f.to_dict() for f in e2.files] == [{"file": "cards.csv", "param": "cards"},
-                                               {"file": "report.pdf", "param": "docs"}]
+    assert [(f.kind, f.file, f.param) for f in e2.maps] == [("file", "cards.csv", "cards"), ("file", "report.pdf", "docs")]
     assert pr.incoming("google") == [e1, e2] and pr.outgoing("wb1") == [e1]
     assert pr.order() == ["wb1", "wb2", "google"]
     with pytest.raises(ReplayError) as e:
@@ -166,7 +165,7 @@ to = "b"
     for part in ["имя проекта `Bad Name`", "неизвестное поле `extra`", "timeout_minutes", "wait `some`",
                  "неизвестное поле `colour`", "id повторяется", "preset_values без preset", "узел 4: нет id",
                  "узла `zzz` нет", "из узла в него же", "when `always`", "if_file", "выходить из каталога",
-                 "в параметр `p` этой стрелки уже идёт файл", "такая стрелка уже есть"]:
+                 "во вход `p` этой стрелки уже что-то идёт", "такая стрелка уже есть"]:
         assert part in joined, part
 
 
@@ -238,8 +237,8 @@ to = "d"
 ''')
     errs = "\n".join(errors(app.projects.check(pr)))
     for part in ["нет пресета «Нет такого»", "`pages`", "`nope`: такого параметра нет", "скрипт `missing` не зарегистрирован",
-                 "`token`: секрет здесь не хранится", "параметр `sheet` типа string", "параметр `keys` секретный",
-                 "нет параметра `nope`", "в параметр `doc` (один файл) идут несколько стрелок",
+                 "`token`: секрет здесь не хранится", "вход `sheet` типа string: файл идёт только в table или file", "вход `keys` секретный",
+                 "нет входа `nope`", "в параметр `doc` (один файл) идут несколько стрелок",
                  "круг: c → d → c"]:
         assert part in errs, part
 
@@ -283,10 +282,10 @@ source_column = "Откуда"
     assert errors(problems) == []
     w = "\n".join(warnings(problems))
     for part in ["if_file `nope.csv` не объявлен", "в `cards.csv` нет колонки `name`", "файл `other.csv` не объявлен",
-                 "разными колонками", "source_column действует только на таблицы",
-                 "узел `gs`: нет значения «Ключи», «Лист»"]:
+                 "разными колонками", "source_column действует только на таблицы"]:
         assert part in w, part
-    assert "узел `gs`" in w and not any("«Карточки»" in x for x in warnings(problems))
+    assert [(p.text, p.param) for p in problems if p.level == "blocker"] == [
+        ("узел `gs`: не задан «Ключи»", "keys"), ("узел `gs`: не задан «Лист»", "sheet")]  # «Карточки» идут по стрелке
 
 
 def test_if_file_needs_optional_output(scripts):
