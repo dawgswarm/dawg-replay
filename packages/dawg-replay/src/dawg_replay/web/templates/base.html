@@ -13,7 +13,7 @@
   <script src="/static/app.js" defer></script>
   {% block head %}{% endblock %}
 </head>
-<body{% if runs_active(request) %} class="runs-active"{% endif %}>
+<body class="{% if runs_active(request) %}runs-active{% endif %}{% if body_class %} {{ body_class }}{% endif %}">
   <a class="skip" href="#main">К содержимому</a>
   <header class="top">
    <div class="top-inner">
@@ -27,6 +27,7 @@
     <nav class="nav" aria-label="Разделы">
       <a href="/" {% if active == 'home' %}aria-current="page"{% endif %}>Главная</a>
       <a href="/scripts" {% if active == 'scripts' %}aria-current="page"{% endif %}>Скрипты</a>
+      <a href="/projects" {% if active == 'projects' %}aria-current="page"{% endif %}>Проекты</a>
       <a href="/settings" {% if active == 'settings' %}aria-current="page"{% endif %}>Настройки</a>
     </nav>
     <form class="top-search" action="/scripts" method="get" role="search">

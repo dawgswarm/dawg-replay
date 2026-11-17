@@ -1,1 +1,1 @@
-<p class="notice notice-error" role="alert">{{ message | ticks }}{% if link %} <a href="{{ link }}">Открыть форму запуска</a>{% endif %}</p>
+<p class="notice notice-error" role="alert">{{ message | ticks }}{% if link %} <a href="{{ link }}">{{ link_text or "Открыть форму запуска" }}</a>{% endif %}</p>

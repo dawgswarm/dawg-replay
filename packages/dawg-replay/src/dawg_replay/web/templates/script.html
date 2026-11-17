@@ -10,6 +10,7 @@
     <h1>{{ s.title }}</h1>
     {% if s.description %}<p class="lead">{{ s.description }}</p>{% endif %}
     <p class="script-id">{% if v.cover.site %}{{ v.cover.site }}, {% endif %}{{ s.name }}, версия {{ s.current_version }}{% if s.builtin %}, встроенный узел: обновляется вместе с приложением{% endif %}{% for t in v.tags %}<span class="lib-tag">{{ t }}</span>{% endfor %}</p>
+    {% if v.projects %}<p class="script-projects">Входит в {{ "проект" if v.projects | length == 1 else "проекты" }}: {% for p in v.projects %}<a href="/projects/{{ p.name | urlencode }}">{{ p.title }}</a>{% if not loop.last %}, {% endif %}{% endfor %}</p>{% endif %}
   </div>
 </div>
 

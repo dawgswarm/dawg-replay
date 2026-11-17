@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ info.title }}, проект, dawg-replay{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/project.css"><script src="/static/project.js" defer></script>{% endblock %}
+{% block content %}
+<div class="pe" id="pe" data-mode="edit" data-project="{{ info.name }}" data-version="{{ info.current_version or '' }}"{% if draft %} data-draft="1"{% endif %}>
+  <header class="pe-top">
+    <a class="pe-crumb" href="/projects">Проекты</a><span class="pe-sep" aria-hidden="true">/</span>
+    <button class="pe-title" type="button" id="pe-title" title="Переименовать проект">{{ info.title }}</button>
+    <button class="pe-check" type="button" id="pe-check" aria-live="polite">Проверяю…</button>
+    <span class="pe-saved" id="pe-saved" aria-live="polite"></span>
+    <span class="pe-spacer"></span>
+    {% if not draft %}<a class="pe-ghost" href="/projects/{{ info.name | urlencode }}/about#schedule">Расписание{% if schedules %} <small>{{ schedules[0] }}</small>{% endif %}</a>
+    <a class="pe-ghost" href="/projects/{{ info.name | urlencode }}/about#runs">История и настройки</a>{% endif %}
+    <form hx-post="/projects/{{ info.name | urlencode }}/run" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="find button" class="pe-runform">
+      <button class="pe-primary" type="submit" id="pe-run">▶ Запустить проект</button>
+    </form>
+  </header>
+  {% if imported %}<p class="notice notice-ok pe-notice" role="status">{% if imported == "unchanged" %}Такой проект уже есть, файл совпадает с текущей версией.{% else %}Проект добавлен из файла.{% endif %}</p>{% endif %}
+  <div class="pe-main">
+    <aside class="pe-palette" id="pe-palette" aria-label="Скрипты и узлы">
+      <div class="pe-palette-head">
+        <label class="pe-search"><span class="sr">Найти скрипт или узел</span><input id="pe-q" type="search" placeholder="Найти скрипт или узел" autocomplete="off"></label>
+        <div class="pe-seg" role="group" aria-label="Что показать">
+          <button type="button" aria-pressed="true" data-tab="mine">Мои скрипты</button>
+          <button type="button" aria-pressed="false" data-tab="builtin">Встроенные</button>
+        </div>
+      </div>
+      <div class="pe-plist" id="pe-plist"></div>
+      <p class="pe-phint">Перетащите на холст или нажмите «+». Один скрипт можно поставить несколько раз с разными пресетами.</p>
+    </aside>
+    <section class="pe-canvas" id="pe-canvas" aria-label="Схема проекта" tabindex="0">
+      <div class="pe-world" id="pe-world">
+        <svg class="pe-wires" id="pe-wires" aria-hidden="true"></svg>
+      </div>
+      <div class="pe-legend" aria-hidden="true"><span><b class="lg-file"></b>файл или таблица</span><span><b class="lg-val"></b>значение</span></div>
+      <div class="pe-zoom">
+        <button type="button" data-zoom="-1" title="Уменьшить" aria-label="Уменьшить">−</button>
+        <button type="button" data-zoom="1" title="Увеличить" aria-label="Увеличить">+</button>
+        <button type="button" data-zoom="0" title="Показать всё" aria-label="Показать всё">⤢</button>
+      </div>
+      <button type="button" class="pe-addnode" id="pe-addnode">+ Узел</button>
+      <p class="pe-tip" id="pe-tip">Тяните от кружка выхода справа к входу другого узла. Клик по стрелке покажет, что она передаёт.</p>
+    </section>
+    <aside class="pe-insp" id="pe-insp" aria-label="Свойства"></aside>
+  </div>
+  <div class="pe-pop" id="pe-pop" role="listbox" hidden></div>
+</div>
+{% endblock %}
