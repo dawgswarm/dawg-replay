@@ -248,7 +248,7 @@
       var btn = cols && MODE === "edit" ? '<button type="button" class="pe-cx" data-cx="' + esc(key) + '" aria-expanded="' + open + '" title="' +
         (open ? "Свернуть колонки" : "Показать каждую колонку отдельным выходом") + '">' +
         (open ? "свернуть" : cols.length + " " + plural(cols.length, "колонка", "колонки", "колонок")) + "</button>" : "";
-      var what = o.kind === "value" ? (o.type_word || "значение") : (cols ? "таблица" : "файл");
+      var what = o.kind === "value" ? (o.secret ? "секрет" : o.type_word || "значение") : (cols ? "таблица" : "файл");
       if (o.optional) what += ", не всегда";
       var subs = cols && open ? cols.map(function (c) {
         return '<div class="pe-orow sub" data-out="' + esc(o.name) + '" data-col="' + esc(c) + '"><span class="on">' + esc(c) + "</span><small>колонка</small>" +
