@@ -394,11 +394,15 @@ def routes(templates: Jinja2Templates) -> list[Route]:
         """Два узла и стрелка: скрипт запуска и получатель файла, в новый или существующий проект."""
         form = await request.form()
         f = {k: str(form.get(k) or "").strip()[:200] for k in ("run_id", "target", "file", "param", "project", "title")}
+        # Сопоставление из панели «Передать в другой скрипт»: use_<параметр> = файл.
+        pairs = [(k[4:], str(v).strip()) for k, v in form.multi_items() if k.startswith("use_") and str(v).strip()]
+        if f["file"] and f["param"]:
+            pairs.append((f["param"], f["file"]))
 
         def work() -> Response:
             with _ui(request).open_app() as app:
                 try:
-                    name = _add_pair(app, f)
+                    name = _add_pair(app, f, pairs)
                 except ReplayError as e:
                     return fragment(request, "_flash.html", message=f"Не добавлено: {_cap(e.message)}")
             return Response(status_code=204, headers={"HX-Redirect": f"/projects/{quote(name)}"})
@@ -443,14 +447,14 @@ def _spec(form: dict[str, str]) -> schedules.Spec:
     raise ReplayError("bad_schedule", "выберите, как часто запускать")
 
 
-def _add_pair(app: Any, f: dict[str, str]) -> str:
+def _add_pair(app: Any, f: dict[str, str], pairs: list[tuple[str, str]]) -> str:
     """«Добавить в проект»: узел скрипта запуска, узел получателя и стрелка файл → параметр.
     Пресет узлов как у запуска (если запуск шёл с пресетом), иначе без пресета."""
     rec = app.runs.get(f["run_id"])
     target = f["target"]
     app.registry.get(target)
-    if not f["file"] or not f["param"]:
-        raise ReplayError("bad_params", "выберите файл и параметр, куда его передать")
+    if not pairs:
+        raise ReplayError("bad_params", "выберите хотя бы один файл и вход, куда его передать")
     if f["project"]:
         stored = app.projects.load(f["project"])
         project, base, create = stored.project, stored.version.version, False
@@ -486,8 +490,8 @@ def _add_pair(app: Any, f: dict[str, str]) -> str:
     data = D.project_json(project)
     data["nodes"] += [src.to_dict(), dst.to_dict()]
     data["edges"].append({"from": src.id, "to": dst.id, "when": "partial", "if_file": None,
-                          "map": [{"kind": "file", "file": f["file"], "value": None, "column": None,
-                                   "param": f["param"], "rows": "first"}],
+                          "map": [{"kind": "file", "file": file, "value": None, "column": None, "param": param,
+                                   "rows": "first"} for param, file in pairs],
                           "source_column": None, "limit": None, "where": None, "parallel": 1, "on_error": "continue"})
     result = app.projects.save(D.project_from_json(data), base_version=base, origin="editor", create=create)
     return result.info.name

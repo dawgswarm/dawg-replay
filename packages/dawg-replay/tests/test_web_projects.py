@@ -277,11 +277,38 @@ def test_script_page_in_projects(c, project):
     assert "Входит в проект: " in html and 'href="/projects/wb-to-google"' in html
 
 
-def test_add_from_run(c, project, home, kr):
+def finished_run(home, kr, monkeypatch, script="wb", preset="Магазин 1"):
+    import sys
+
+    from dawg_replay import launch
+
+    monkeypatch.setenv(launch.ENV_SCRIPT_COMMAND, json.dumps([sys.executable]))
     with App(home, keyring_backend=kr) as app:
-        rec = app.runs.create("wb", 1, {"shop": "один"}, preset="Магазин 1") if hasattr(app.runs, "create") else None
-    if rec is None:
-        pytest.skip("нет простого способа создать запись запуска")
-    r = post(c, "/projects/_add_from_run", {"run_id": rec.id, "target": "gs", "file": "cards.csv", "param": "cards",
+        prepared = launch.prepare(app, script, preset=preset)
+        return launch.supervise(app, prepared.run.id, prepared.payload()).id
+
+
+def test_transfer_panel_offers_project(c, project, home, kr, monkeypatch):
+    run_id = finished_run(home, kr, monkeypatch)
+    html = c.get(f"/runs/{run_id}/_transfer?script=gs").text
+    assert "добавить в проект" in html and 'hx-post="/projects/_add_from_run"' in html and "Карточки WB в Google" in html
+    assert "так всегда; там же" not in html
+
+
+def test_add_from_run_new_and_existing(c, project, home, kr, monkeypatch):
+    run_id = finished_run(home, kr, monkeypatch)
+    r = post(c, "/projects/_add_from_run", {"run_id": run_id, "target": "gs", "use_cards": "cards.csv", "use_doc": "",
                                            "project": "", "title": "WB в таблицу"})
-    assert r.status_code == 204 and r.headers["HX-Redirect"] == "/projects/wb-v-tablitsu"
+    assert r.status_code == 204, r.text
+    assert r.headers["HX-Redirect"] == "/projects/wb-v-tablitsu"
+    with App(home, keyring_backend=kr) as app:
+        p = app.projects.load("wb-v-tablitsu").project
+        assert [(n.id, n.script, n.preset) for n in p.nodes] == [("wb", "wb", "Магазин 1"), ("gs", "gs", None)]
+        assert [(f.file, f.param) for f in p.edges[0].files] == [("cards.csv", "cards")]
+    r = post(c, "/projects/_add_from_run", {"run_id": run_id, "target": "gs", "use_cards": "cards.csv", "project": "wb-to-google"})
+    assert r.headers["HX-Redirect"] == "/projects/wb-to-google"
+    with App(home, keyring_backend=kr) as app:
+        p = app.projects.load("wb-to-google").project
+        assert [n.id for n in p.nodes] == ["wb1", "google", "wb", "gs"] and len(p.edges) == 2
+    r = post(c, "/projects/_add_from_run", {"run_id": run_id, "target": "gs", "project": ""})
+    assert "Выберите хотя бы один файл" in r.text

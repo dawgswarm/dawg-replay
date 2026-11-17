@@ -11,8 +11,20 @@
     </select>
   </div>
   {% endfor %}
-  <p class="hint">Откроется форма запуска {{ t.target.title }} с этими файлами. Это разовая передача; там же можно сделать так всегда.</p>
+  <p class="hint">Откроется форма запуска {{ t.target.title }} с этими файлами. Это разовая передача.</p>
   <button type="submit">Открыть форму запуска</button>
+  <details class="transfer-project">
+    <summary>Делать так всегда: добавить в проект…</summary>
+    <p class="hint">В проект встанут два узла, этот скрипт{% if t.preset %} с пресетом «{{ t.preset }}»{% endif %} и {{ t.target.title }}, и стрелка с этими файлами. Дальше проект запускается целиком, по кнопке или расписанию.</p>
+    <fieldset class="pa-seg transfer-projects"><legend>Куда добавить</legend>
+      <input type="radio" name="project" id="tp-new" value="" checked><label for="tp-new">Новый проект</label>
+      {% for p in t.projects %}<input type="radio" name="project" id="tp-{{ loop.index }}" value="{{ p.name }}"><label for="tp-{{ loop.index }}">{{ p.title }}</label>{% endfor %}
+    </fieldset>
+    <div class="field transfer-new-title"><label for="tp-title">Название нового проекта</label>
+      <input id="tp-title" name="title" type="text" maxlength="120" placeholder="{{ t.script }} → {{ t.target.name }}"></div>
+    <input type="hidden" name="run_id" value="{{ t.run_id }}"><input type="hidden" name="target" value="{{ t.target.name }}">
+    <button type="button" class="secondary" hx-post="/projects/_add_from_run" hx-include="closest form" hx-target="#flash" hx-swap="innerHTML">Добавить в проект</button>
+  </details>
 </form>
 {% elif t.targets %}
 <p class="hint">Выберите скрипт, которому передать файлы.</p>

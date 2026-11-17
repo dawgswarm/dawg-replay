@@ -1052,3 +1052,12 @@ pre { max-width: 100%; overflow-x: auto; }
 .from-result { margin-top: 0.6rem; padding-top: 0.55rem; border-top: 1px dashed var(--line-strong); }
 .from-result-label { font-weight: 500; font-size: 0.88rem; color: var(--ink-soft); }
 .script-projects { margin: 0.35rem 0 0; color: var(--ink-soft); font-size: 0.9rem; }
+.transfer-project { margin-top: 1rem; border-top: 1px solid var(--line); padding-top: 0.75rem; }
+.transfer-project summary { cursor: pointer; color: var(--action); font-weight: 600; }
+.transfer-project .pa-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; background: var(--sunken); border-radius: var(--r-control); padding: 3px; border: 0; margin: 0.6rem 0; position: relative; }
+.transfer-project .pa-seg input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.transfer-project .pa-seg label { padding: 0.35rem 0.7rem; border-radius: 8px; color: var(--ink-soft); font-size: 0.85rem; cursor: pointer; }
+.transfer-project .pa-seg input:checked + label { background: var(--surface); color: var(--ink); box-shadow: var(--shadow); }
+.transfer-project .pa-seg input:focus-visible + label { outline: 2px solid var(--focus); outline-offset: 1px; }
+.transfer-project .pa-seg legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.transfer-project:has(#tp-new:not(:checked)) .transfer-new-title { display: none; }
