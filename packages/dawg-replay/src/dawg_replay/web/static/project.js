@@ -248,7 +248,7 @@
       var btn = cols && MODE === "edit" ? '<button type="button" class="pe-cx" data-cx="' + esc(key) + '" aria-expanded="' + open + '" title="' +
         (open ? "Свернуть колонки" : "Показать каждую колонку отдельным выходом") + '">' +
         (open ? "свернуть" : cols.length + " " + plural(cols.length, "колонка", "колонки", "колонок")) + "</button>" : "";
-      var what = o.kind === "value" ? (o.type_word || "значение") : (cols ? "таблица" : "файл");
+      var what = o.kind === "value" ? (o.secret ? "секрет" : o.type_word || "значение") : (cols ? "таблица" : "файл");
       if (o.optional) what += ", не всегда";
       var subs = cols && open ? cols.map(function (c) {
         return '<div class="pe-orow sub" data-out="' + esc(o.name) + '" data-col="' + esc(c) + '"><span class="on">' + esc(c) + "</span><small>колонка</small>" +
@@ -930,7 +930,11 @@
   }
   function payload() {
     var p = clone(S.project);
-    p.edges.forEach(function (e) { (e.map || []).forEach(function (m) { delete m.__to; }); });
+    p.edges.forEach(function (e) {
+      (e.map || []).forEach(function (m) { delete m.__to; });
+      // Одновременность и «при падении» бывают только у прохода по строкам.
+      if (!(e.map || []).some(function (m) { return m.rows === "each"; })) { e.parallel = 1; e.on_error = "continue"; }
+    });
     return p;
   }
   function save() {

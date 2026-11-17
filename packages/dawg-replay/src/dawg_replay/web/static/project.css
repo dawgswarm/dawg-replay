@@ -100,7 +100,7 @@ body.pe-body #flash { padding: 0.6rem 1rem 0; }
 .pe-empty-list { color: var(--ink-soft); font-size: 0.85rem; padding: 0.6rem 0.4rem; margin: 0; }
 
 /* холст */
-.pe-canvas { position: relative; overflow: hidden; background-color: var(--bg); outline: none; touch-action: none;
+.pe-canvas { position: relative; overflow: hidden; background-color: var(--bg); outline: none; touch-action: none; user-select: none; -webkit-user-select: none;
   background-image: radial-gradient(circle, var(--line-strong) 1.1px, transparent 1.2px); background-size: 22px 22px; }
 .pe-canvas.drop { box-shadow: inset 0 0 0 2px var(--action); }
 .pe-canvas.panning { cursor: grabbing; }

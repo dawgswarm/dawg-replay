@@ -26,12 +26,15 @@
       {% endif %}
     {% elif run.reason == 'not_started' %}
       <a class="button button-secondary" href="/scripts/{{ run.script | urlencode }}{% if run.preset %}?preset={{ run.preset | urlencode }}{% endif %}#launch">{% if run.preset %}Поправить пресет{% else %}Открыть форму запуска{% endif %}</a>
+    {% elif run.project_row == -1 %}
+      {% if run.project_run %}<a class="button button-secondary" href="/projects/runs/{{ run.project_run }}">К запуску проекта</a>{% endif %}
     {% elif not run.draft %}
       <button class="secondary" hx-post="/runs/{{ run.id }}/again" hx-target="#flash" hx-swap="innerHTML" hx-disabled-elt="this"{% if run.again_note %} hx-confirm="{{ run.again_note }}" title="{{ run.again_note }}"{% endif %}>Запустить снова</button>
     {% endif %}
     </div>
   </div>
   {% if run.draft %}<p class="hint">Черновой запуск файла, скрипт не зарегистрирован.</p>{% endif %}
+  {% if run.project_row == -1 %}<p class="hint">Сборка шага проекта: скрипт здесь не шёл, это склеенные результаты запусков по строкам. Повторить можно весь проект с упавшего.</p>{% endif %}
   {% if run.status == "waiting" %}<p class="hint">Ждёт свободного слота: все места для одновременных запусков заняты. Начнётся сам, когда закончится один из идущих запусков.</p>{% endif %}
   {% if run.trigger == "schedule" %}<p class="hint">Плановый запуск: его начал системный планировщик по расписанию скрипта.</p>{% endif %}
 </div>
