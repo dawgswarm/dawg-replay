@@ -482,3 +482,48 @@ def test_telegram_text_counts_rows(scripts, tmp_path, steps):
     pr = P.start(app, rows_project(app, tmp_path, wb='values = { fail = "Казань" }'))
     text = tg_project.compose(app, pr, "done", [])
     assert "частично: WB по городу (строк 2 из 3, упало 1)" in text
+
+
+def test_retry_reruns_done_step_whose_secret_value_is_gone(scripts, tmp_path, steps, monkeypatch):
+    from dawg_replay import transfer
+
+    app = scripts
+    outs = lambda m: (  # noqa: E731
+        SimpleNamespace(name="city", type="string", secret=False, kind="value"),
+        SimpleNamespace(name="token", type="secret", secret=True, kind="value")) if m.name == "cities" else ()
+    monkeypatch.setattr(PJ, "value_outputs", outs)
+    monkeypatch.setattr(transfer, "value_outputs", outs)
+    store = {}
+
+    def read(app_, run_id):
+        return store.get(run_id, {"city": "Самара", "token": "т-1"} if app_.runs.get(run_id).script_name == "cities"
+                         else {})
+
+    monkeypatch.setattr(P, "_read_values", read)
+    text = '''\
+name = "rows"
+title = "Секрет"
+
+[[nodes]]
+id = "cities"
+script = "cities"
+
+[[nodes]]
+id = "wb"
+script = "wb"
+values = { fail = "Самара" }
+
+[[edges]]
+from = "cities"
+to = "wb"
+map = [{ value = "city", to = "city" }, { value = "token", to = "token" }]
+'''
+    pr = P.start(app, project(app, tmp_path, text))
+    assert pr.step("wb").status == "failed"
+    steps.clear()
+    again = P.retry(app, pr.id)
+    assert again.step("cities").reused and steps == ["wb"]  # токен ещё в хранилище: «готово» берётся
+    store[pr.step("cities").run_id] = {"city": "Самара"}  # токен вычищен из хранилища
+    steps.clear()
+    third = P.retry(app, again.id)
+    assert not third.step("cities").reused and steps == ["cities", "wb"]

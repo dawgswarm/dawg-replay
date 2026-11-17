@@ -705,6 +705,7 @@ def start(app: App, name: str, *, schedule_id: str | None = None, notify: str | 
     errors = [x.text for x in run_blockers(app.projects.check(project))]
     if schedule_id is not None:
         _check_schedule(app, schedule_id, name)
+    lost = _lost_secrets(app, project, base) if base else set()
     prun_id = new_id()
     trigger = "schedule" if schedule_id else None
     app.db.execute("BEGIN IMMEDIATE")
@@ -724,7 +725,7 @@ def start(app: App, name: str, *, schedule_id: str | None = None, notify: str | 
                  trigger, schedule_id, retry_of, _deadline(project) if status == RUNNING else None, notify))
             for pos, nid in enumerate(project.order()):
                 old = base.step(nid) if base else None
-                if status == RUNNING and old is not None and old.status == OK and old.run_id:
+                if status == RUNNING and old is not None and old.status == OK and old.run_id and nid not in lost:
                     st, run_id, why, reused = OK, old.run_id, "готово в прошлом запуске", 1
                 else:
                     st, run_id, why, reused = PENDING if status == RUNNING else SKIPPED, None, None, 0
@@ -747,6 +748,26 @@ def start(app: App, name: str, *, schedule_id: str | None = None, notify: str | 
     _spawn_driver(app, prun_id)
     advance(app, prun_id)
     return get(app, prun_id)
+
+
+def _lost_secrets(app: App, project: Project, base: ProjectRun) -> set[str]:
+    """Узлы, «готово» которых нельзя взять из прошлого запуска: секретного значения, которое идёт
+    по стрелке, в хранилище уже нет (старые вычищаются). Такой шаг идёт заново."""
+    from dawg_replay.transfer import value_outputs
+
+    out: set[str] = set()
+    for s in base.steps:
+        if s.status != OK or not s.run_id:
+            continue
+        try:
+            manifest = app.registry.manifest(project.node(s.node).script)
+        except ReplayError:
+            continue
+        secret = {o.name for o in value_outputs(manifest) if getattr(o, "secret", False)}
+        wanted = {m.value for e in project.outgoing(s.node) for m in e.maps if m.kind == "value"} & secret
+        if wanted and not wanted <= set(_read_values(app, s.run_id)):
+            out.add(s.node)
+    return out
 
 
 def _check_schedule(app: App, schedule_id: str, name: str) -> None:

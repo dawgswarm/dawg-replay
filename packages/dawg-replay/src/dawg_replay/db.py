@@ -291,7 +291,7 @@ MIGRATIONS: list[str] = [
         updated_at  TEXT NOT NULL,
         PRIMARY KEY (project_run, node, idx)
     );
-    -- Запуск строки прохода: номер строки (idx), у запуска-сборки шага NULL
+    -- Запуск строки прохода: номер строки (idx), у запуска-сборки шага -1
     ALTER TABLE runs ADD COLUMN project_row INTEGER
     """,
 ]
